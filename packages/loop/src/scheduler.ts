@@ -1,22 +1,18 @@
 /**
- * Graph turn driver: turns one user task into one compiled graph run.
+ * Graph turn driver: turns one user task into one graph run, with three
+ * topology modes:
  *
- * This is the seam between the forked DSH agent driver and the pure routing /
- * planning code in `@dsh/explore-core`:
+ *   template  — pick a curated template (bootstrap / A/B control)
+ *   dynamic   — synthesize an arbitrary DAG from the live capability graph
+ *   propose   — start from a bootstrap frame and let the model author the
+ *               topology through `graph_plan`; the harness validates it
  *
- *   driver.beginTurn({ text })  -> plan (match + instantiate, or fallback)
- *   driver.current()            -> the node to execute as the next DSH step
- *   driver.instruction()        -> the text injected for that node
- *   driver.advance({ ok })      -> select the successor
- *   driver.done()               -> close the turn
- *
- * The driver never depends on LangGraph types. A LangGraph kernel can replace
- * `createStepGraph` implementation later; the contract stays `current/advance`.
+ * In every mode the driver exposes `current()/instruction()/advance()/done()`.
+ * A model-authored proposal may replace the live topology between steps.
  */
-import type { PlanNode, RegistryGraph, TaskPlan, PlanStatus } from '@dsh/explore-core/graph-schema'
+import type { PlanNode, PlanStatus, RegistryGraph, TaskPlan } from '@dsh/explore-core/graph-schema'
 import {
   DEFAULT_WEIGHTS,
-  cooccurrenceKey,
   extractFingerprint,
   match,
   type CooccurrenceEntry,
@@ -24,11 +20,13 @@ import {
   type RouteDecision,
   type RouteWeights,
   type TaskFingerprint,
+  type TemplateLibrary,
 } from '@dsh/explore-core/matching'
-import type { TemplateLibrary } from '@dsh/explore-core/matching'
-import { createStepGraph, fallbackPlan } from '@dsh/explore-core/step-graph'
+import { FrontierTopology, bootstrapTopology, synthesizeTopology, type TopologyMode } from '@dsh/explore-core/topology'
+import { fallbackPlan } from '@dsh/explore-core/step-graph'
 
-/** The task text plus the facts the fingerprint needs. */
+export type { TopologyMode }
+
 export interface TurnTask {
   readonly text: string
   readonly surface?: 'cli' | 'web' | 'api' | 'headless'
@@ -40,42 +38,53 @@ export interface TurnTask {
   readonly presetId?: string
 }
 
-/** What the driver exposes to the loop for `graph_status` and logging. */
 export interface GraphTurnSnapshot {
   readonly taskHash: string
   readonly templateId: string
   readonly planId: string
   readonly confidence: number
   readonly fallback: boolean
+  readonly mode: TopologyMode
   readonly plan: TaskPlan
   readonly node: string | undefined
   readonly step: number
   readonly status: PlanStatus
   readonly visited: readonly string[]
+  readonly rationale: readonly string[]
 }
 
-/** The driver consumed by the forked agent. */
 export interface GraphTurnDriver {
   beginTurn(task: TurnTask): GraphTurnSnapshot
   current(): PlanNode | undefined
   instruction(): string | undefined
   advance(outcome: { readonly ok: boolean }): GraphTurnSnapshot
+  adopt(plan: TaskPlan): void
   done(): boolean
   snapshot(): GraphTurnSnapshot
 }
 
+export type AdoptPolicy = 'start-only' | 'always' | 'on-failure'
+
 export interface GraphTurnDriverOptions {
-  /** Current registry graph, or undefined when the observer only wants fallback behaviour. */
+  readonly mode?: TopologyMode
+  /**
+   * When a model-authored topology may replace the live one. The default is
+   * `start-only`: a proposal is adopted only during the planning phase (before
+   * the first work node completes), so the graph is fixed once real work starts.
+   * Mid-run re-planning is opt-in and still bounded by the step budget.
+   */
+  readonly adoptPolicy?: AdoptPolicy
   readonly graph?: RegistryGraph
   readonly templates?: TemplateLibrary
-  /** Live providers; preferred over the static fields so a `tools/change` rebuild is picked up. */
   readonly graphProvider?: () => RegistryGraph | undefined
   readonly templatesProvider?: () => TemplateLibrary | undefined
+  readonly proposalSource?: () => TaskPlan | undefined
   readonly weights?: RouteWeights
   readonly cooccurrence?: CooccurrenceTable
   readonly presetId?: string
   readonly fallbackInstruction?: string
   readonly maxSteps?: number
+  readonly onSnapshot?: (snapshot: GraphTurnSnapshot) => void
 }
 
 function emptyWorkspace(): TaskFingerprint['workspace'] {
@@ -88,45 +97,72 @@ function toCooccurrenceTable(entries: Iterable<[string, CooccurrenceEntry]> | un
 
 /**
  * Create a per-agent driver. State is process-local and scoped to one turn:
- * the session log remains the source of truth for history; the graph only
+ * the session log remains the source of truth for history; the topology only
  * decides which step runs next.
  */
 export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): GraphTurnDriver {
+  const mode: TopologyMode = options.mode ?? 'template'
+  const adoptPolicy: AdoptPolicy = options.adoptPolicy ?? 'start-only'
+  let adoptedAtStep: number | undefined
   let currentGraph = options.graph
   let currentTemplates = options.templates
-  const liveGraph = (): RegistryGraph | undefined => options.graphProvider?.() ?? currentGraph
-  const liveTemplates = (): TemplateLibrary | undefined => options.templatesProvider?.() ?? currentTemplates
   const weights = options.weights ?? DEFAULT_WEIGHTS
   const cooccurrence = toCooccurrenceTable(options.cooccurrence)
   const presetId = options.presetId ?? 'explore'
   const maxSteps = options.maxSteps ?? 24
+  const liveGraph = (): RegistryGraph | undefined => options.graphProvider?.() ?? currentGraph
+  const liveTemplates = (): TemplateLibrary | undefined => options.templatesProvider?.() ?? currentTemplates
 
   let plan: TaskPlan | undefined
   let decision: RouteDecision | undefined
-  let stepGraph: ReturnType<typeof createStepGraph> | undefined
+  let topology: FrontierTopology | undefined
   let lastNode: string | undefined
+  let rationale: readonly string[] = []
+
+  function presetToolsOf(graph: RegistryGraph, task: TurnTask): readonly string[] {
+    if (task.presetTools !== undefined) return task.presetTools
+    return [...new Set(graph.nodes.filter(node => node.tool).map(node => node.tool!.name))]
+  }
 
   function snapshot(): GraphTurnSnapshot {
+    const currentPlan = plan ?? fallbackPlan({ id: 'empty', instruction: options.fallbackInstruction, maxSteps })
     return {
-      taskHash: decision?.key.taskHash ?? plan?.id ?? 'unknown',
-      templateId: plan?.templateId ?? 't_stock',
-      planId: plan?.id ?? 'none',
-      confidence: plan?.confidence ?? 0,
-      fallback: plan?.fallback ?? true,
-      plan: plan ?? fallbackPlan({ id: 'empty' }),
-      node: stepGraph?.current()?.id ?? lastNode,
-      step: stepGraph?.steps() ?? 0,
-      status: stepGraph?.status() ?? 'failed',
-      visited: stepGraph?.visited() ?? [],
+      taskHash: decision?.key.taskHash ?? currentPlan.id,
+      templateId: currentPlan.templateId,
+      planId: currentPlan.id,
+      confidence: currentPlan.confidence,
+      fallback: currentPlan.fallback,
+      mode,
+      plan: topology?.snapshot() ?? currentPlan,
+      node: topology?.current()?.id ?? lastNode,
+      step: topology?.steps() ?? 0,
+      status: topology?.status() ?? 'failed',
+      visited: [...(topology?.snapshot().nodes.map(node => node.id) ?? [])].slice(0, topology?.steps() ?? 0),
+      rationale,
     }
+  }
+
+  function emit(): GraphTurnSnapshot {
+    const snap = snapshot()
+    options.onSnapshot?.(snap)
+    return snap
+  }
+
+  function install(next: TaskPlan): void {
+    adoptedAtStep = undefined
+    plan = next
+    topology = new FrontierTopology(next)
+    lastNode = topology.current()?.id
   }
 
   return {
     beginTurn(task: TurnTask): GraphTurnSnapshot {
       plan = undefined
       decision = undefined
+      topology = undefined
       lastNode = undefined
-      stepGraph = undefined
+      rationale = []
+      const graph = liveGraph()
       const surface = task.surface ?? 'api'
       const fingerprint = extractFingerprint({
         text: task.text,
@@ -136,7 +172,30 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
         workspace: task.workspace ?? emptyWorkspace(),
         visibleTools: task.visibleTools ?? [],
       })
-      const graph = liveGraph()
+
+      if (mode === 'propose') {
+        install(bootstrapTopology(fingerprint.hash, { maxSteps }))
+        rationale = ['bootstrap frame: the model authors the topology']
+        return emit()
+      }
+
+      if (mode === 'dynamic' && graph !== undefined) {
+        try {
+          const synthesized = synthesizeTopology({
+            taskHash: fingerprint.hash,
+            fingerprint,
+            graph,
+            presetTools: presetToolsOf(graph, task),
+            budget: { maxSteps },
+          })
+          install(synthesized.plan)
+          rationale = synthesized.rationale
+          return emit()
+        } catch {
+          // fall through to the template/fallback path
+        }
+      }
+
       const templates = liveTemplates()
       if (graph !== undefined && templates !== undefined) {
         try {
@@ -147,51 +206,59 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
             cooccurrence,
             weights,
             presetId,
-            presetTools: task.presetTools ?? [...new Set(graph.nodes.filter(node => node.tool).map(node => node.tool!.name))],
+            presetTools: presetToolsOf(graph, task),
           })
           plan = result.plan
           decision = result.decision
+          install(result.plan)
+          rationale = [result.decision.fallback ? 'template fallback' : `template ${result.decision.templateId}`]
+          return emit()
         } catch {
           plan = undefined
         }
       }
-      if (plan === undefined) {
-        plan = fallbackPlan({ id: fingerprint.hash, instruction: options.fallbackInstruction, maxSteps })
-      }
-      stepGraph = createStepGraph(plan)
-      lastNode = stepGraph.current()?.id
-      return snapshot()
+      install(fallbackPlan({ id: fingerprint.hash, instruction: options.fallbackInstruction, maxSteps }))
+      rationale = ['single-node fallback']
+      return emit()
     },
     current(): PlanNode | undefined {
-      return stepGraph?.current()
+      return topology?.current()
     },
     instruction(): string | undefined {
-      return stepGraph?.current()?.instruction
+      return topology?.current()?.instruction
     },
     advance(outcome: { readonly ok: boolean }): GraphTurnSnapshot {
-      if (stepGraph === undefined) return snapshot()
-      lastNode = stepGraph.current()?.id ?? lastNode
-      stepGraph.advance({ ok: outcome.ok })
-      return snapshot()
+      if (topology === undefined) return snapshot()
+      lastNode = topology.current()?.id ?? lastNode
+      topology.advance({ ok: outcome.ok })
+      // A model-authored proposal can arrive between steps. The default policy
+      // treats topology as a turn-start decision: adopt only before the first
+      // work node completes. `always` is an explicit opt-in to mid-run edits.
+      if (options.proposalSource !== undefined) {
+        const proposed = options.proposalSource()
+        if (proposed !== undefined) {
+          const steps = topology.steps()
+          const allowed = adoptPolicy === 'always'
+            || (adoptPolicy === 'start-only' && steps <= 1)
+            || (adoptPolicy === 'on-failure' && topology.status() === 'failed')
+          if (allowed) {
+            install(proposed)
+            adoptedAtStep = steps
+            rationale = [...rationale, 'adopted model-authored topology']
+          } else {
+            rationale = [...rationale, 'proposal ignored: topology is fixed after the first work node']
+          }
+        }
+      }
+      return emit()
+    },
+    adopt(next: TaskPlan): void {
+      install(next)
+      rationale = [...rationale, 'topology replaced']
     },
     done(): boolean {
-      return stepGraph === undefined || stepGraph.done()
+      return topology === undefined || topology.done()
     },
     snapshot,
   }
 }
-
-/** Update the graph/templates after a `tools/change` event rebuilds the registry. */
-export function updateGraphTurnDriver(
-  driver: GraphTurnDriver,
-  graph: RegistryGraph,
-  templates?: TemplateLibrary,
-): void {
-  // The driver keeps these private; a fresh driver is cheap. This helper exists
-  // so the plugin row can document the intended update path without reaching in.
-  void driver
-  void graph
-  void templates
-}
-
-export { cooccurrenceKey }

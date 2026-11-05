@@ -257,6 +257,12 @@ export interface Config {
    * omission defaults to {@link DEFAULT_MAX_PARALLEL_TOOL_CALLS}.
    */
   maxParallelToolCalls: Volatile<number>
+  /**
+   * How the run topology is chosen: `template` (curated library), `dynamic`
+   * (synthesized from the live capability graph), or `propose` (the model
+   * authors it through `graph_plan`). Defaults to `dynamic`.
+   */
+  topology: 'template' | 'dynamic' | 'propose'
   /** Agents created or resumed at plugin startup; a resumed agent records its configured route as the Session's model selection. */
   agents: (AgentOptions & {
     /** Stable config label used in logs and as the fresh combined-id prefix. */
@@ -293,8 +299,9 @@ export class AgentLoop extends Service implements AgentFactory {
   static inject = ['agents', 'sessions', 'llm', 'tools', 'systemPrompt', 'sessionProjections']
 
   /** Runtime schema for declarative agents. */
-  static Config: z<{ agents?: Config['agents']; maxParallelToolCalls?: number }, Config> = z.object({
+  static Config: z<{ agents?: Config['agents']; maxParallelToolCalls?: number; topology?: Config['topology'] }, Config> = z.object({
     maxParallelToolCalls: z.number().step(1).min(1).default(DEFAULT_MAX_PARALLEL_TOOL_CALLS).volatile(),
+    topology: z.string().default('dynamic'),
     agents: z.array(z.object({
       id: z.string().required(),
       sessionId: z.string().min(1),
@@ -305,7 +312,7 @@ export class AgentLoop extends Service implements AgentFactory {
       cwd: z.string(),
       resumeSessionId: z.string(),
     })).default([]),
-  }) as z<{ agents?: Config['agents']; maxParallelToolCalls?: number }, Config>
+  }) as z<{ agents?: Config['agents']; maxParallelToolCalls?: number; topology?: Config['topology'] }, Config>
 
   /** Validated configuration owned by the agent-loop service. */
   readonly config: Config
@@ -321,6 +328,7 @@ export class AgentLoop extends Service implements AgentFactory {
     this.config = {
       agents: applyLauncherIdentities(config.agents, ctx.get(CONFIGURED_AGENT_IDENTITIES_KEY)),
       maxParallelToolCalls: config.maxParallelToolCalls,
+      topology: config.topology ?? 'dynamic',
     }
     validateConfiguredAgents(this.config.agents)
     this.ownership = new FactoryOwnership(ctx.fiber)
@@ -567,6 +575,7 @@ export class AgentLoop extends Service implements AgentFactory {
           ? callerSignal.reason
           : new Error(`agent "${id}" creation aborted`, { cause: callerSignal.reason })
       }
+      const topologyMode = this.config.topology
       const lastTurn = loopCtx.agents.turnBoundaryOf(session).lastTurn
       unfollowOwner = ownerCtx.effect(function* () {
         const created = machine = new ReactLoopAgent(
@@ -579,9 +588,29 @@ export class AgentLoop extends Service implements AgentFactory {
           { snapshot(): { graph: import('@dsh/explore-core/graph-schema').RegistryGraph } } | undefined
         const graphRouter = (loopCtx as unknown as { get(name: string): unknown }).get('graphRouter') as
           { templates(): import('@dsh/explore-core/matching').TemplateLibrary | undefined } | undefined
+        const graphRuntime = (loopCtx as unknown as { get(name: string): unknown }).get('graphRuntime') as
+          {
+            takeProposal(sessionId: string): import('@dsh/explore-core/graph-schema').TaskPlan | undefined
+            record(sessionId: string, record: {
+              mode: string
+              node: string | undefined
+              step: number
+              planId: string
+              rationale: readonly string[]
+            }): void
+          } | undefined
         created.setTurnGraph(createGraphTurnDriver({
+          mode: topologyMode,
           graphProvider: () => graphRegistry?.snapshot().graph,
           templatesProvider: () => graphRouter?.templates(),
+          proposalSource: graphRuntime === undefined ? undefined : () => graphRuntime.takeProposal(id),
+          onSnapshot: snapshot => graphRuntime?.record(id, {
+            mode: snapshot.mode,
+            node: snapshot.node,
+            step: snapshot.step,
+            planId: snapshot.planId,
+            rationale: snapshot.rationale,
+          }),
           presetId: 'explore',
         }))
         machineReady.resolve()

@@ -48,3 +48,52 @@ test('without a registry the driver falls back to a single stock node', () => {
   driver.advance({ ok: true })
   assert.equal(driver.done(), true)
 })
+
+test('dynamic mode synthesizes a topology from the capability graph', () => {
+  const driver = createGraphTurnDriver({
+    mode: 'dynamic',
+    graphProvider: () => registry.graph,
+  })
+  const started = driver.beginTurn({ text: 'explain how the config loader works' })
+  assert.equal(started.templateId, 'dynamic')
+  assert.equal(started.fallback, false)
+  let steps = 0
+  while (!driver.done() && steps < 10) {
+    driver.current()
+    driver.advance({ ok: true })
+    steps += 1
+  }
+  assert.ok(steps >= 2)
+  assert.ok(driver.snapshot().rationale.some(line => line.includes('discovery') || line.includes('terminal')))
+})
+
+test('propose mode starts from a frame and adopts a model-authored topology at the first boundary', () => {
+  let proposal: import('../../packages/core/src/graph-schema.ts').TaskPlan | undefined
+  const driver = createGraphTurnDriver({
+    mode: 'propose',
+    proposalSource: () => {
+      const current = proposal
+      proposal = undefined
+      return current
+    },
+  })
+  const started = driver.beginTurn({ text: 'explain how the config loader works' })
+  assert.equal(started.templateId, 'propose')
+  assert.equal(driver.current()?.id, 'p_frame')
+  proposal = {
+    ...started.plan,
+    id: 'proposed:test',
+    templateId: 'proposed',
+    entry: 'p1',
+    terminals: ['p2'],
+    nodes: [
+      { id: 'p1', kind: 'agent-step', executor: 'step', instruction: 'work' },
+      { id: 'p2', kind: 'terminal', executor: 'step', instruction: 'answer' },
+    ],
+    edges: [{ from: 'p1', to: 'p2', kind: 'control' }],
+    compiledDigest: 'proposed:test',
+  }
+  driver.advance({ ok: true })
+  assert.equal(driver.current()?.id, 'p1')
+  assert.ok(driver.snapshot().rationale.some(line => line.includes('adopted')))
+})

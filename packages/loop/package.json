@@ -10,7 +10,8 @@
     "./router": "./lib/router.js",
     "./tools": "./lib/tools.js",
     "./scheduler": "./lib/scheduler.js",
-    "./kernel": "./lib/kernel.js"
+    "./kernel": "./lib/kernel.js",
+    "./runtime": "./lib/runtime.js"
   },
   "files": [
     "lib",
