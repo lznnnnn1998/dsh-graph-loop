@@ -1,0 +1,6 @@
+url: https://github.com/lznnnnn1998/dsh-graph-loop/tree/main/packages/graph-ui
+name: lznnnnn1998/dsh-graph-loop#graph-ui
+category: ui
+description:
+  en: 'Adds a Graph tab to the DSH conversation view, showing the current turn topology, per-node tool calls and links into Trajectory; requires the graph loop driver.'
+  zh: '在 DSH 会话视图中增加 Graph 标签页，显示当前轮拓扑、各节点工具调用，并可跳转到 Trajectory；需要搭配图式 agent loop 驱动使用。'
