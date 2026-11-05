@@ -31,6 +31,18 @@ end-to-end, but the "not implemented" list below is real.
   inserted; bundle A adds `preset-explore` with 23 child rows and leaves the stock
   loop untouched.
 
+## Early measurement (same scripted mock task)
+
+| arm | steps | tools in request |
+|---|---:|---:|
+| stock loop (headless, no patch) | 2 | 24 |
+| graph loop (explore profile, installed bundle) | 3 | 26 |
+
+The graph arm adds the template's terminal step and the `graph_status` tool. This is the
+expected overhead on a 2-step task; the design's savings require long tasks and fresh
+subagent nodes (`research/04-tokens.md`: break-even 34–53 steps for a 2–4 node split).
+Subagent nodes are designed but not wired yet, so **do not read this table as a verdict**.
+
 ## Not implemented (honest list)
 
 1. **Node tool gating is soft** — `toolAllow` is prompt guidance, not schema removal.
@@ -45,7 +57,9 @@ end-to-end, but the "not implemented" list below is real.
 6. **Cross-loop resume** — a stock-written session resumed by the graph driver is untested.
 7. **LangGraph is not the driver's default kernel** — the turn loop needs one node per
    DSH step with control inversion, so it uses the step-graph executor; the LangGraph
-   adapter implements the same `KernelPort` and is exercised by tests and `runPlan`.
+   adapter implements the same `KernelPort` (26 kernel tests, including one-node-per-
+   `next()` semantics) and is exercised by tests and `runPlan`. Switching the driver to
+   it needs the executor round-trip described in `design/runtime.ts`.
 
 ## Reproduce
 
