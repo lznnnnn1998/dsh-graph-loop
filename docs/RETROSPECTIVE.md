@@ -63,4 +63,9 @@
 - SSE：`/graph-chat/api/events` 推送 live snapshot，Graph tab 优先 SSE、失败回退轮询。
 - Triage：简单任务单节点，避免「graph 比 stock 还贵」。
 - Child 单节点：subagent 子代理不再递归跑 dynamic topology。
-- 新增 2 个单测；Graph tab e2e 仍通过（截图 `preview/graph-tab-live.png`）。
+- Graph tab 节点联动：点节点看 instruction + tool calls（成功/失败），一键 `open in trajectory`
+  （`openView('trajectory', callId)`）；e2e 会真的点一个节点。
+- Conformance 不变量：同一任务跑 stock 与 graph，检查 turn/step 配对、tool call→result 配对、
+  无 header 的 assistant、未闭合 turn/step；两条 loop 都通过。
+- 合成器不再给“总结文档”任务加多余的 write 节点。
+- 当前：73 单测、8 条 e2e 全绿。

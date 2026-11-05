@@ -57,6 +57,7 @@ export interface GraphTurnSnapshot {
     readonly step: number
     readonly executor: string
     readonly status: 'ok' | 'failed'
+    readonly tools?: readonly { readonly name: string; readonly callId: string; readonly isError: boolean }[]
   }[]
   readonly depth?: number
   readonly replans?: number
@@ -66,7 +67,11 @@ export interface GraphTurnDriver {
   beginTurn(task: TurnTask): Promise<GraphTurnSnapshot>
   current(): PlanNode | undefined
   instruction(): string | undefined
-  advance(outcome: { readonly ok: boolean; readonly failedTool?: string }): GraphTurnSnapshot
+  advance(outcome: {
+    readonly ok: boolean
+    readonly failedTool?: string
+    readonly tools?: readonly { readonly name: string; readonly callId: string; readonly isError: boolean }[]
+  }): GraphTurnSnapshot
   adopt(plan: TaskPlan): void
   /** Detach and return all queued subagent nodes (parallel batch). */
   takeSubagentBatch(): PlanNode[]
@@ -126,7 +131,13 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
   const mode: TopologyMode = options.mode ?? 'template'
   const adoptPolicy: AdoptPolicy = options.adoptPolicy ?? 'start-only'
   let adoptedAtStep: number | undefined
-  let trail: { id: string; step: number; executor: string; status: 'ok' | 'failed' }[] = []
+  let trail: {
+    id: string
+    step: number
+    executor: string
+    status: 'ok' | 'failed'
+    tools?: readonly { name: string; callId: string; isError: boolean }[]
+  }[] = []
   let replans = 0
   let currentGraph = options.graph
   let currentTemplates = options.templates
@@ -275,12 +286,22 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     instruction(): string | undefined {
       return topology?.current()?.instruction
     },
-    advance(outcome: { readonly ok: boolean; readonly failedTool?: string }): GraphTurnSnapshot {
+    advance(outcome: {
+    readonly ok: boolean
+    readonly failedTool?: string
+    readonly tools?: readonly { readonly name: string; readonly callId: string; readonly isError: boolean }[]
+  }): GraphTurnSnapshot {
       if (topology === undefined) return snapshot()
       const node = topology.current()
       lastNode = node?.id ?? lastNode
       if (node !== undefined) {
-        trail.push({ id: node.id, step: topology.steps() + 1, executor: node.executor ?? 'step', status: outcome.ok ? 'ok' : 'failed' })
+        trail.push({
+          id: node.id,
+          step: topology.steps() + 1,
+          executor: node.executor ?? 'step',
+          status: outcome.ok ? 'ok' : 'failed',
+          ...(outcome.tools === undefined || outcome.tools.length === 0 ? {} : { tools: outcome.tools }),
+        })
       }
       topology.advance({ ok: outcome.ok, ...(outcome.failedTool === undefined ? {} : { failedTool: outcome.failedTool }) })
       // Boundary replan: a failed work node gets a small diagnosis/retry graph.

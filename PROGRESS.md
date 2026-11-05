@@ -27,7 +27,16 @@ Local working repo. Nothing here edits the DSH checkout; the driver is loaded th
 - [x] Composition evidence: `--dump-config` shows stock row disabled + graph rows inserted
       (installed profile), and `preset-explore` present with bundle A
 
-## Just landed (reflection + live Graph tab)
+## Just landed (usability + reliability pass)
+- [x] **Graph tab node inspector**: click a node → instruction + its tool calls (name, ok/error) +
+      `open in trajectory` buttons using the conversation view's `openView('trajectory', callId)`.
+- [x] **Conformance invariants**: `scripts/e2e-conformance.sh` runs the same task through stock and
+      graph loops and checks turn/step pairing, tool call→result pairing, assistant-without-header,
+      and open-turn/step leftovers on both logs (`scripts/conformance-diff.mjs`). Both pass.
+- [x] Synthesis no longer adds a spurious write node for "summarize a document" tasks.
+- [x] Graph tab e2e drives a node click and asserts the tool-call inspector; screenshot refreshed.
+
+## Previously landed (reflection + live Graph tab)
 - [x] `docs/RETROSPECTIVE.md`: honest list of regressions, keepers, and potentially disruptive ideas.
 - [x] Graph tab now uses **SSE** (`/graph-chat/api/events`) with polling fallback; live snapshots carry
       plan + trail + replans, so a running turn renders before it closes.
@@ -69,7 +78,7 @@ Local working repo. Nothing here edits the DSH checkout; the driver is loaded th
 - [x] Preview panel: `graph-runtime.traceDir` writes per-turn `{plan, trail, rationale, depth, replans}`;
       `scripts/preview.mjs` renders `preview/index.html` (SVG topology + information flow + node inspector,
       roots first, child turns labelled). Open the generated file directly.
-- [x] 73 unit tests + 7 e2e suites green
+- [x] 73 unit tests + 8 e2e suites green
 
 ## Previously landed (dynamic topology)
 - [x] `synthesizeTopology`: arbitrary DAG from the capability graph (no template): discovery,

@@ -144,7 +144,7 @@ window.__ModuleLoader__.load({
         var status = t ? t.status : 'pending'
         return h('g', {
           key: node.id, className: 'node ' + status, transform: 'translate(' + p.x + ',' + p.y + ')',
-          onClick: function () { setInspect(node) }
+          onClick: function () { setInspect({ node: node, trail: trailById.get(node.id) }) }
         },
           h('rect', { width: 190, height: 60, rx: 9 }),
           h('text', { className: 'id', x: 11, y: 21 }, node.id),
@@ -174,7 +174,24 @@ window.__ModuleLoader__.load({
           })),
           h('h4', null, 'Rationale'),
           h('ul', { className: 'dshgv-flow' }, (turn.rationale || []).map(function (line, index) { return h('li', { key: index }, h('span', null, line)) })),
-          inspect ? h('div', { className: 'inspect' }, h('b', null, inspect.id), '\n', esc(inspect.instruction || '(no instruction)')) : null))
+          inspect
+            ? h('div', { className: 'inspect' },
+                h('b', null, inspect.node.id), '\n',
+                esc(inspect.node.instruction || '(no instruction)'),
+                inspect.trail && inspect.trail.tools && inspect.trail.tools.length > 0
+                  ? h('div', { style: { marginTop: '8px' } },
+                      h('div', { style: { color: '#8b97a6', marginBottom: '4px' } }, 'Tool calls'),
+                      inspect.trail.tools.map(function (tool) {
+                        return h('div', { key: tool.callId, style: { display: 'flex', gap: '8px', alignItems: 'center', margin: '3px 0' } },
+                          h('span', { style: { color: tool.isError ? '#ef4444' : '#22c55e' } }, tool.isError ? '✕' : '✓'),
+                          h('span', null, tool.name),
+                          props.openView ? h('button', {
+                            className: 'dshgv-pill',
+                            onClick: function () { props.openView('trajectory', tool.callId) }
+                          }, 'open in trajectory') : null)
+                      }))
+                  : null)
+            : null))
     }
 
     function apply(ctx) {

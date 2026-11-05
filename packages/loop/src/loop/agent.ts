@@ -480,6 +480,7 @@ export class ReactLoopAgent implements Agent {
           return false
         }
         let stepFailedTool: string | undefined
+        const stepTools: { name: string; callId: string; isError: boolean }[] = []
         try {
           if (turnEnds && decision.messages.length === 0) break
           // A removed waking message or an enter decision rewritten to empty
@@ -498,9 +499,12 @@ export class ReactLoopAgent implements Agent {
             toolRecovery.observe(event)
             if (event.type === 'tool/call') {
               toolNames.set(event.data.callId, event.data.name)
-            } else if (event.type === 'tool/result' && event.data.message.isError === true) {
+              stepTools.push({ name: event.data.name, callId: event.data.callId, isError: false })
+            } else if (event.type === 'tool/result') {
               const name = toolNames.get(event.data.message.toolCallId)
-              if (name === 'bash' || name === 'pwsh') stepFailedTool = name
+              const entry = stepTools.find(tool => tool.callId === event.data.message.toolCallId)
+              if (entry !== undefined) entry.isError = event.data.message.isError === true
+              if (event.data.message.isError === true && (name === 'bash' || name === 'pwsh')) stepFailedTool = name
             }
           })
           try {
@@ -534,7 +538,11 @@ export class ReactLoopAgent implements Agent {
         if (this.turnGraph !== undefined) {
           const ok = (turnEnds === null || turnEnds.kind === 'completed' || turnEnds.kind === 'max-tokens')
             && stepFailedTool === undefined
-          this.turnGraph.advance({ ok, ...(stepFailedTool === undefined ? {} : { failedTool: stepFailedTool }) })
+          this.turnGraph.advance({
+            ok,
+            ...(stepFailedTool === undefined ? {} : { failedTool: stepFailedTool }),
+            tools: stepTools,
+          })
         }
         if (this.turnGraph !== undefined) {
           if (this.turnGraph.done()) {

@@ -19,7 +19,7 @@ ds() { ( cd "$DSH" && DSH_HOME="$HOME_DIR" node --import tsx/esm apps/cli/src/bi
 
 echo "== 1. mock LLM + web profile with both packages"
 ( cd "$DSH" && exec node --import tsx packages/test-support/llm-mock-server/src/bin.ts \
-    --sequence success --repeat-last --success-text "graph tab ok" --port "$LLM_PORT" > "$HOME_DIR/mock.log" 2>&1 ) &
+    --sequence tool_call_success,success --repeat-last --success-text "graph tab ok" --tool-name read --tool-arguments '{"path":"README.md"}' --port "$LLM_PORT" > "$HOME_DIR/mock.log" 2>&1 ) &
 MOCK_PID=$!
 for _ in $(seq 1 40); do grep -q '"type":"ready"' "$HOME_DIR/mock.log" && break; sleep 0.25; done
 grep -q '"type":"ready"' "$HOME_DIR/mock.log" || { echo "mock failed"; cat "$HOME_DIR/mock.log"; exit 1; }

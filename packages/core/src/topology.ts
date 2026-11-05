@@ -136,7 +136,6 @@ export function synthesizeTopology(input: SynthesizeInput): SynthesizedTopology 
 
   const wantsWeb = fingerprint.intent === 'research' || fingerprint.intent === 'wide-research' || fingerprint.intent === 'fact-finding'
   const mutating = fingerprint.mutating || fingerprint.intent === 'bug-fix' || fingerprint.intent === 'code-change' || fingerprint.intent === 'test-failure'
-  const wantsDoc = fingerprint.intent === 'document' || fingerprint.artifactsOut.includes('file.text')
 
   // Front: entry node (the only synthetic node besides the answer).
   const entry: PlanNode = {
@@ -236,17 +235,6 @@ export function synthesizeTopology(input: SynthesizeInput): SynthesizedTopology 
       link(cursor, id)
       cursor = id
       rationale.push(`inspection via ${reader}`)
-    }
-  }
-
-  if (wantsDoc) {
-    const writer = firstAvailable(graph, presetTools, ['write', 'edit'])
-    if (writer !== undefined && mutating === false) {
-      const id = 'd_write'
-      nodes.push(node(id, writer, toolInstruction(writer, 'deliver')))
-      link(cursor, id)
-      cursor = id
-      rationale.push(`document delivery via ${writer}`)
     }
   }
 
