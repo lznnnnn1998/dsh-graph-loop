@@ -69,27 +69,42 @@ window.__ModuleLoader__.load({
     function GraphBody(props) {
       var sessionId = props.sessionId
       var [turns, setTurns] = React.useState([])
+      var [live, setLive] = React.useState(null)
       var [selected, setSelected] = React.useState(0)
       var [inspect, setInspect] = React.useState(null)
       var [error, setError] = React.useState(null)
 
       React.useEffect(function () {
         var alive = true
-        async function load() {
-          try {
-            var response = await fetch('/graph-chat/api/state?sessionId=' + encodeURIComponent(sessionId))
-            var body = await response.json()
-            if (!alive) return
-            setTurns(body.turns || [])
-            setError(null)
-          } catch (err) { if (alive) setError(String(err)) }
+        var source = null
+        var timer = null
+        function apply(payload) {
+          if (!alive || !payload) return
+          if (Array.isArray(payload.turns)) setTurns(payload.turns)
+          setLive(payload.snapshot || null)
+          setError(null)
         }
-        load()
-        var timer = setInterval(load, 1200)
-        return function () { alive = false; clearInterval(timer) }
+        function poll() {
+          fetch('/graph-chat/api/state?sessionId=' + encodeURIComponent(sessionId))
+            .then(function (response) { return response.json() })
+            .then(function (body) { if (alive) { setTurns(body.turns || []); setError(null) } })
+            .catch(function (err) { if (alive) setError(String(err)) })
+        }
+        if (typeof EventSource !== 'undefined') {
+          source = new EventSource('/graph-chat/api/events?sessionId=' + encodeURIComponent(sessionId))
+          source.addEventListener('graph', function (event) {
+            try { apply(JSON.parse(event.data)) } catch (err) { /* ignore malformed frame */ }
+          })
+          source.onerror = function () { if (alive && timer === null) timer = setInterval(poll, 2000) }
+        } else {
+          poll()
+          timer = setInterval(poll, 1200)
+        }
+        return function () { alive = false; if (source) source.close(); if (timer) clearInterval(timer) }
       }, [sessionId])
 
-      var turn = turns[turns.length - 1 - selected]
+      var displayed = live && live.plan ? live : null
+      var turn = displayed || turns[turns.length - 1 - selected]
       if (!turn) {
         return h('div', { className: 'dshgv' },
           h('div', { className: 'dshgv-head' }, h('h3', null, 'Graph'), h('span', { className: 'dshgv-pill' }, sessionId || 'no session')),
@@ -146,7 +161,7 @@ window.__ModuleLoader__.load({
       return h('div', { className: 'dshgv' },
         h('div', { className: 'dshgv-head' },
           h('h3', null, 'Graph'), pills,
-          h('span', { className: 'dshgv-pill' }, (turn.mode || '') + ' · ' + (turn.replans ? turn.replans + ' replan' : 'no replan'))),
+          h('span', { className: 'dshgv-pill' }, (displayed ? 'LIVE · ' : '') + (turn.mode || '') + (turn.replans ? (' · ' + turn.replans + ' replan') : ''))),
         h('div', { className: 'dshgv-canvas' },
           h('svg', { viewBox: '0 0 ' + width + ' ' + height, width: width, height: height },
             h('defs', null, h('marker', { id: 'dshgv-arrow', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' },

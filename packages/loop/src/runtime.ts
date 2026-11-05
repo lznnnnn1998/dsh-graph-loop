@@ -33,6 +33,10 @@ type GraphRuntimeService = {
   last(sessionId: string): GraphRunRecord | undefined
   /** Persist one turn trace when `traceDir` is configured (for the preview panel). */
   recordTurn(sessionId: string, snapshot: unknown): void
+  /** Latest in-flight snapshot, before the turn closes. */
+  recordSnapshot(sessionId: string, snapshot: unknown): void
+  /** Subscribe to live snapshot updates for one session. */
+  subscribe(sessionId: string, listener: (payload: { snapshot: unknown; turns: readonly unknown[] }) => void): () => void
   /** In-memory turn traces for the live graph-chat panel. */
   traceHistory(sessionId: string): readonly unknown[]
 }
@@ -48,6 +52,8 @@ export class GraphRuntime extends Service implements GraphRuntimeService {
   private readonly proposals = new Map<string, TaskPlan>()
   private readonly records = new Map<string, GraphRunRecord>()
   private readonly traces = new Map<string, unknown[]>()
+  private readonly live = new Map<string, unknown>()
+  private readonly listeners = new Map<string, Set<(payload: { snapshot: unknown; turns: readonly unknown[] }) => void>>()
   private readonly maxProposals: number
   private readonly traceDir: string
 
@@ -85,11 +91,33 @@ export class GraphRuntime extends Service implements GraphRuntimeService {
     return this.traces.get(sessionId) ?? []
   }
 
+  recordSnapshot(sessionId: string, snapshot: unknown): void {
+    this.live.set(sessionId, snapshot)
+    const payload = { snapshot, turns: this.traceHistory(sessionId) }
+    for (const listener of this.listeners.get(sessionId) ?? []) listener(payload)
+  }
+
+  subscribe(sessionId: string, listener: (payload: { snapshot: unknown; turns: readonly unknown[] }) => void): () => void {
+    const set = this.listeners.get(sessionId) ?? new Set()
+    set.add(listener)
+    this.listeners.set(sessionId, set)
+    listener({ snapshot: this.live.get(sessionId), turns: this.traceHistory(sessionId) })
+    return () => {
+      const current = this.listeners.get(sessionId)
+      if (current === undefined) return
+      current.delete(listener)
+      if (current.size === 0) this.listeners.delete(sessionId)
+    }
+  }
+
   recordTurn(sessionId: string, snapshot: unknown): void {
+    this.live.delete(sessionId)
     const history = this.traces.get(sessionId) ?? []
     history.push(snapshot)
     while (history.length > 20) history.shift()
     this.traces.set(sessionId, history)
+    const payload = { snapshot: undefined, turns: history }
+    for (const listener of this.listeners.get(sessionId) ?? []) listener(payload)
     if (this.traceDir === '') return
     try {
       mkdirSync(this.traceDir, { recursive: true })

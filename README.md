@@ -7,7 +7,7 @@ which runs one compiled graph node per DSH step. No DSH source is modified.
 - Evaluation and full implementation plan: [`docs/explore-mode-plan.zh.md`](docs/explore-mode-plan.zh.md)
 - Research evidence: [`research/`](research/)
 - Design contracts: [`design/`](design/) · dynamic topology: [`docs/DYNAMIC-TOPOLOGY.md`](docs/DYNAMIC-TOPOLOGY.md)
-- Build status: [`PROGRESS.md`](PROGRESS.md) · implementation notes: [`docs/IMPLEMENTATION.md`](docs/IMPLEMENTATION.md)
+- Build status: [`PROGRESS.md`](PROGRESS.md) · implementation notes: [`docs/IMPLEMENTATION.md`](docs/IMPLEMENTATION.md) · review: [`docs/RETROSPECTIVE.md`](docs/RETROSPECTIVE.md)
 
 ## Quick start
 

@@ -27,7 +27,16 @@ Local working repo. Nothing here edits the DSH checkout; the driver is loaded th
 - [x] Composition evidence: `--dump-config` shows stock row disabled + graph rows inserted
       (installed profile), and `preset-explore` present with bundle A
 
-## Just landed (Graph tab in the existing Web chat)
+## Just landed (reflection + live Graph tab)
+- [x] `docs/RETROSPECTIVE.md`: honest list of regressions, keepers, and potentially disruptive ideas.
+- [x] Graph tab now uses **SSE** (`/graph-chat/api/events`) with polling fallback; live snapshots carry
+      plan + trail + replans, so a running turn renders before it closes.
+- [x] **Triage**: trivial tasks (<32 chars, no artifacts) stay a single step instead of paying for a graph.
+- [x] **Child agents** force the single-node fallback, so subagent children no longer recurse into
+      dynamic topology (previous failure mode).
+- [x] 73 unit tests; Graph-tab e2e still passes.
+
+## Previously landed (Graph tab in the existing Web chat)
 - [x] **Graph is now a conversation-view tab** registered through `ctx.slots` `conversation.view`
       (order 5, between Chat and Trajectory). The whole existing chat shell is reused: composer,
       model selector, voice input, mode chip, agent-team/subagent list, trajectory, sidebar.
@@ -60,7 +69,7 @@ Local working repo. Nothing here edits the DSH checkout; the driver is loaded th
 - [x] Preview panel: `graph-runtime.traceDir` writes per-turn `{plan, trail, rationale, depth, replans}`;
       `scripts/preview.mjs` renders `preview/index.html` (SVG topology + information flow + node inspector,
       roots first, child turns labelled). Open the generated file directly.
-- [x] 71 unit tests + 5 e2e suites green
+- [x] 73 unit tests + 7 e2e suites green
 
 ## Previously landed (dynamic topology)
 - [x] `synthesizeTopology`: arbitrary DAG from the capability graph (no template): discovery,

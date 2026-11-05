@@ -602,6 +602,7 @@ export class AgentLoop extends Service implements AgentFactory {
               rationale: readonly string[]
             }): void
             recordTurn(sessionId: string, snapshot: unknown): void
+            recordSnapshot(sessionId: string, snapshot: unknown): void
           } | undefined
         const agentGraph = async (): Promise<import('@dsh/explore-core/graph-schema').RegistryGraph | undefined> => {
           // The capability graph is agent-scoped: preset tools register inside the
@@ -626,17 +627,21 @@ export class AgentLoop extends Service implements AgentFactory {
         created.setTurnGraph(createGraphTurnDriver({
           mode: topologyMode,
           allowSubagents: delegationDepth === 0,
+          forceFallback: delegationDepth > 0,
           depth: delegationDepth,
           graphProvider: agentGraph,
           templatesProvider: () => graphRouter?.templates(),
           proposalSource: graphRuntime === undefined ? undefined : () => graphRuntime.takeProposal(id),
-          onSnapshot: snapshot => graphRuntime?.record(id, {
-            mode: snapshot.mode,
-            node: snapshot.node,
-            step: snapshot.step,
-            planId: snapshot.planId,
-            rationale: snapshot.rationale,
-          }),
+          onSnapshot: snapshot => {
+            graphRuntime?.record(id, {
+              mode: snapshot.mode,
+              node: snapshot.node,
+              step: snapshot.step,
+              planId: snapshot.planId,
+              rationale: snapshot.rationale,
+            })
+            graphRuntime?.recordSnapshot(id, snapshot)
+          },
           onTurnEnd: snapshot => graphRuntime?.recordTurn(id, snapshot),
           presetId: 'explore',
         }))
