@@ -31,7 +31,6 @@ import { createHash } from 'node:crypto'
 import type {
   ArtifactSpec,
   ArtifactType,
-  CapabilityKind,
   CostPrior,
   EdgeKind,
   ExecutorKind,
@@ -938,7 +937,7 @@ function toolNode(source: ToolSource, annotationVersion: string): RegistryNode |
       ? uniqueSorted(source.parameterNames)
       : source.parameters !== undefined
         ? parameterNamesOf(source.parameters)
-        : [...(curated?.parameterNames ?? [])]
+        : uniqueSorted(curated?.parameterNames ?? [])
   const accepts = [...(source.accepts ?? curated?.accepts ?? [])]
   const produces = [...(source.produces ?? curated?.produces ?? [])]
   const tags = normalizeTags(source.tags, curated?.tags ?? [UNMAPPED_TAG])
@@ -1145,7 +1144,6 @@ function edgeIdDraft(draft: EdgeDraft): string {
 }
 
 function buildEdges(nodes: readonly RegistryNode[]): GraphEdge[] {
-  const byId = new Map(nodes.map((node) => [node.id, node] as const))
   const tools = nodes.filter((node) => node.kind === 'tool' && node.tool !== undefined)
   const toolByName = new Map(tools.map((node) => [(node.tool as ToolFacts).name, node] as const))
   const drafts = new Map<string, EdgeDraft>()

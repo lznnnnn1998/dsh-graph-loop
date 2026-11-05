@@ -25,7 +25,7 @@ import {
   type ExecutorCandidate,
   type ScoredCandidate,
 } from './reuse.ts'
-import { listMembersSafely, teamsOf, teammates, type TeamMemberLike } from './teams.ts'
+import { listMembersSafely, teamsOf, teammates, type TeamMemberLike, type TeamsLike } from './teams.ts'
 
 /** Cordis plugin name; the preset child row id is `explore-tools`. */
 export const name = 'explore-tools'
@@ -108,14 +108,19 @@ export function apply(ctx: Context, config: Config = {}): void {
         }
       }
       const candidates = rankCandidates(args.task, candidatesFor(teams, exec.agent))
-      const listed = candidates.filter(candidate => candidate.score >= settings.suggestThreshold)
+      const listed = candidates
+        .filter(candidate => candidate.score >= settings.suggestThreshold)
+        .map(candidate => ({
+          name: candidate.name,
+          description: candidate.description,
+          status: candidate.status,
+          score: candidate.score,
+        }))
       const best = listed[0]
-      return {
-        available: true,
-        task: args.task,
-        recommendation: best !== undefined && best.score >= settings.reuseThreshold ? 'reuse' : 'spawn',
-        candidates: listed,
-      }
+      const recommendation: 'reuse' | 'spawn' = best !== undefined && best.score >= settings.reuseThreshold
+        ? 'reuse'
+        : 'spawn'
+      return { available: true, task: args.task, recommendation, candidates: listed }
     },
   }))
 
@@ -149,11 +154,19 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
   }))
 
-  ctx.on('tools/pre-execute', async (exec, next) => {
+  ctx.effect(() => ctx.on('tools/pre-execute', async (exec, next) => {
     const decision = duplicateSpawnGuard(ctx, exec, settings)
     return decision ?? await next()
-  })
+  }), 'explore-tools: duplicate-spawn guard')
 }
+
+/** Fallback settings used when the guard is called without a resolved config. */
+const DEFAULT_SETTINGS: Settings = Object.freeze({
+  blockDuplicateSpawn: true,
+  suggestThreshold: SUGGEST_THRESHOLD,
+  reuseThreshold: GUARD_THRESHOLD,
+  nodes: DEFAULT_NODES,
+})
 
 /**
  * The guard decision for one call, or undefined to let it proceed.
@@ -192,7 +205,7 @@ export function duplicateSpawnGuard(
 }
 
 /** Roster rows this mode can reuse, read without throwing. */
-function candidatesFor(teams: ReturnType<typeof teamsOf>, agent: Agent): TeamMemberLike[] {
+function candidatesFor(teams: TeamsLike | undefined, agent: Agent): TeamMemberLike[] {
   if (teams === undefined) return []
   return teammates(listMembersSafely(teams, agent))
 }
@@ -210,18 +223,21 @@ function spawnDescription(args: unknown): string | undefined {
   return parts.length === 0 ? undefined : parts.join(' ')
 }
 
-/** Text rendering for `suggest_executor`. */
-function renderSuggestions(value: {
+/** Value shape `suggest_executor` renders (matches its output schema exactly). */
+interface SuggestValue {
   available: boolean
   recommendation?: 'reuse' | 'spawn'
   task?: string
-  candidates?: readonly ScoredCandidate[]
+  candidates?: readonly { name: string; description?: string; status?: string; score: number }[]
   reason?: string
-}): string {
+}
+
+/** Text rendering for `suggest_executor`. */
+function renderSuggestions(value: SuggestValue): string {
   if (!value.available) return value.reason ?? 'Agent Teams is not available.'
   const candidates = value.candidates ?? []
   if (candidates.length === 0) return 'No idle teammate matches this task. Recommendation: spawn.'
-  const lines = candidates.map(candidate => `- ${candidate.name} (${candidate.score.toFixed(2)})${candidate.description.length > 0 ? `: ${candidate.description}` : ''}`)
+  const lines = candidates.map(candidate => `- ${candidate.name} (${candidate.score.toFixed(2)})${(candidate.description ?? '').length > 0 ? `: ${candidate.description}` : ''}`)
   return [`Recommendation: ${value.recommendation ?? 'spawn'}`, ...lines].join('\n')
 }
 
@@ -249,14 +265,6 @@ function normalizeNodes(nodes: string[] | undefined): readonly string[] {
     .map(node => node.trim())
   return cleaned.length > 0 ? cleaned : DEFAULT_NODES
 }
-
-/** Fallback settings used when the guard is called without a resolved config. */
-const DEFAULT_SETTINGS: Settings = Object.freeze({
-  blockDuplicateSpawn: true,
-  suggestThreshold: SUGGEST_THRESHOLD,
-  reuseThreshold: GUARD_THRESHOLD,
-  nodes: DEFAULT_NODES,
-})
 
 /** Re-export the pure ranking helpers so tool consumers can import them here. */
 export { rankCandidates, shouldSuggestReuse, type ExecutorCandidate, type ScoredCandidate }

@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { buildRegistrySnapshot, type ToolSnapshot } from '../../packages/loop/src/registry.ts'
-import { EXPLORE_TEMPLATES } from '../../packages/loop/src/router.ts'
+import { buildRegistrySnapshot, type ToolSource } from '../../packages/core/src/registry.ts'
+import { TEMPLATE_LIBRARY } from '../../packages/core/src/templates.ts'
 import { createGraphTurnDriver } from '../../packages/loop/src/scheduler.ts'
 
-const tools: ToolSnapshot[] = [
+const tools: ToolSource[] = [
   { name: 'read', description: 'Read a text file.', parameters: { type: 'object', properties: { path: { type: 'string' } } } },
   { name: 'glob', description: 'Find files by pattern.', parameters: { type: 'object', properties: { pattern: { type: 'string' } } } },
   { name: 'grep', description: 'Search file contents.', parameters: { type: 'object', properties: { pattern: { type: 'string' } } } },
@@ -26,18 +26,18 @@ test('registry is deterministic and marks the tool set', () => {
 test('a code question routes to t_investigate and walks its nodes', () => {
   const driver = createGraphTurnDriver({
     graphProvider: () => registry.graph,
-    templatesProvider: () => EXPLORE_TEMPLATES,
+    templatesProvider: () => TEMPLATE_LIBRARY,
   })
-  const started = driver.beginTurn({ text: 'read the README and explain what this project is' })
+  const started = driver.beginTurn({ text: 'explain how the config loader works' })
   assert.equal(started.templateId, 't_investigate')
   assert.equal(driver.current()?.id, 'n_discover')
   driver.advance({ ok: true })
-  assert.equal(driver.current()?.id, 'n_read')
+  assert.equal(driver.current()?.id, 'n_inspect')
   driver.advance({ ok: true })
   assert.equal(driver.current()?.id, 'n_done')
   driver.advance({ ok: true })
   assert.equal(driver.done(), true)
-  assert.deepEqual(driver.snapshot().visited, ['n_discover', 'n_read', 'n_done'])
+  assert.deepEqual(driver.snapshot().visited, ['n_discover', 'n_inspect', 'n_done'])
 })
 
 test('without a registry the driver falls back to a single stock node', () => {

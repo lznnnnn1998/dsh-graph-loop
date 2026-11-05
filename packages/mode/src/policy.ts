@@ -79,6 +79,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   // own roster, so the contributions are mounted on the Agent scope, not here.
   ctx.effect(() => ctx.on('agent/created', ({ agent }) => {
     mountAgentPolicy(ctx, agent, { nodes, includeRoster, order })
+    return undefined
   }), 'explore-policy: agent sessions')
 }
 
