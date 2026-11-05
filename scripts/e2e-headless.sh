@@ -18,7 +18,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "== 1. mock LLM server on :$PORT"
-( cd "$DSH" && node --import tsx packages/test-support/llm-mock-server/src/bin.ts \
+( cd "$DSH" && exec node --import tsx packages/test-support/llm-mock-server/src/bin.ts \
     --sequence tool_call_success,success --repeat-last \
     --success-text "Graph done." \
     --tool-name read --tool-arguments '{"path":"README.md"}' \
@@ -31,7 +31,7 @@ echo "== 2. run one task through the graph driver"
 set +e
 ( cd "$DSH" && DSH_HOME="$HOME_DIR" DEEPSEEK_BASE_URL="http://127.0.0.1:$PORT" DEEPSEEK_API_KEY=mock \
     node --import tsx/esm apps/cli/src/bin.ts --profile headless --patch "$PATCH" \
-    "read the README and explain what this project is" ) > "$HOME_DIR/run.out" 2> "$HOME_DIR/run.err"
+    "explain how the config loader works" ) > "$HOME_DIR/run.out" 2> "$HOME_DIR/run.err"
 STATUS=$?
 set -e
 cat "$HOME_DIR/run.out"

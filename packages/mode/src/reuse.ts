@@ -133,7 +133,7 @@ export function tokenOverlap(task: string, reference: string): number {
 /**
  * Score one candidate for one task.
  *
- * `0.75 * textSimiairity + 0.25 * statusWeight`, where an idle teammate is worth a
+ * `0.75 * textSimilarity + 0.25 * statusWeight`, where an idle teammate is worth a
  * full status term and a running one keeps a partial term so the ranking still
  * suggests busy-but-relevant teammates.
  * @param task - text being routed.
