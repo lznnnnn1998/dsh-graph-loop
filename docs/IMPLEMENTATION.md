@@ -32,7 +32,8 @@ end-to-end, but the "not implemented" list below is real.
 - `scripts/e2e-replan.sh` — `bash` verify fails → recovery subgraph runs.
 - `scripts/preview.mjs /tmp/dsh-graph-traces preview` — offline topology preview panel.
 - `scripts/e2e-graph-chat.sh` — real Web host + standalone graph-chat page/API; screenshots `preview/graph-chat-live.png`.
-- `scripts/e2e-graph-tab.sh` — installs both packages into a throwaway web profile, drives the real UI with Puppeteer, asserts the Graph tab, screenshots `preview/graph-tab-live.png`.
+- `scripts/e2e-graph-tab.sh` — installs both packages into a throwaway web profile, drives the real UI with Puppeteer, asserts the Graph tab, clicks a node to check the tool-call inspector, screenshots `preview/graph-tab-live.png`.
+- `scripts/e2e-conformance.sh` — stock vs graph event invariants on real session logs (`conformance-diff.mjs`).
 - `bash scripts/e2e-installed.sh` — creates a profile from the headless template,
   `dsh plugin add packages/loop`, runs the same task through the installed bundle
   (no `--patch`), same result.

@@ -21,6 +21,7 @@ bash scripts/e2e-subagents.sh       # parallel subagent branches in the graph
 bash scripts/e2e-replan.sh          # boundary replan after a failed verify
 bash scripts/e2e-graph-chat.sh      # standalone graph-chat page + API + screenshot
 bash scripts/e2e-graph-tab.sh       # Graph tab inside the real Web chat UI
+bash scripts/e2e-conformance.sh     # stock vs graph event invariants
 node scripts/preview.mjs /tmp/dsh-graph-traces preview   # offline topology preview
 # Web UI: install packages/loop + packages/graph-ui, then open any session and click the Graph tab
 node scripts/build-bundles.mjs      # rebuild packages/*/lib

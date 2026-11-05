@@ -44,6 +44,16 @@ console.log('tabs:', tabs.join(','))
 const graphClicked = await clickText(page, 'Graph')
 console.log('clicked Graph:', graphClicked)
 await new Promise(resolve => setTimeout(resolve, 2500))
+const clickedNode = await page.evaluate(() => {
+  const node = document.querySelector('.dshgv .node')
+  if (node === null) return false
+  node.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  return true
+})
+console.log('clicked graph node:', clickedNode)
+await new Promise(resolve => setTimeout(resolve, 600))
+const inspector = await page.evaluate(() => document.body.innerText.includes('Tool calls'))
+console.log('inspector has tool calls:', inspector)
 const graphText = await page.evaluate(() => document.body.innerText)
 console.log('graph panel:', graphText.includes('INFORMATION FLOW') || graphText.includes('Information flow') || graphText.includes('No graph run yet'))
 await page.screenshot({ path: 'preview/graph-tab-live.png' })
