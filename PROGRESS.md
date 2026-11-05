@@ -92,6 +92,11 @@ Local working repo. Nothing here edits the DSH checkout; the driver is loaded th
       `scripts/preview.mjs` renders `preview/index.html` (SVG topology + information flow + node inspector,
       roots first, child turns labelled). Open the generated file directly.
 - [x] 73 unit tests + 10 e2e suites green
+- [x] Compliance audit (`docs/COMPLIANCE.md`): package READMEs, license, single-row Web surface,
+      locale-owned client copy, built `lib/client.js`, config fields for triage/max steps/trace limit,
+      fail-loud asset/body handling, plugin-level unknown casts removed.
+- [x] `docs/TOPOLOGY-OPTIMALITY.md`: explicit statement that the per-turn graph is heuristic, not
+      guaranteed optimal; lists what a real optimizer would need.
 
 ## Previously landed (dynamic topology)
 - [x] `synthesizeTopology`: arbitrary DAG from the capability graph (no template): discovery,

@@ -2,7 +2,7 @@
  * Concrete agent-loop plugin: creates scoped ReactLoopAgents, publishes them
  * through the agent/session registries, and owns their ordered teardown.
  *
- * @module @deepseek-ai/dsh-agent-loop
+ * @module @dsh/explore-loop
  */
 import type { Volatile } from '@deepseek-ai/cosmokit'
 
@@ -265,6 +265,10 @@ export interface Config {
    * authors it through `graph_plan`). Defaults to `dynamic`.
    */
   topology: 'template' | 'dynamic' | 'propose'
+  /** Text length below which a trivial task is kept at one step. Defaults to 32. */
+  trivialChars: number
+  /** Upper bound on nodes in one synthesized topology. Defaults to 24. */
+  maxSteps: number
   /** Agents created or resumed at plugin startup; a resumed agent records its configured route as the Session's model selection. */
   agents: (AgentOptions & {
     /** Stable config label used in logs and as the fresh combined-id prefix. */
@@ -301,9 +305,17 @@ export class AgentLoop extends Service implements AgentFactory {
   static inject = ['agents', 'sessions', 'llm', 'tools', 'systemPrompt', 'sessionProjections']
 
   /** Runtime schema for declarative agents. */
-  static Config: z<{ agents?: Config['agents']; maxParallelToolCalls?: number; topology?: Config['topology'] }, Config> = z.object({
+  static Config: z<{
+    agents?: Config['agents']
+    maxParallelToolCalls?: number
+    topology?: Config['topology']
+    trivialChars?: number
+    maxSteps?: number
+  }, Config> = z.object({
     maxParallelToolCalls: z.number().step(1).min(1).default(DEFAULT_MAX_PARALLEL_TOOL_CALLS).volatile(),
-    topology: z.string().default('dynamic'),
+    topology: z.union([z.const('template'), z.const('dynamic'), z.const('propose')]).default('dynamic'),
+    trivialChars: z.number().step(1).min(1).default(32),
+    maxSteps: z.number().step(1).min(1).default(24),
     agents: z.array(z.object({
       id: z.string().required(),
       sessionId: z.string().min(1),
@@ -314,7 +326,13 @@ export class AgentLoop extends Service implements AgentFactory {
       cwd: z.string(),
       resumeSessionId: z.string(),
     })).default([]),
-  }) as z<{ agents?: Config['agents']; maxParallelToolCalls?: number; topology?: Config['topology'] }, Config>
+  }) as z<{
+    agents?: Config['agents']
+    maxParallelToolCalls?: number
+    topology?: Config['topology']
+    trivialChars?: number
+    maxSteps?: number
+  }, Config>
 
   /** Validated configuration owned by the agent-loop service. */
   readonly config: Config
@@ -331,6 +349,8 @@ export class AgentLoop extends Service implements AgentFactory {
       agents: applyLauncherIdentities(config.agents, ctx.get(CONFIGURED_AGENT_IDENTITIES_KEY)),
       maxParallelToolCalls: config.maxParallelToolCalls,
       topology: config.topology ?? 'dynamic',
+      trivialChars: config.trivialChars ?? 32,
+      maxSteps: config.maxSteps ?? 24,
     }
     validateConfiguredAgents(this.config.agents)
     this.ownership = new FactoryOwnership(ctx.fiber)
@@ -480,6 +500,7 @@ export class AgentLoop extends Service implements AgentFactory {
     const { session, agentOptions, source, stored, setup, signal: callerSignal, parentAgent } = options
     const id = session.id
     const loopCtx = this.runtime.ctx
+    const loopConfig = this.config
 
     // Deactivation fuses three owners, each with its own reason: the caller's
     // cancellation signal, the owner fiber's unload, and factory teardown.
@@ -587,11 +608,11 @@ export class AgentLoop extends Service implements AgentFactory {
           () => inboxProjectionHandle.stateOf(session),
           lastTurn,
         )
-        const graphRegistry = (loopCtx as unknown as { get(name: string): unknown }).get('graphRegistry') as
+        const graphRegistry = loopCtx.get('graphRegistry') as
           { snapshot(): { graph: import('@dsh/explore-core/graph-schema').RegistryGraph } } | undefined
-        const graphRouter = (loopCtx as unknown as { get(name: string): unknown }).get('graphRouter') as
+        const graphRouter = loopCtx.get('graphRouter') as
           { templates(): import('@dsh/explore-core/matching').TemplateLibrary | undefined } | undefined
-        const graphRuntime = (loopCtx as unknown as { get(name: string): unknown }).get('graphRuntime') as
+        const graphRuntime = loopCtx.get('graphRuntime') as
           {
             takeProposal(sessionId: string): import('@dsh/explore-core/graph-schema').TaskPlan | undefined
             record(sessionId: string, record: {
@@ -612,7 +633,7 @@ export class AgentLoop extends Service implements AgentFactory {
             const controller = new AbortController()
             const toolSet = await loopCtx.tools.resolve({ agent: created, modelSelection: selection, signal: controller.signal })
             try {
-              const tools: ToolSource[] = loopCtx.tools.definitions(created as unknown as object, toolSet).map(definition => ({
+              const tools: ToolSource[] = loopCtx.tools.definitions(created, toolSet).map(definition => ({
                 name: definition.name,
                 description: definition.description,
                 parameters: definition.parameters as Readonly<Record<string, unknown>>,
@@ -626,6 +647,8 @@ export class AgentLoop extends Service implements AgentFactory {
         }
         created.setTurnGraph(createGraphTurnDriver({
           mode: topologyMode,
+          maxSteps: loopConfig.maxSteps,
+          trivialChars: loopConfig.trivialChars,
           allowSubagents: delegationDepth === 0,
           forceFallback: delegationDepth > 0,
           depth: delegationDepth,

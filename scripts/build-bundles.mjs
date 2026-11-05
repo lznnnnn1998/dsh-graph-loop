@@ -1,7 +1,7 @@
 // Build release JS for both bundles. Local @dsh/* and @deepseek-ai/* stay external;
 // everything else (including @dsh/explore-core) is bundled per entry.
 import { build } from 'esbuild'
-import { rm, mkdir } from 'node:fs/promises'
+import { rm, mkdir, copyFile } from 'node:fs/promises'
 
 const external = ['@deepseek-ai/*', '@langchain/*']
 
@@ -27,13 +27,17 @@ await buildPackage('packages/loop', {
   router: 'packages/loop/src/router.ts',
   runtime: 'packages/loop/src/runtime.ts',
   tools: 'packages/loop/src/tools.ts',
-  'graph-chat': 'packages/loop/src/graph-chat.ts',
   scheduler: 'packages/loop/src/scheduler.ts',
   kernel: 'packages/loop/src/kernel/index.ts',
 })
+await buildPackage('packages/graph-ui', {
+  index: 'packages/graph-ui/src/index.ts',
+})
+await copyFile('packages/graph-ui/client/graph-view.js', 'packages/graph-ui/lib/client.js')
+
 await buildPackage('packages/mode', {
   policy: 'packages/mode/src/policy.ts',
   tools: 'packages/mode/src/tools.ts',
   reuse: 'packages/mode/src/reuse.ts',
 })
-console.log('built packages/loop/lib and packages/mode/lib')
+console.log('built packages/loop/lib, packages/graph-ui/lib and packages/mode/lib')

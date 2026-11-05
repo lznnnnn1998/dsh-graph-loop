@@ -1,7 +1,7 @@
 /**
  * Default Agent driver over queued turns and step-boundary input. Every request
  * is derived from the session log.
- * @module dsh-agent-loop/agent
+ * @module @dsh/explore-loop/agent
  */
 
 import type {
@@ -193,7 +193,7 @@ export class ReactLoopAgent implements Agent {
 
   /** `ctx.subagents` when the deployment mounts the delegation seam. */
   private subagentsService(): SubagentsLike | undefined {
-    return (this.loopCtx as unknown as { get(name: string): unknown }).get('subagents') as SubagentsLike | undefined
+    return this.loopCtx.get('subagents') as SubagentsLike | undefined
   }
 
   /**

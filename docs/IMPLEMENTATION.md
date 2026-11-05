@@ -19,7 +19,7 @@ end-to-end, but the "not implemented" list below is real.
 | Model-authored topology | `packages/core/src/proposal.ts` + `graph_plan` | the model submits any node/edge graph; the harness validates and the driver adopts it |
 | Kernel | `packages/loop/src/kernel/` | `KernelPort` implementations: minimal stepwise (default) and a LangGraph 1.7 adapter behind a lazy import |
 | Graph tab | `packages/graph-ui/` | Web conversation-view tab (`conversation.view` slot) next to Chat/Trajectory; reuses the whole chat shell and reads the graph-chat API |
-| Graph-chat page | `packages/loop/src/graph-chat.ts` + `assets/graph-chat.html` | live page `/graph-chat`: chat on the left, current turn topology on the right; new-chat/send APIs; polls the graph runtime |
+| Graph-chat page | `packages/graph-ui/src/graph-chat.ts` + `packages/graph-ui/assets/graph-chat.html` | live page `/graph-chat`: chat on the left, current turn topology on the right; new-chat/send APIs; polls the graph runtime |
 | Bundle A | `packages/mode/` | `explore` preset (standard preset minus delegation), policy section, idle-roster context, `suggest_executor`, `spawn_teammate` duplicate guard |
 | Bundle B | `packages/loop/cordis.patch.yml` | disables row `agent-loop`, inserts graph registry/router/loop/tools |
 

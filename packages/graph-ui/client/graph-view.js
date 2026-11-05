@@ -15,6 +15,35 @@ window.__ModuleLoader__.load({
     Object.defineProperty(exports, '__esModule', { value: true })
     var React = require('react')
     var h = React.createElement
+    var NS = 'graph'
+    var EN = {
+      view: 'Graph',
+      empty: 'No graph run yet. Send a message in Chat; the topology for each turn appears here.',
+      flow: 'Information flow',
+      rationale: 'Rationale',
+      tools: 'Tool calls',
+      openTrajectory: 'open in trajectory',
+      turn: 'Turn',
+      live: 'LIVE',
+      step: 'step',
+      noSession: 'no session',
+      replan: 'replan',
+      noReplan: 'no replan'
+    }
+    var ZH = {
+      view: '图',
+      empty: '还没有图运行。在 Chat 里发送消息，这一轮生成的拓扑会显示在这里。',
+      flow: '信息流',
+      rationale: '决策依据',
+      tools: '工具调用',
+      openTrajectory: '在 Trajectory 中打开',
+      turn: '轮次',
+      live: '实时',
+      step: '步',
+      noSession: '无会话',
+      replan: '次重规划',
+      noReplan: '无重规划'
+    }
 
     var STYLE_ID = 'dsh-graph-view-style'
     var CSS = [
@@ -67,6 +96,7 @@ window.__ModuleLoader__.load({
     }
 
     function GraphBody(props) {
+      var tr = props.t || function (key) { return EN[key] || key }
       var sessionId = props.sessionId
       var [turns, setTurns] = React.useState([])
       var [live, setLive] = React.useState(null)
@@ -107,8 +137,8 @@ window.__ModuleLoader__.load({
       var turn = displayed || turns[turns.length - 1 - selected]
       if (!turn) {
         return h('div', { className: 'dshgv' },
-          h('div', { className: 'dshgv-head' }, h('h3', null, 'Graph'), h('span', { className: 'dshgv-pill' }, sessionId || 'no session')),
-          h('div', { className: 'dshgv-empty' }, error || 'No graph run yet. Send a message in Chat; the topology for each turn appears here.'))
+          h('div', { className: 'dshgv-head' }, h('h3', null, tr('view')), h('span', { className: 'dshgv-pill' }, sessionId || tr('noSession'))),
+          h('div', { className: 'dshgv-empty' }, error || tr('empty')))
       }
       var plan = turn.plan || { nodes: [], edges: [] }
       var trail = turn.trail || []
@@ -156,23 +186,23 @@ window.__ModuleLoader__.load({
         return h('button', {
           key: back, className: 'dshgv-pill' + (back === selected ? ' on' : ''),
           onClick: function () { setSelected(back); setInspect(null) }
-        }, 'Turn ' + (back + 1))
+        }, tr('turn') + ' ' + (back + 1))
       }).reverse()
       return h('div', { className: 'dshgv' },
         h('div', { className: 'dshgv-head' },
-          h('h3', null, 'Graph'), pills,
-          h('span', { className: 'dshgv-pill' }, (displayed ? 'LIVE · ' : '') + (turn.mode || '') + (turn.replans ? (' · ' + turn.replans + ' replan') : ''))),
+          h('h3', null, tr('view')), pills,
+          h('span', { className: 'dshgv-pill' }, (displayed ? tr('live') + ' · ' : '') + (turn.mode || '') + (turn.replans ? (' · ' + turn.replans + ' ' + tr('replan')) : ''))),
         h('div', { className: 'dshgv-canvas' },
           h('svg', { viewBox: '0 0 ' + width + ' ' + height, width: width, height: height },
             h('defs', null, h('marker', { id: 'dshgv-arrow', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' },
               h('path', { d: 'M 0 0 L 10 5 L 0 10 z', fill: '#3b4a5c' }))),
             edges, nodes)),
         h('div', { className: 'dshgv-side' },
-          h('h4', null, 'Information flow'),
+          h('h4', null, tr('flow')),
           h('ul', { className: 'dshgv-flow' }, trail.map(function (item) {
-            return h('li', { key: item.id }, h('b', null, item.id), h('span', null, 'step ' + item.step + ' · ' + item.executor + ' · ' + item.status))
+            return h('li', { key: item.id }, h('b', null, item.id), h('span', null, tr('step') + ' ' + item.step + ' · ' + item.executor + ' · ' + item.status))
           })),
-          h('h4', null, 'Rationale'),
+          h('h4', null, tr('rationale')),
           h('ul', { className: 'dshgv-flow' }, (turn.rationale || []).map(function (line, index) { return h('li', { key: index }, h('span', null, line)) })),
           inspect
             ? h('div', { className: 'inspect' },
@@ -180,7 +210,7 @@ window.__ModuleLoader__.load({
                 esc(inspect.node.instruction || '(no instruction)'),
                 inspect.trail && inspect.trail.tools && inspect.trail.tools.length > 0
                   ? h('div', { style: { marginTop: '8px' } },
-                      h('div', { style: { color: '#8b97a6', marginBottom: '4px' } }, 'Tool calls'),
+                      h('div', { style: { color: '#8b97a6', marginBottom: '4px' } }, tr('tools')),
                       inspect.trail.tools.map(function (tool) {
                         return h('div', { key: tool.callId, style: { display: 'flex', gap: '8px', alignItems: 'center', margin: '3px 0' } },
                           h('span', { style: { color: tool.isError ? '#ef4444' : '#22c55e' } }, tool.isError ? '✕' : '✓'),
@@ -188,7 +218,7 @@ window.__ModuleLoader__.load({
                           props.openView ? h('button', {
                             className: 'dshgv-pill',
                             onClick: function () { props.openView('trajectory', tool.callId) }
-                          }, 'open in trajectory') : null)
+                          }, tr('openTrajectory')) : null)
                       }))
                   : null)
             : null))
@@ -197,19 +227,24 @@ window.__ModuleLoader__.load({
     function apply(ctx) {
       injectStyle()
       ctx.effect(function () {
+        return ctx.locale.register(NS, { en: EN, zh: ZH })
+      }, 'graph-view:locale')
+      var t = ctx.locale.bind(NS)
+      ctx.effect(function () {
         return ctx.slots.inject('conversation.view', function () {
           return ctx.slots.register({
             name: 'conversation.view',
             id: 'graph',
             order: 5,
-            label: 'Graph'
+            locale: NS,
+            label: function () { return t('view') }
           }, GraphBody)
         })
       }, 'graph-view:tab')
     }
 
     exports.name = 'explore-graph-view'
-    exports.inject = ['slots']
+    exports.inject = ['slots', 'locale']
     exports.apply = apply
     exports.GraphBody = GraphBody
     return module.exports
