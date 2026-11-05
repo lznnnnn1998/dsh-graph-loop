@@ -23,14 +23,21 @@ Local working repo. Nothing here edits the DSH checkout; the driver is loaded th
       (`n_discover → n_inspect → n_done`), `turn/end completed`
 - [x] **E2E installed bundle**: profile created from the headless template, `dsh plugin add
       packages/loop`, same task → 3 graph steps, exit 0
-- [x] 36 pure unit tests green
+- [x] 62 pure unit tests green
 - [x] Composition evidence: `--dump-config` shows stock row disabled + graph rows inserted
       (installed profile), and `preset-explore` present with bundle A
 
-## In progress
+## Just landed
 
-- [ ] Kernel: minimal stepwise + LangGraph adapter (impl-kernel, running)
-- [ ] Kernel wiring: `graph_run` tool / subagent-node plans
+- [x] Kernel: minimal stepwise + LangGraph 1.7 adapter behind `KernelPort`
+      (`packages/loop/src/kernel/`), 26 tests incl. one-node-per-`next()` semantics,
+      JSON checkpoint guard, budget mapping, fallback when LangGraph is absent
+- [x] `lib/kernel.js` built and exported
+
+## Not wired yet
+
+- [ ] `graph_run` tool using `runPlan` (kernel is implemented and tested, the tool is not)
+- [ ] Subagent-node plans + replan execution
 
 ## Not implemented yet (known gaps)
 
@@ -49,7 +56,7 @@ Local working repo. Nothing here edits the DSH checkout; the driver is loaded th
 ```sh
 bash scripts/link-dsh.sh                    # after any npm install
 npm run typecheck                           # NODE_OPTIONS=8GB + tsc
-npm test                                    # 36 unit tests
+npm test                                    # 62 unit tests
 npm run e2e                                 # dev overlay + mock LLM
 bash scripts/e2e-installed.sh               # installed bundle + mock LLM
 node scripts/build-bundles.mjs              # rebuild lib/
