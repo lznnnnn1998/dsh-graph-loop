@@ -58,6 +58,7 @@ import {
   cloneSpec,
   createCheckpoint,
   hooksOf,
+  isAborted,
   mergeState,
   rebuildBuilder,
   resolveTopology,
@@ -215,7 +216,7 @@ async function* runMinimalStream<S extends StateObject>(
   const emitInterrupt = (interrupt: InterruptRecord): GraphEvent<S> => ({ type: 'interrupt', interrupt })
 
   while (current !== null) {
-    if (signal?.aborted === true) {
+    if (isAborted(signal)) {
       status = 'aborted'
       break
     }
@@ -253,7 +254,7 @@ async function* runMinimalStream<S extends StateObject>(
 
     let update: JsonUpdate
     try {
-      const run = nodeRunStream(spec, node, state, stepIndex, signal, validate, determinism, threadId)
+      const run = nodeRunStream(node, state, stepIndex, signal, validate, determinism, threadId)
       let next = await run.next()
       while (next.done !== true) {
         yield { type: 'custom', node: current, chunk: next.value }
@@ -263,7 +264,7 @@ async function* runMinimalStream<S extends StateObject>(
     } catch (error) {
       const kernelError = asKernelError(error, current)
       yield { type: 'node/error', step: stepIndex, node: current, error: kernelError }
-      if (signal?.aborted === true) {
+      if (isAborted(signal)) {
         status = 'aborted'
         break
       }
@@ -286,7 +287,7 @@ async function* runMinimalStream<S extends StateObject>(
         })
       }
       const branchState = mergeState(merged, branch.input)
-      const branchUpdate = await runNodeOnce(spec, branchNode, branchState, stepIndex, signal, validate, determinism, threadId)
+      const branchUpdate = await runNodeOnce(branchNode, branchState, stepIndex, signal, validate, determinism, threadId)
       merged = mergeState(merged, branchUpdate)
       if (validate) assertJson(merged, `state after fan-out branch "${branch.node}"`, branch.node)
       ranNodes.push(branchNode.id)
@@ -297,7 +298,7 @@ async function* runMinimalStream<S extends StateObject>(
     yield { type: 'node/end', step: stepIndex, node: current, update }
 
     steps += 1
-    const nextTargets = successorTargets(topology, current, state)
+    const nextTargets: readonly NodeId[] = successorTargets(topology, current, state)
     const boundary: SuperstepBoundary = {
       step: stepIndex + 1,
       completedNodes: ranNodes,
@@ -403,7 +404,6 @@ async function sleep(ms: number): Promise<void> {
  * The sentinel queue keeps streaming live without polling.
  */
 async function* nodeRunStream<S extends StateObject>(
-  spec: GraphSpec<S>,
   node: NodeSpec<S>,
   state: S,
   step: number,
@@ -472,7 +472,6 @@ async function* nodeRunStream<S extends StateObject>(
 }
 
 async function runNodeOnce<S extends StateObject>(
-  spec: GraphSpec<S>,
   node: NodeRunnerSpec<S>,
   state: S,
   step: number,
@@ -481,7 +480,7 @@ async function runNodeOnce<S extends StateObject>(
   determinism: DeterminismHooks,
   threadId: string,
 ): Promise<JsonUpdate> {
-  const run = nodeRunStream(spec, node, state, step, signal, validate, determinism, threadId)
+  const run = nodeRunStream(node, state, step, signal, validate, determinism, threadId)
   let next = await run.next()
   while (next.done !== true) next = await run.next()
   if (validate) assertJson(next.value, `update from "${node.id}"`, node.id)
@@ -515,16 +514,31 @@ export class MinimalKernel implements KernelPort {
   }
 
   compile(plan: TaskPlan, state: GraphState): KernelRunHandle {
-    return new MinimalRunHandle(this.deps, plan, state)
+    return new MinimalRunHandle(this.deps, plan, state, false)
   }
 
+  /** Identical to `compile`; the caller passes the folded/paused state. The
+   *  first `next()` skips `pauseWhen` once because the host explicitly resumed. */
   resume(plan: TaskPlan, state: GraphState): KernelRunHandle {
-    return new MinimalRunHandle(this.deps, plan, state)
+    return new MinimalRunHandle(this.deps, plan, state, true)
   }
 }
 
 export function createMinimalKernel(deps?: KernelDeps): MinimalKernel {
   return new MinimalKernel(deps)
+}
+
+/**
+ * Build a run handle from already-resolved deps. Used by `langgraph.ts` when
+ * the LangGraph module is missing (fallback) and by tests.
+ */
+export function createMinimalRunHandle(
+  deps: ResolvedKernelDeps,
+  plan: TaskPlan,
+  state: GraphState,
+  resumed = false,
+): KernelRunHandle {
+  return new MinimalRunHandle(deps, plan, state, resumed)
 }
 
 class MinimalRunHandle implements KernelRunHandle {
@@ -538,11 +552,12 @@ class MinimalRunHandle implements KernelRunHandle {
   private readonly abort = new AbortController()
   private skipPauseOnce = false
 
-  constructor(deps: ResolvedKernelDeps, plan: TaskPlan, state: GraphState) {
+  constructor(deps: ResolvedKernelDeps, plan: TaskPlan, state: GraphState, resumed: boolean) {
     this.deps = deps
     this.plan = plan
     this.state = state
     this.planId = plan.id
+    this.skipPauseOnce = resumed
     this.runId = `${plan.id}#${deps.determinism.newId()}`
   }
 
@@ -568,6 +583,13 @@ class MinimalRunHandle implements KernelRunHandle {
       )
     }
 
+    // No next node => the run is done; a pause is only meaningful at a
+    // boundary that has a node to run after it.
+    const nodeId = this.currentNodeId()
+    if (nodeId === null) {
+      return this.settle({ kind: 'done', state: this.state, terminal: this.state.next ?? END })
+    }
+
     if (!this.skipPauseOnce) {
       const pause = this.deps.pauseWhen?.(this.state)
       if (pause !== undefined) {
@@ -585,11 +607,6 @@ class MinimalRunHandle implements KernelRunHandle {
           retryable: false,
         }),
       )
-    }
-
-    const nodeId = this.currentNodeId()
-    if (nodeId === null) {
-      return this.settle({ kind: 'done', state: this.state, terminal: END })
     }
 
     let executed

@@ -50,14 +50,6 @@
       "optional": true
     }
   },
-  "devDependencies": {
-    "@deepseek-ai/cordis": "*",
-    "@deepseek-ai/dsh-agent": "*",
-    "@deepseek-ai/dsh-llm": "*",
-    "@deepseek-ai/dsh-session": "*",
-    "@deepseek-ai/dsh-system-prompt": "*",
-    "@deepseek-ai/dsh-tools": "*"
-  },
   "scripts": {
     "build": "node ../../scripts/build-bundles.mjs"
   }
