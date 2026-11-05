@@ -92,6 +92,7 @@ Local working repo. Nothing here edits the DSH checkout; the driver is loaded th
       `scripts/preview.mjs` renders `preview/index.html` (SVG topology + information flow + node inspector,
       roots first, child turns labelled). Open the generated file directly.
 - [x] 73 unit tests + 10 e2e suites green
+- [x] `publint` on all four packages (one stale export fixed); DSH built-in vitest harness sampled (44/44).
 - [x] Compliance audit (`docs/COMPLIANCE.md`): package READMEs, license, single-row Web surface,
       locale-owned client copy, built `lib/client.js`, config fields for triage/max steps/trace limit,
       fail-loud asset/body handling, plugin-level unknown casts removed.
