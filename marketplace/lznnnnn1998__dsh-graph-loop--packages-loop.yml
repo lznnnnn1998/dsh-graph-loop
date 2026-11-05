@@ -1,0 +1,6 @@
+url: https://github.com/lznnnnn1998/dsh-graph-loop/tree/main/packages/loop
+name: lznnnnn1998/dsh-graph-loop#loop
+category: workflow
+description:
+  en: 'Graph-native agent loop for DSH: each turn runs a topology synthesized from the live tool graph, with boundary replanning and parallel subagent nodes, and replaces the stock agent-loop row when installed.'
+  zh: '面向 DSH 的图式 agent loop：每轮根据实时工具图生成拓扑，支持边界重规划与并行 subagent 节点；安装后替换内置 agent-loop 行。'
