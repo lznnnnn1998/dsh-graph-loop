@@ -1,6 +1,6 @@
 {
   "name": "dsh-graph-loop",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "exports": {
     ".": "./lib/index.js",

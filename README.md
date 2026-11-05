@@ -28,6 +28,7 @@ bash scripts/ab-structural.sh       # structural A/B (mock; AB_REAL=1 for the re
 dsh plugin --profile web add dsh-graph-loop-ui
 dsh plugin --profile web add dsh-graph-loop
 # or from a checkout: bash scripts/install-explore.sh
+# repo: https://github.com/lznnnnn1998/dsh-graph-loop · packages: see docs/PUBLISHING.md
 node scripts/preview.mjs /tmp/dsh-graph-traces preview   # offline topology preview
 # Web UI: install packages/loop + packages/graph-ui, then open any session and click the Graph tab
 node scripts/build-bundles.mjs      # rebuild packages/*/lib
