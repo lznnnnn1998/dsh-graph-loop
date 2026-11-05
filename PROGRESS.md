@@ -1,43 +1,68 @@
 # Build progress — DSH `explore` graph loop
 
-Local working repo. Nothing here edits the DSH checkout; it is loaded through
+Local working repo. Nothing here edits the DSH checkout; the driver is loaded through
 `--patch` (dev) or installed as a bundle (release).
 
-## Status
+## Working today (verified by running)
 
-- [x] Local git repo, npm workspace, TS toolchain, DSH package symlinks (`scripts/link-dsh.sh`)
-- [x] Frozen core model: graph-schema / matching / replan / kernel / runtime / conformance (compiles)
-- [x] Step graph executor (`packages/core/src/step-graph.ts`) + unit tests
-- [x] Forked `agent-loop` (2,122 LOC) with graph turn driver seam
-- [x] Registry row (live capability graph from `ctx.tools`, rebuild on `tools/change`)
-- [x] Router row (curated template library: investigate / edit-test / research / stock fallback)
-- [x] Graph driver row (`AgentLoop` + per-turn `createGraphTurnDriver`)
+- [x] npm workspace + TS toolchain + DSH package symlinks (`scripts/link-dsh.sh`)
+- [x] Core: graph schema / matcher / replan / kernel interface / conformance contracts
+- [x] Core: deterministic registry builder (`packages/core/src/registry.ts`, impl-core)
+- [x] Core: 6-template library incl. `t_stock` fallback (`packages/core/src/templates.ts`)
+- [x] Core: step-graph executor + tests (`packages/core/src/step-graph.ts`)
+- [x] Forked `agent-loop` (2,122 LOC) with a graph turn-driver seam
+- [x] Registry row: live capability graph from `ctx.tools`, rebuild on `tools/change`
+- [x] Router row: wires the template library into the driver
+- [x] Driver row: per-turn match → plan → one graph node per DSH step
 - [x] `graph_status` tool row
-- [x] Dev overlay `packages/loop/dev.patch.yml` (absolute paths, no install)
-- [x] **End-to-end**: headless profile + scripted mock LLM, 3 graph nodes (`n_discover → n_read → n_done`), `turn/end completed`
-- [ ] Kernel: minimal stepwise + LangGraph adapter (impl-kernel)
-- [ ] Core registry builder + template library (impl-core) — current fallback lives in `packages/loop/src/{registry,router}.ts`
-- [ ] Bundle A: `explore` preset + policy + `suggest_executor` + spawn guard (bundle-architect)
-- [ ] Bundle B: package install + `--dump-config` verification (needs built JS)
-- [ ] Conformance suite (16 obligations) + replay diff
-- [ ] Token A/B against baseline
-- [ ] Docs: README quickstart, architecture, limitations
+- [x] Bundle A (`packages/mode`): `explore` preset + policy section + roster context +
+      `suggest_executor` + `spawn_teammate` duplicate guard (13 tests)
+- [x] Bundle B (`packages/loop`): disables `agent-loop`, inserts the graph driver
+- [x] Release build: esbuild → `packages/*/lib/*.js` (core bundled, DSH packages external)
+- [x] **E2E dev overlay**: headless profile + mock LLM → 3 graph nodes
+      (`n_discover → n_inspect → n_done`), `turn/end completed`
+- [x] **E2E installed bundle**: profile created from the headless template, `dsh plugin add
+      packages/loop`, same task → 3 graph steps, exit 0
+- [x] 36 pure unit tests green
+- [x] Composition evidence: `--dump-config` shows stock row disabled + graph rows inserted
+      (installed profile), and `preset-explore` present with bundle A
+
+## In progress
+
+- [ ] Kernel: minimal stepwise + LangGraph adapter (impl-kernel, running)
+- [ ] Kernel wiring: `graph_run` tool / subagent-node plans
+
+## Not implemented yet (known gaps)
+
+- Node `toolAllow` is soft (instruction only); the tool schemas are not gated per node.
+  This is deliberate for v1 because per-step hard gating loses on KV-cache (research/04).
+- Node instructions are injected as a logged user message (one per step). A later
+  iteration should use a scoped prompt section to avoid history growth.
+- Subagent nodes + replan are designed but not wired into the driver.
+- No conformance replay-diff suite yet (16 obligations are documented in
+  `packages/core/src/conformance.ts`; tests for them are pending).
+- Cross-loop session resume (stock → graph) is not tested.
+- The `graph_run` tool (run a full plan inside one tool call) is not implemented.
 
 ## Commands
 
 ```sh
-bash scripts/link-dsh.sh                 # after any npm install
-npx tsc -p tsconfig.json --noEmit        # typecheck
-node --import tsx --test test/unit/*.test.ts
-bash scripts/e2e-headless.sh             # real DSH headless + mock LLM
+bash scripts/link-dsh.sh                    # after any npm install
+npm run typecheck                           # NODE_OPTIONS=8GB + tsc
+npm test                                    # 36 unit tests
+npm run e2e                                 # dev overlay + mock LLM
+bash scripts/e2e-installed.sh               # installed bundle + mock LLM
+node scripts/build-bundles.mjs              # rebuild lib/
 ```
 
-## Known gaps (honest)
+## Reproduce the composition
 
-- The driver currently injects each node instruction as a logged user message; a later
-  iteration should use a scoped prompt section to avoid history growth.
-- Tool gating is soft (instruction only); `toolAllow` is not enforced yet.
-- Subagent nodes and replan are designed (`design/runtime.ts`, `design/replan.ts`) but not wired.
-- The LangGraph adapter is being implemented behind `KernelPort`; the default is the minimal kernel.
-- Bundle B still needs a JS build before it can be installed into a profile by package name;
-  dev uses absolute `.ts` paths via the overlay.
+```sh
+cd /path/to/deepseek-harness
+DSH_HOME=/tmp/dsh-explore node --import tsx/esm apps/cli/src/bin.ts \
+  --profile explore --from-default-profile headless --dump-config
+DSH_HOME=/tmp/dsh-explore node --import tsx/esm apps/cli/src/bin.ts \
+  plugin --profile explore add /path/to/dsh-graph-loop/packages/loop
+DSH_HOME=/tmp/dsh-explore node --import tsx/esm apps/cli/src/bin.ts \
+  --profile explore --dump-config | grep -A3 'graph-loop'
+```

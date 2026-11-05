@@ -9,13 +9,14 @@ which runs one compiled graph node per DSH step. No DSH source is modified.
 - Design contracts: [`design/`](design/)
 - Build status: [`PROGRESS.md`](PROGRESS.md)
 
-## Quick start (dev overlay, no install)
+## Quick start
 
 ```sh
-bash scripts/link-dsh.sh
-npx tsc -p tsconfig.json --noEmit
-node --import tsx --test test/unit/*.test.ts
-bash scripts/e2e-headless.sh
+bash scripts/link-dsh.sh            # link the read-only DSH checkout packages
+npm test                            # 36 unit tests
+npm run e2e                         # dev overlay + mock LLM (3 graph nodes)
+bash scripts/e2e-installed.sh       # install bundle B into a throwaway profile and run
+node scripts/build-bundles.mjs      # rebuild packages/*/lib
 ```
 
 To boot the Web UI with the graph driver from a DSH source checkout:
