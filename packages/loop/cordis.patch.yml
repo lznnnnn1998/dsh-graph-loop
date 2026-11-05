@@ -28,14 +28,6 @@
         agents: []
         topology: dynamic
 
-    - id: graph-chat
-      name: '@dsh/explore-loop/graph-chat'
-      config:
-        # The page inherits the route of a live root agent; these defaults let a
-        # fresh profile start a graph chat without one.
-        preset: standard
-        provider: deepseek-official
-        model: deepseek-flash
 
 
 

@@ -24,6 +24,8 @@ export interface Config {
   maxProposals?: number
   /** Directory for per-turn topology traces consumed by `scripts/preview.mjs`. Empty disables. */
   traceDir?: string
+  /** Maximum completed turn traces kept in memory per session. Defaults to 20. */
+  traceLimit?: number
 }
 
 type GraphRuntimeService = {
@@ -56,11 +58,13 @@ export class GraphRuntime extends Service implements GraphRuntimeService {
   private readonly listeners = new Map<string, Set<(payload: { snapshot: unknown; turns: readonly unknown[] }) => void>>()
   private readonly maxProposals: number
   private readonly traceDir: string
+  private readonly traceLimit: number
 
   constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'graphRuntime')
     this.maxProposals = config.maxProposals ?? 1
     this.traceDir = config.traceDir ?? ''
+    this.traceLimit = config.traceLimit ?? 20
   }
 
   setProposal(sessionId: string, plan: TaskPlan): void {

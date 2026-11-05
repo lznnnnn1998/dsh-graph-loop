@@ -1,6 +1,10 @@
-# @dsh/explore-graph-ui — one host row that carries the Web client bundle.
-# The row exists so client-modules can find exactly one active Loader source for
-# this package; the host plugin itself is a no-op.
+# @dsh/explore-graph-ui — one row owns both the Graph tab client bundle and the
+# /graph-chat page/API. client-modules rejects two active Loader sources for one
+# client package, so the host surface must not get its own row.
 - insert:
     - id: graph-ui
       name: '@dsh/explore-graph-ui'
+      config:
+        preset: standard
+        provider: deepseek-official
+        model: deepseek-flash

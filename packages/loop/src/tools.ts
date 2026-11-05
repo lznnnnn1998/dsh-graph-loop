@@ -6,6 +6,7 @@
  * driver adopts it at the next step boundary. `graph_status` reports the run.
  */
 import type { Context } from '@deepseek-ai/cordis'
+import { buildRegistrySnapshot } from '@dsh/explore-core/registry'
 import type { JsonSchemaNode, ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { GRAPH_PROPOSAL_SCHEMA, validateProposal } from '@dsh/explore-core/proposal'
 import type { RegistryGraph } from '@dsh/explore-core/graph-schema'
@@ -27,7 +28,7 @@ interface RuntimeLike {
 }
 
 function service<T>(ctx: Context, key: string): T | undefined {
-  return (ctx as unknown as { get(name: string): unknown }).get(key) as T | undefined
+  return ctx.get(key) as T | undefined
 }
 
 function toolSchemas(graph: RegistryGraph): string[] {
@@ -84,16 +85,20 @@ function buildStatus(ctx: Context): ToolDefinition {
       // Prefer the calling agent's scoped tool view; the host view can be empty
       // when every tool lives in a preset/agent scope.
       const agent = exec.agent
-      const scoped = agent === undefined
-        ? undefined
-        : (ctx as unknown as { tools: { definitions(scope?: object): readonly { name: string }[] } }).tools
-          .definitions(agent as unknown as object)
+      const scoped = agent === undefined ? undefined : ctx.tools.definitions(agent)
       if (scoped !== undefined && scoped.length > 0) {
+        const snapshot = buildRegistrySnapshot({
+          tools: scoped.map(definition => ({
+            name: definition.name,
+            description: definition.description,
+            parameters: definition.parameters as Readonly<Record<string, unknown>>,
+          })),
+        })
         return Promise.resolve({
           mode: 'explore',
-          graphTools: scoped.length,
-          graphDigest: 'agent-scoped',
-          warnings: ['digest unavailable for the agent-scoped view'],
+          graphTools: snapshot.graph.nodes.length,
+          graphDigest: snapshot.digest,
+          warnings: snapshot.warnings,
           templates: (router?.templates().templates ?? []).map(template => template.id),
         })
       }
@@ -123,7 +128,7 @@ function buildPlanTool(ctx: Context): ToolDefinition {
       'Replace the remaining run topology with a node/edge graph over the available capabilities. '
       + 'Call it once the task shape is clear; the harness validates the graph and adopts it at the next step. '
       + 'Nodes are tool calls, agent steps or a terminal answer; edges may branch or loop (bounded by the step budget).',
-    parameters: GRAPH_PROPOSAL_SCHEMA as unknown as Record<string, unknown>,
+    parameters: GRAPH_PROPOSAL_SCHEMA as Record<string, unknown>,
     output: {
       schema: PLAN_SCHEMA,
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],

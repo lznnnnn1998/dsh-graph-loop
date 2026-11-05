@@ -104,6 +104,8 @@ export interface GraphTurnDriverOptions {
   readonly presetId?: string
   readonly fallbackInstruction?: string
   readonly maxSteps?: number
+  /** Text length below which a trivial task gets the single-node plan. */
+  readonly trivialChars?: number
   /** False for subagent children: no nested fan-out. */
   readonly allowSubagents?: boolean
   /** Force the single-node fallback plan (used for subagent children). */
@@ -145,6 +147,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
   const cooccurrence = toCooccurrenceTable(options.cooccurrence)
   const presetId = options.presetId ?? 'explore'
   const maxSteps = options.maxSteps ?? 24
+  const trivialChars = options.trivialChars ?? 32
   const liveGraph = async (): Promise<RegistryGraph | undefined> => await options.graphProvider?.() ?? currentGraph
   const liveTemplates = (): TemplateLibrary | undefined => options.templatesProvider?.() ?? currentTemplates
 
@@ -226,7 +229,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
 
       // Triage: a trivial task does not deserve a synthesized graph. One step
       // keeps short chats at stock-loop cost instead of paying plan overhead.
-      const trivial = task.text.trim().length > 0 && task.text.trim().length < 32
+      const trivial = task.text.trim().length > 0 && task.text.trim().length < trivialChars
         && fingerprint.intent === 'other'
         && !fingerprint.mutating
         && fingerprint.artifactsIn.length === 0

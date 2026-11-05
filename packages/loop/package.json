@@ -12,12 +12,10 @@
     "./scheduler": "./lib/scheduler.js",
     "./kernel": "./lib/kernel.js",
     "./runtime": "./lib/runtime.js",
-    "./graph-chat": "./lib/graph-chat.js",
     "./client": "./client/graph-view.js"
   },
   "files": [
     "lib",
-    "assets",
     "cordis.patch.yml"
   ],
   "scripts": {

@@ -39,10 +39,11 @@ export const name = 'explore-graph-chat'
 export const inject = ['webServer', 'sessions', 'agents']
 
 const PAGE = (() => {
+  const url = new URL('../assets/graph-chat.html', import.meta.url)
   try {
-    return readFileSync(new URL('../assets/graph-chat.html', import.meta.url), 'utf8')
-  } catch {
-    return '<!doctype html><h1>graph-chat asset missing</h1>'
+    return readFileSync(url, 'utf8')
+  } catch (error) {
+    throw new Error(`graph-chat: cannot read page asset ${url.pathname}; rebuild the package`, { cause: error })
   }
 })()
 
@@ -70,13 +71,18 @@ function json(res: ServerResponse, status: number, value: unknown): void {
   res.end(body)
 }
 
-async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+async function readBody(req: IncomingMessage): Promise<Record<string, unknown> | undefined> {
   const chunks: Buffer[] = []
   for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+  const text = Buffer.concat(chunks).toString('utf8')
+  if (text.trim() === '') return {}
   try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>
+    const parsed: unknown = JSON.parse(text)
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : undefined
   } catch {
-    return {}
+    return undefined
   }
 }
 
@@ -85,11 +91,13 @@ function textOf(message: { content: readonly { type: string; text?: string }[] }
 }
 
 function service<T>(ctx: Context, key: string): T | undefined {
-  return (ctx as unknown as { get(name: string): unknown }).get(key) as T | undefined
+  return ctx.get(key) as T | undefined
 }
 
 /** Host-scoped graph-chat page and JSON API. */
 export class GraphChat extends Service {
+  static inject = ['webServer', 'sessions', 'agents']
+
   private readonly base: string
   private readonly fallback: { provider: string; model: string } | undefined
   private readonly preset: string | undefined
@@ -222,6 +230,7 @@ export class GraphChat extends Service {
       return
     }
     const body = await readBody(req)
+    if (body === undefined) { json(res, 400, { error: 'request body must be a JSON object' }); return }
     const route = typeof body.provider === 'string' && typeof body.model === 'string'
       ? { provider: body.provider, model: body.model }
       : agents.roots().map(root => root.model?.current()).find(selection => selection !== undefined) ?? this.fallback
@@ -248,6 +257,7 @@ export class GraphChat extends Service {
 
   private async send(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const body = await readBody(req)
+    if (body === undefined) { json(res, 400, { error: 'request body must be a JSON object' }); return }
     const sessionId = typeof body.sessionId === 'string' ? body.sessionId : ''
     const text = typeof body.text === 'string' ? body.text.trim() : ''
     const agent = this.agents()?.get(brandString<SessionId>(sessionId))
