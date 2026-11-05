@@ -9,7 +9,11 @@
     "typecheck": "NODE_OPTIONS=--max-old-space-size=8192 tsc -p tsconfig.json --noEmit",
     "test": "node --import tsx --test test/unit/*.test.ts",
     "build": "tsc -p tsconfig.build.json",
-    "e2e": "bash scripts/e2e-headless.sh"
+    "e2e": "bash scripts/e2e-headless.sh",
+    "e2e:propose": "bash scripts/e2e-propose.sh",
+    "e2e:subagents": "bash scripts/e2e-subagents.sh",
+    "e2e:replan": "bash scripts/e2e-replan.sh",
+    "preview": "node scripts/preview.mjs /tmp/dsh-graph-traces preview"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

@@ -23,9 +23,12 @@ end-to-end, but the "not implemented" list below is real.
 
 ## Verified by running
 
-- `npm test` — 70 unit tests (core registry/templates, matcher→plan, step graph, scheduler, reuse scoring/guard, kernel minimal + LangGraph).
+- `npm test` — 71 unit tests (core registry/templates, matcher→plan, step graph, scheduler, reuse scoring/guard, kernel minimal + LangGraph).
 - `npm run e2e` — real DSH headless profile with `--patch`, scripted mock LLM:
   `turn/start → 3 × step/start → 3 × "[graph node …]" → turn/end completed`.
+- `scripts/e2e-subagents.sh` — parallel subagent branches (`{d_search,d_fetch}`) in one turn.
+- `scripts/e2e-replan.sh` — `bash` verify fails → recovery subgraph runs.
+- `scripts/preview.mjs /tmp/dsh-graph-traces preview` — topology preview panel.
 - `bash scripts/e2e-installed.sh` — creates a profile from the headless template,
   `dsh plugin add packages/loop`, runs the same task through the installed bundle
   (no `--patch`), same result.
@@ -54,6 +57,7 @@ Subagent nodes are designed but not wired yet, so **do not read this table as a 
 3. **Subagent nodes / parallel fan-out / replan execution** — designed in
    `design/runtime.ts` and `design/replan.ts`, not wired into the driver.
 4. **`graph_run` tool** — run a full plan inside one tool call using `runPlan`.
+4b. **Replan triggers are narrow** — only verify-tool failure; unexpected-artifact/budget triggers are not wired.
 5. **Conformance replay-diff** — the 16 obligations are documented in
    `packages/core/src/conformance.ts`; the automated diff is not built.
 6. **Cross-loop resume** — a stock-written session resumed by the graph driver is untested.

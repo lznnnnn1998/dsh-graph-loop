@@ -22,7 +22,7 @@ import {
   type TaskFingerprint,
   type TemplateLibrary,
 } from '@dsh/explore-core/matching'
-import { FrontierTopology, bootstrapTopology, synthesizeTopology, type TopologyMode } from '@dsh/explore-core/topology'
+import { FrontierTopology, bootstrapTopology, recoveryTopology, synthesizeTopology, type TopologyMode } from '@dsh/explore-core/topology'
 import { fallbackPlan } from '@dsh/explore-core/step-graph'
 
 export type { TopologyMode }
@@ -51,15 +51,30 @@ export interface GraphTurnSnapshot {
   readonly status: PlanStatus
   readonly visited: readonly string[]
   readonly rationale: readonly string[]
+  /** One row per executed (or attempted) plan node, in run order. */
+  readonly trail: readonly {
+    readonly id: string
+    readonly step: number
+    readonly executor: string
+    readonly status: 'ok' | 'failed'
+  }[]
+  readonly depth?: number
+  readonly replans?: number
 }
 
 export interface GraphTurnDriver {
   beginTurn(task: TurnTask): GraphTurnSnapshot
   current(): PlanNode | undefined
   instruction(): string | undefined
-  advance(outcome: { readonly ok: boolean }): GraphTurnSnapshot
+  advance(outcome: { readonly ok: boolean; readonly failedTool?: string }): GraphTurnSnapshot
   adopt(plan: TaskPlan): void
+  /** Detach and return all queued subagent nodes (parallel batch). */
+  takeSubagentBatch(): PlanNode[]
+  /** Complete one node from a batch, with its outcome. */
+  completeNode(id: string, ok: boolean): void
   done(): boolean
+  /** Called once by the driver after `turn/end`; flushes the trace. */
+  endTurn(): void
   snapshot(): GraphTurnSnapshot
 }
 
@@ -84,7 +99,12 @@ export interface GraphTurnDriverOptions {
   readonly presetId?: string
   readonly fallbackInstruction?: string
   readonly maxSteps?: number
+  /** False for subagent children: no nested fan-out. */
+  readonly allowSubagents?: boolean
+  /** Delegation depth (0 for a root agent), included in the trace. */
+  readonly depth?: number
   readonly onSnapshot?: (snapshot: GraphTurnSnapshot) => void
+  readonly onTurnEnd?: (snapshot: GraphTurnSnapshot) => void
 }
 
 function emptyWorkspace(): TaskFingerprint['workspace'] {
@@ -104,6 +124,8 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
   const mode: TopologyMode = options.mode ?? 'template'
   const adoptPolicy: AdoptPolicy = options.adoptPolicy ?? 'start-only'
   let adoptedAtStep: number | undefined
+  let trail: { id: string; step: number; executor: string; status: 'ok' | 'failed' }[] = []
+  let replans = 0
   let currentGraph = options.graph
   let currentTemplates = options.templates
   const weights = options.weights ?? DEFAULT_WEIGHTS
@@ -139,6 +161,9 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       status: topology?.status() ?? 'failed',
       visited: [...(topology?.snapshot().nodes.map(node => node.id) ?? [])].slice(0, topology?.steps() ?? 0),
       rationale,
+      trail: [...trail],
+      replans,
+      depth: options.depth ?? 0,
     }
   }
 
@@ -162,6 +187,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       topology = undefined
       lastNode = undefined
       rationale = []
+      trail = []
       const graph = liveGraph()
       const surface = task.surface ?? 'api'
       const fingerprint = extractFingerprint({
@@ -186,6 +212,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
             fingerprint,
             graph,
             presetTools: presetToolsOf(graph, task),
+            allowSubagents: options.allowSubagents !== false,
             budget: { maxSteps },
           })
           install(synthesized.plan)
@@ -227,10 +254,28 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     instruction(): string | undefined {
       return topology?.current()?.instruction
     },
-    advance(outcome: { readonly ok: boolean }): GraphTurnSnapshot {
+    advance(outcome: { readonly ok: boolean; readonly failedTool?: string }): GraphTurnSnapshot {
       if (topology === undefined) return snapshot()
-      lastNode = topology.current()?.id ?? lastNode
-      topology.advance({ ok: outcome.ok })
+      const node = topology.current()
+      lastNode = node?.id ?? lastNode
+      if (node !== undefined) {
+        trail.push({ id: node.id, step: topology.steps() + 1, executor: node.executor ?? 'step', status: outcome.ok ? 'ok' : 'failed' })
+      }
+      topology.advance({ ok: outcome.ok, ...(outcome.failedTool === undefined ? {} : { failedTool: outcome.failedTool }) })
+      // Boundary replan: a failed work node gets a small diagnosis/retry graph.
+      if (!outcome.ok && topology.status() === 'failed') {
+        const maxReplans = plan?.budget.maxReplans ?? 0
+        if (replans < maxReplans) {
+          replans += 1
+          install(recoveryTopology({
+            taskHash: plan?.id ?? 'unknown',
+            failedNode: lastNode ?? 'unknown',
+            ...(outcome.failedTool === undefined ? {} : { failedTool: outcome.failedTool }),
+            budget: plan?.budget,
+          }))
+          rationale = [...rationale, `replan ${replans}: recovery after ${lastNode ?? 'failure'}`]
+        }
+      }
       // A model-authored proposal can arrive between steps. The default policy
       // treats topology as a turn-start decision: adopt only before the first
       // work node completes. `always` is an explicit opt-in to mid-run edits.
@@ -256,8 +301,35 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       install(next)
       rationale = [...rationale, 'topology replaced']
     },
+    takeSubagentBatch(): PlanNode[] {
+      if (topology === undefined) return []
+      const detached: PlanNode[] = []
+      // The node already peeked as current is the batch leader; the frontier's
+      // queued subagent nodes are the rest of the parallel branch.
+      const leader = topology.current()
+      if (leader?.executor === 'subagent') detached.push(leader)
+      for (const node of topology.pendingNodes()) {
+        if (node.executor !== 'subagent') continue
+        const taken = topology.detach(node.id)
+        if (taken !== undefined) detached.push(taken)
+      }
+      return detached
+    },
+    completeNode(id: string, ok: boolean): void {
+      if (topology === undefined) return
+      const node = topology.select(id)
+      if (node !== undefined) {
+        trail.push({ id, step: topology.steps() + 1, executor: node.executor ?? 'step', status: ok ? 'ok' : 'failed' })
+      }
+      topology.advance({ ok })
+      lastNode = id
+      options.onSnapshot?.(snapshot())
+    },
     done(): boolean {
       return topology === undefined || topology.done()
+    },
+    endTurn(): void {
+      options.onTurnEnd?.(snapshot())
     },
     snapshot,
   }

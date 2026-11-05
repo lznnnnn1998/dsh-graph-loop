@@ -45,6 +45,8 @@ export interface SynthesizeInput {
   /** Tool names the active preset can actually see. */
   readonly presetTools: readonly string[]
   readonly budget?: Partial<TopologyBudget>
+  /** Child agents set this false so a fan-out cannot recurse into another fan-out. */
+  readonly allowSubagents?: boolean
 }
 
 export interface SynthesizedTopology {
@@ -183,27 +185,49 @@ export function synthesizeTopology(input: SynthesizeInput): SynthesizedTopology 
   } else if (wantsWeb) {
     const search = firstAvailable(graph, presetTools, ['web_search'])
     const fetch = firstAvailable(graph, presetTools, ['web_fetch'])
-    if (search !== undefined && fetch !== undefined) {
-      // Arbitrary shape: fan out, then join at the answer.
+    // Arbitrary shape: fan out to two fresh-context subagent nodes, join at the answer.
+    const allowSubagents = input.allowSubagents !== false
+    const answerId = 'd_answer'
+    if (!allowSubagents) {
       const searchId = 'd_search'
-      const fetchId = 'd_fetch'
-      nodes.push(node(searchId, search, toolInstruction(search, 'research')))
-      nodes.push(node(fetchId, fetch, toolInstruction(fetch, 'research')))
+      nodes.push(node(searchId, search ?? firstAvailable(graph, presetTools, ['read']) ?? 'read', toolInstruction(search ?? 'read', 'research')))
       link(cursor, searchId)
-      link(cursor, fetchId)
-      rationale.push('parallel research fan-out (search + fetch)')
-      const answerId = 'd_answer'
-      nodes.push({
-        id: answerId,
-        kind: 'terminal',
-        executor: 'step',
-        instruction: 'Synthesize the findings into the requested answer with citations; state uncertainty explicitly.',
-        toolAllow: [],
-      })
       link(searchId, answerId)
-      link(fetchId, answerId)
+      rationale.push('research in one context (child agent: no nested fan-out)')
+      nodes.push({ id: answerId, kind: 'terminal', executor: 'step', instruction: 'Answer with the evidence gathered above.', toolAllow: [] })
       return finish(input, nodes, edges, entry.id, [answerId], budget, rationale, 'dynamic')
     }
+    if (search !== undefined && fetch !== undefined) {
+      const searchId = 'd_search'
+      const fetchId = 'd_fetch'
+      nodes.push({ ...node(searchId, search, toolInstruction(search, 'research')), executor: 'subagent' })
+      nodes.push({ ...node(fetchId, fetch, toolInstruction(fetch, 'research')), executor: 'subagent' })
+      link(cursor, searchId)
+      link(cursor, fetchId)
+      rationale.push('parallel research fan-out (search + fetch subagents)')
+      link(searchId, answerId)
+      link(fetchId, answerId)
+    } else {
+      // No web tools in this preset: the same topology with two generic
+      // investigator subagents, so parallel branches still work.
+      const aId = 'd_research_a'
+      const bId = 'd_research_b'
+      nodes.push({ id: aId, kind: 'agent-step', executor: 'subagent', instruction: 'Investigate the first half of the research question. Report evidence with sources and uncertainty.' })
+      nodes.push({ id: bId, kind: 'agent-step', executor: 'subagent', instruction: 'Investigate the second half of the research question. Report evidence with sources and uncertainty.' })
+      link(cursor, aId)
+      link(cursor, bId)
+      rationale.push('parallel research fan-out (two investigator subagents)')
+      link(aId, answerId)
+      link(bId, answerId)
+    }
+    nodes.push({
+      id: answerId,
+      kind: 'terminal',
+      executor: 'step',
+      instruction: 'Synthesize the findings into the requested answer with citations; state uncertainty explicitly.',
+      toolAllow: [],
+    })
+    return finish(input, nodes, edges, entry.id, [answerId], budget, rationale, 'dynamic')
   } else {
     const reader = firstAvailable(graph, presetTools, ['read', 'read_image'])
     if (reader !== undefined) {
@@ -338,6 +362,27 @@ export class FrontierTopology {
     return undefined
   }
 
+  /** Peek the nodes currently queued (does not pop). */
+  pendingNodes(): readonly PlanNode[] {
+    return this.pending.map(id => this.nodeById.get(id)).filter((node): node is PlanNode => node !== undefined)
+  }
+
+  /** Remove a queued node so a batch can own its execution. */
+  detach(id: string): PlanNode | undefined {
+    const index = this.pending.indexOf(id)
+    if (index === -1) return undefined
+    this.pending.splice(index, 1)
+    return this.nodeById.get(id)
+  }
+
+  /** Make an already-detached node the current one (used by parallel batches). */
+  select(id: string): PlanNode | undefined {
+    const node = this.nodeById.get(id)
+    if (node === undefined) return undefined
+    this.currentId = id
+    return node
+  }
+
   advance(outcome: FrontierAdvance): PlanNode | undefined {
     const id = this.currentId
     this.currentId = undefined
@@ -424,5 +469,58 @@ export class FrontierTopology {
       edges: [...this.adjacency],
       compiledDigest: `${this.basePlan.compiledDigest}:v${this.mutations.length}`,
     }
+  }
+}
+
+
+/**
+ * Boundary replan: a small recovery graph built when a work node fails.
+ * Diagnosis is deliberately separate from retry so the retry sees the failure.
+ */
+export function recoveryTopology(input: {
+  readonly taskHash: string
+  readonly failedNode: string
+  readonly failedTool?: string
+  readonly budget?: Partial<TopologyBudget>
+}): TaskPlan {
+  const budget = { ...budgetOf(input.budget), maxReplans: 0 }
+  const nodes: PlanNode[] = [
+    {
+      id: 'r_diagnose',
+      kind: 'agent-step',
+      executor: 'step',
+      instruction: `A previous node (${input.failedNode}${input.failedTool ? ` via ${input.failedTool}` : ''}) failed. Diagnose the cause from the last error and the workspace; do not retry blindly.`,
+    },
+    {
+      id: 'r_retry',
+      kind: 'agent-step',
+      executor: 'step',
+      instruction: 'Apply the smallest correction identified by the diagnosis, then continue the task.',
+    },
+    {
+      id: 'r_answer',
+      kind: 'terminal',
+      executor: 'step',
+      instruction: 'Report what failed, what you changed, and the verified outcome. State any remaining risk.',
+      toolAllow: [],
+    },
+  ]
+  return {
+    id: `recovery:${input.taskHash}:${input.failedNode}`,
+    templateId: 'recovery',
+    version: 1,
+    entry: 'r_diagnose',
+    terminals: ['r_answer'],
+    nodes,
+    edges: [
+      { from: 'r_diagnose', to: 'r_retry', kind: 'control' },
+      { from: 'r_retry', to: 'r_answer', kind: 'control' },
+    ],
+    budget,
+    toolUniverse: [],
+    gatePolicy: 'cold',
+    fallback: true,
+    confidence: 0.4,
+    compiledDigest: `recovery:${input.taskHash}:${input.failedNode}`,
   }
 }

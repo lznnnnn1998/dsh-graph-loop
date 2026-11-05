@@ -97,3 +97,20 @@ test('propose mode starts from a frame and adopts a model-authored topology at t
   assert.equal(driver.current()?.id, 'p1')
   assert.ok(driver.snapshot().rationale.some(line => line.includes('adopted')))
 })
+
+test('a failed work node triggers a boundary recovery plan', () => {
+  const driver = createGraphTurnDriver({
+    mode: 'dynamic',
+    graphProvider: () => registry.graph,
+  })
+  const started = driver.beginTurn({ text: 'fix the failing test in the loader' })
+  assert.equal(started.templateId, 'dynamic')
+  assert.equal(driver.current()?.id, 'd_entry')
+  driver.advance({ ok: true })
+  // Fail the next work node; the scheduler must install a recovery topology.
+  driver.advance({ ok: false, failedTool: 'bash' })
+  const snapshot = driver.snapshot()
+  assert.equal(snapshot.replans, 1)
+  assert.equal(driver.current()?.id, 'r_diagnose')
+  assert.ok(snapshot.rationale.some(line => line.includes('replan 1')))
+})
