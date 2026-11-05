@@ -5,14 +5,13 @@
   "type": "module",
   "description": "Bundle A of the explore work: a fifth agent-preset mode over the stock agent loop, with a graph policy section and an idle-teammate reuse guard.",
   "exports": {
-    "./policy": "./src/policy.ts",
-    "./tools": "./src/tools.ts",
-    "./reuse": "./src/reuse.ts"
+    "./policy": "./lib/policy.js",
+    "./tools": "./lib/tools.js",
+    "./reuse": "./lib/reuse.js"
   },
   "files": [
-    "src",
-    "cordis.patch.yml",
-    "README.md"
+    "lib",
+    "cordis.patch.yml"
   ],
   "dsh": {
     "bundle": {
@@ -58,5 +57,8 @@
     "@deepseek-ai/dsh-session": "*",
     "@deepseek-ai/dsh-system-prompt": "*",
     "@deepseek-ai/dsh-tools": "*"
+  },
+  "scripts": {
+    "build": "node ../../scripts/build-bundles.mjs"
   }
 }

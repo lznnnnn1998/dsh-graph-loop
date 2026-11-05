@@ -34,7 +34,6 @@ import type {
   GraphOptions,
   InterruptRecord,
   JsonUpdate,
-  JsonValue,
   NodeFn,
   NodeId,
   NodePolicy,
@@ -145,7 +144,6 @@ export interface GraphSpec<S extends StateObject> {
 export type GraphCompileFn<S extends StateObject> = (
   spec: GraphSpec<S>,
   options: CompileOptions<S>,
-  compileOptions: CompileOptions<S>,
 ) => CompiledGraph<S>
 
 export function cloneSpec<S extends StateObject>(spec: GraphSpec<S>): GraphSpec<S> {
@@ -212,10 +210,31 @@ export class GraphBuilderImpl<S extends StateObject> implements GraphBuilder<S> 
   }
 
   compile<C extends CompiledGraph<S>>(options?: CompileOptions<S>): C {
-    const compileOptions = options ?? {}
-    const compiled = this.compileFn(cloneSpec(this.spec), compileOptions, compileOptions)
+    const compiled = this.compileFn(cloneSpec(this.spec), options ?? {})
     return compiled as C
   }
+}
+
+/** Re-create a builder seeded with an existing spec (used by `withTopology`). */
+export function rebuildBuilder<S extends StateObject>(
+  spec: GraphSpec<S>,
+  compileFn: GraphCompileFn<S>,
+): GraphBuilder<S> {
+  const builder = new GraphBuilderImpl<S>(
+    {
+      name: spec.name,
+      validateJson: spec.validateJson,
+      ...(spec.initialState === undefined ? {} : { initialState: spec.initialState }),
+    },
+    compileFn,
+  )
+  for (const node of spec.nodes) builder.addNode(node.id, node.run, node.policy)
+  for (const edge of spec.edges) builder.addEdge(edge.from, edge.to)
+  for (const conditional of spec.conditionals) {
+    builder.addConditionalEdge(conditional.from, conditional.router, conditional.ends)
+  }
+  for (const fanOut of spec.fanOuts) builder.addFanOut(fanOut.from, fanOut.router, fanOut.target)
+  return builder
 }
 
 /* ========================================================================== *
