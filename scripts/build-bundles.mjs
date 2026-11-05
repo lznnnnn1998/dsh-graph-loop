@@ -27,6 +27,7 @@ await buildPackage('packages/loop', {
   router: 'packages/loop/src/router.ts',
   runtime: 'packages/loop/src/runtime.ts',
   tools: 'packages/loop/src/tools.ts',
+  'graph-chat': 'packages/loop/src/graph-chat.ts',
   scheduler: 'packages/loop/src/scheduler.ts',
   kernel: 'packages/loop/src/kernel/index.ts',
 })

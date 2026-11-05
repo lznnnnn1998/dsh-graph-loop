@@ -78,9 +78,25 @@ function buildStatus(ctx: Context): ToolDefinition {
       schema: STATUS_SCHEMA,
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
     },
-    execute: (): Promise<Record<string, unknown>> => {
+    execute: (_args: unknown, exec): Promise<Record<string, unknown>> => {
       const registry = registryOf(ctx)
       const router = service<RouterLike>(ctx, 'graphRouter')
+      // Prefer the calling agent's scoped tool view; the host view can be empty
+      // when every tool lives in a preset/agent scope.
+      const agent = exec.agent
+      const scoped = agent === undefined
+        ? undefined
+        : (ctx as unknown as { tools: { definitions(scope?: object): readonly { name: string }[] } }).tools
+          .definitions(agent as unknown as object)
+      if (scoped !== undefined && scoped.length > 0) {
+        return Promise.resolve({
+          mode: 'explore',
+          graphTools: scoped.length,
+          graphDigest: 'agent-scoped',
+          warnings: ['digest unavailable for the agent-scoped view'],
+          templates: (router?.templates().templates ?? []).map(template => template.id),
+        })
+      }
       if (registry === undefined) {
         return Promise.resolve({ mode: 'unavailable', graphTools: 0, graphDigest: 'none', note: 'graphRegistry is not mounted' })
       }

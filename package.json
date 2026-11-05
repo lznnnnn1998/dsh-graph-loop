@@ -13,7 +13,8 @@
     "e2e:propose": "bash scripts/e2e-propose.sh",
     "e2e:subagents": "bash scripts/e2e-subagents.sh",
     "e2e:replan": "bash scripts/e2e-replan.sh",
-    "preview": "node scripts/preview.mjs /tmp/dsh-graph-traces preview"
+    "preview": "node scripts/preview.mjs /tmp/dsh-graph-traces preview",
+    "e2e:graph-chat": "bash scripts/e2e-graph-chat.sh"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

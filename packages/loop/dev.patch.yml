@@ -21,5 +21,12 @@
         maxParallelToolCalls: 10
         agents: []
         topology: dynamic
+    - id: graph-chat
+      name: /Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/packages/loop/src/graph-chat.ts
+      config:
+        provider: deepseek-official
+        model: deepseek-flash
+        preset: standard
+
     - id: graph-tools
       name: /Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/packages/loop/src/tools.ts
