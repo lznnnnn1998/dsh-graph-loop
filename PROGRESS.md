@@ -92,6 +92,8 @@ Local working repo. Nothing here edits the DSH checkout; the driver is loaded th
       `scripts/preview.mjs` renders `preview/index.html` (SVG topology + information flow + node inspector,
       roots first, child turns labelled). Open the generated file directly.
 - [x] 73 unit tests + 10 e2e suites green
+- [x] `/tmp/dsh-compat` Vitest harness: 73/73 pass; official per-file 100% coverage gate **fails**
+      (global lines 47.47%, `loop/src/loop/*` 0%); reasons and next steps in `docs/DSH-COMPAT.md`.
 - [x] Published 0.1: `dsh-graph-loop@0.1.2`, `dsh-graph-loop-ui@0.1.1`, `dsh-graph-loop-mode@0.1.1`;
       registry install verified for headless and Web (Graph tab via Puppeteer).
 - [x] `publint` on all four packages (one stale export fixed); DSH built-in vitest harness sampled (44/44).

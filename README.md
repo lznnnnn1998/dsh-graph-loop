@@ -24,6 +24,7 @@ bash scripts/e2e-graph-tab.sh       # Graph tab inside the real Web chat UI
 bash scripts/e2e-conformance.sh     # stock vs graph event invariants
 bash scripts/e2e-cross-loop.sh      # resume stock->graph and graph->stock
 bash scripts/ab-structural.sh       # structural A/B (mock; AB_REAL=1 for the real route)
+bash compat/run.sh                  # DSH-style vitest + coverage in /tmp/dsh-compat
 # published packages
 dsh plugin --profile web add dsh-graph-loop-ui
 dsh plugin --profile web add dsh-graph-loop
