@@ -5,3 +5,6 @@ lib/
 *.log
 .DS_Store
 tmp/
+.secrets/
+*.tgz
+.npmrc.local

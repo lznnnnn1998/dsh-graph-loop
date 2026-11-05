@@ -94,7 +94,7 @@ instruction 长度有上限、预算达标。**模型画图，harness 校验，d
 - **不再另开页面**：Graph 是现有会话视图的第三个 tab（`conversation.view` slot，order 5，
   位于 Chat 和 Trajectory 之间）。输入框、模型选择、语音、mode 标识、agent team/subagent 列表、
   trajectory、侧边栏全部原样复用；只新增一个 tab 的内容。
-- client 半边单独成包 `@dsh/explore-graph-ui`：client-modules 要求一个 client package 只有一个
+- client 半边单独成包 `dsh-graph-loop-ui`：client-modules 要求一个 client package 只有一个
   活跃 Loader entry，放在 driver 包里会和它的多条 subpath row 冲突。
 - e2e 用 Puppeteer 驱动真实 UI：关闭 Preview Notice → 输入消息 → 断言
   `Chat,Trajectory,Graph` 三个 tab → 点 Graph → 截图 `preview/graph-tab-live.png`。

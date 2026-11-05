@@ -6,10 +6,10 @@
  * driver adopts it at the next step boundary. `graph_status` reports the run.
  */
 import type { Context } from '@deepseek-ai/cordis'
-import { buildRegistrySnapshot } from '@dsh/explore-core/registry'
+import { buildRegistrySnapshot } from 'dsh-graph-loop-core/registry'
 import type { JsonSchemaNode, ToolDefinition } from '@deepseek-ai/dsh-tools'
-import { GRAPH_PROPOSAL_SCHEMA, validateProposal } from '@dsh/explore-core/proposal'
-import type { RegistryGraph } from '@dsh/explore-core/graph-schema'
+import { GRAPH_PROPOSAL_SCHEMA, validateProposal } from 'dsh-graph-loop-core/proposal'
+import type { RegistryGraph } from 'dsh-graph-loop-core/graph-schema'
 
 export interface Config {
   enableTools?: boolean
@@ -23,7 +23,7 @@ export const inject = ['tools']
 interface RegistryLike { snapshot(): { graph: RegistryGraph; digest: string; warnings: readonly string[] } }
 interface RouterLike { templates(): { templates: { id: string }[] } }
 interface RuntimeLike {
-  setProposal(sessionId: string, plan: import('@dsh/explore-core/graph-schema').TaskPlan): void
+  setProposal(sessionId: string, plan: import('dsh-graph-loop-core/graph-schema').TaskPlan): void
   last(sessionId: string): { mode: string; node: string | undefined; step: number; planId: string; rationale: readonly string[] } | undefined
 }
 

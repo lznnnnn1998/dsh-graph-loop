@@ -1,5 +1,5 @@
 // Build release JS for both bundles. Local @dsh/* and @deepseek-ai/* stay external;
-// everything else (including @dsh/explore-core) is bundled per entry.
+// everything else (including dsh-graph-loop-core) is bundled per entry.
 import { build } from 'esbuild'
 import { rm, mkdir, copyFile } from 'node:fs/promises'
 

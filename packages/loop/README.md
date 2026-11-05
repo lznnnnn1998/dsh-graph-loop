@@ -1,4 +1,4 @@
-# @dsh/explore-loop
+# dsh-graph-loop
 
 Graph-native replacement for `@deepseek-ai/dsh-agent-loop`: one turn is a run of a per-turn
 topology rather than a fixed linear loop. The driver forks the stock loop (same session events,
@@ -9,9 +9,11 @@ same turn/step machine, same tools) and adds a graph scheduler around the model 
 Install the driver into a profile (it replaces the base `agent-loop` row):
 
 ```sh
-bash scripts/install-explore.sh web      # driver + Graph tab
-dsh plugin --profile web add <path-to-packages/loop>   # driver only
+dsh plugin --profile web add dsh-graph-loop
+dsh plugin --profile web add dsh-graph-loop-ui   # Graph tab + /graph-chat
 ```
+
+From a checkout, `bash scripts/install-explore.sh web` installs both.
 
 ## Configuration
 

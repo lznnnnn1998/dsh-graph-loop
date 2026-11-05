@@ -120,6 +120,6 @@
             name: '@deepseek-ai/dsh-plugin-market/tools'
             disabled: true
           - id: explore-policy
-            name: '@dsh/explore-mode/policy'
+            name: 'dsh-graph-loop-mode/policy'
           - id: explore-tools
-            name: '@dsh/explore-mode/tools'
+            name: 'dsh-graph-loop-mode/tools'

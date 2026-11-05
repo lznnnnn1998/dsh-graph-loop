@@ -1,4 +1,4 @@
-# @dsh/explore-graph-ui
+# dsh-graph-loop-ui
 
 Web surface for the graph loop: the **Graph** tab in the existing conversation view
 (`Chat | Graph | Trajectory`) and the standalone `/graph-chat` page/API used by tests and headless
@@ -11,8 +11,11 @@ Installed as its own bundle layer (`dsh.bundle.patch`), so a headless profile th
 driver never waits for `webServer`:
 
 ```sh
-dsh plugin --profile web add <path-to-packages/graph-ui>
+dsh plugin --profile web add dsh-graph-loop-ui
+dsh plugin --profile web add dsh-graph-loop
 ```
+
+From a checkout, `bash scripts/install-explore.sh web` installs both.
 
 ## Configuration
 

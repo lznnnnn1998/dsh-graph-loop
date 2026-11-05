@@ -2,7 +2,7 @@
  * Concrete agent-loop plugin: creates scoped ReactLoopAgents, publishes them
  * through the agent/session registries, and owns their ordered teardown.
  *
- * @module @dsh/explore-loop
+ * @module dsh-graph-loop
  */
 import type { Volatile } from '@deepseek-ai/cosmokit'
 
@@ -35,7 +35,7 @@ import type { SessionHandle, SessionPersistence } from '@deepseek-ai/dsh-session
 import { ReactLoopAgent } from './agent.ts'
 import { inboxProjectionDefinition } from './inbox.ts'
 import { createGraphTurnDriver } from '../scheduler.ts'
-import { buildRegistrySnapshot, type ToolSource } from '@dsh/explore-core/registry'
+import { buildRegistrySnapshot, type ToolSource } from 'dsh-graph-loop-core/registry'
 import { scopeOf } from '@deepseek-ai/dsh-scope'
 import { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from './constants.ts'
 import type {} from './runtime-context.ts'
@@ -609,12 +609,12 @@ export class AgentLoop extends Service implements AgentFactory {
           lastTurn,
         )
         const graphRegistry = loopCtx.get('graphRegistry') as
-          { snapshot(): { graph: import('@dsh/explore-core/graph-schema').RegistryGraph } } | undefined
+          { snapshot(): { graph: import('dsh-graph-loop-core/graph-schema').RegistryGraph } } | undefined
         const graphRouter = loopCtx.get('graphRouter') as
-          { templates(): import('@dsh/explore-core/matching').TemplateLibrary | undefined } | undefined
+          { templates(): import('dsh-graph-loop-core/matching').TemplateLibrary | undefined } | undefined
         const graphRuntime = loopCtx.get('graphRuntime') as
           {
-            takeProposal(sessionId: string): import('@dsh/explore-core/graph-schema').TaskPlan | undefined
+            takeProposal(sessionId: string): import('dsh-graph-loop-core/graph-schema').TaskPlan | undefined
             record(sessionId: string, record: {
               mode: string
               node: string | undefined
@@ -625,7 +625,7 @@ export class AgentLoop extends Service implements AgentFactory {
             recordTurn(sessionId: string, snapshot: unknown): void
             recordSnapshot(sessionId: string, snapshot: unknown): void
           } | undefined
-        const agentGraph = async (): Promise<import('@dsh/explore-core/graph-schema').RegistryGraph | undefined> => {
+        const agentGraph = async (): Promise<import('dsh-graph-loop-core/graph-schema').RegistryGraph | undefined> => {
           // The capability graph is agent-scoped: preset tools register inside the
           // agent's own scope, so only a resolved step admission sees them all.
           const selection = created.model.current()

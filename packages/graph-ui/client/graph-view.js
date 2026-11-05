@@ -7,7 +7,7 @@
  * React, hooks and the slot service come from the browser module table.
  */
 window.__ModuleLoader__.load({
-  id: '@dsh/explore-graph-ui',
+  id: 'dsh-graph-loop-ui',
   factory: (require) => {
     var module = { exports: {} }
     var exports = module.exports

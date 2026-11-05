@@ -2,7 +2,7 @@
  * builder.ts — the graph *definition* shared by both kernels.
  *
  * `createGraph` / `GraphBuilder` / `CompiledGraph` come from
- * `@dsh/explore-core/kernel`; that file only *declares* `createGraph` and
+ * `dsh-graph-loop-core/kernel`; that file only *declares* `createGraph` and
  * `InTurnCheckpointer`, so this package owns the runtime implementations. The
  * builder below is engine-agnostic: `compile()` delegates to a `GraphCompileFn`
  * which is `compileMinimal` (minimal.ts) or `compileLangGraph`
@@ -21,7 +21,7 @@ import {
   KernelError,
   START,
   createDeterministicHooks,
-} from '@dsh/explore-core/kernel'
+} from 'dsh-graph-loop-core/kernel'
 import type {
   Checkpoint,
   CheckpointSaver,
@@ -38,8 +38,8 @@ import type {
   NodeId,
   NodePolicy,
   StateObject,
-} from '@dsh/explore-core/kernel'
-import { assertJsonSafe } from '@dsh/explore-core/graph-schema'
+} from 'dsh-graph-loop-core/kernel'
+import { assertJsonSafe } from 'dsh-graph-loop-core/graph-schema'
 
 /* ========================================================================== *
  * JSON guard (C1)
@@ -444,7 +444,7 @@ export function fanOutBranches<S extends StateObject>(
 /**
  * Concrete `CheckpointSaver`: process-local, per-thread ring buffer.
  *
- * `@dsh/explore-core/kernel` only *declares* this class (`declare class`), which
+ * `dsh-graph-loop-core/kernel` only *declares* this class (`declare class`), which
  * emits no value, so the runtime implementation lives here. It is deliberately
  * JSON-only: rows are plain objects and callers must have validated already.
  */

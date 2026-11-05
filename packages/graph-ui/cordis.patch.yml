@@ -1,9 +1,9 @@
-# @dsh/explore-graph-ui — one row owns both the Graph tab client bundle and the
+# dsh-graph-loop-ui — one row owns both the Graph tab client bundle and the
 # /graph-chat page/API. client-modules rejects two active Loader sources for one
 # client package, so the host surface must not get its own row.
 - insert:
     - id: graph-ui
-      name: '@dsh/explore-graph-ui'
+      name: 'dsh-graph-loop-ui'
       config:
         preset: standard
         provider: deepseek-official

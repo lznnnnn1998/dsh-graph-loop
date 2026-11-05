@@ -26,7 +26,7 @@ import {
   KernelError,
   START,
   createDeterministicHooks,
-} from '@dsh/explore-core/kernel'
+} from 'dsh-graph-loop-core/kernel'
 import type {
   Checkpoint,
   CheckpointSnapshot,
@@ -46,9 +46,9 @@ import type {
   RunResult,
   StateObject,
   SuperstepBoundary,
-} from '@dsh/explore-core/kernel'
-import type { GraphState, PlanNode, TaskPlan } from '@dsh/explore-core/graph-schema'
-import type { KernelPort, KernelResult, KernelRunHandle, NodeFailure, PauseReason } from '@dsh/explore-core/runtime'
+} from 'dsh-graph-loop-core/kernel'
+import type { GraphState, PlanNode, TaskPlan } from 'dsh-graph-loop-core/graph-schema'
+import type { KernelPort, KernelResult, KernelRunHandle, NodeFailure, PauseReason } from 'dsh-graph-loop-core/runtime'
 
 import {
   GraphBuilderImpl,

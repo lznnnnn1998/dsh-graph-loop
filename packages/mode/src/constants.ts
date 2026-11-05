@@ -3,7 +3,7 @@
  *
  * Plain data only: this module is imported by both `./policy.ts` (a Cordis plugin)
  * and `./reuse.ts` (pure scoring), so it must stay free of DSH imports.
- * @module @dsh/explore-mode/constants
+ * @module dsh-graph-loop-mode/constants
  */
 
 /**
