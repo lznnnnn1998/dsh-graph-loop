@@ -31,6 +31,8 @@ const errors = []
 let turnOpen = false
 let stepOpen = false
 let openStep = null
+let lastTurn = 0
+let lastStep = 0
 let headerInStep = false
 let sawHeader = false
 const calls = new Map()
@@ -40,6 +42,9 @@ for (const event of events) {
   switch (event.type) {
     case 'turn/start':
       if (turnOpen) errors.push(`turn/start while turn open at seq ${event.seq}`)
+      if (event.data.turn !== lastTurn + 1) errors.push(`turn number ${event.data.turn} after ${lastTurn} at seq ${event.seq}`)
+      lastTurn = event.data.turn
+      lastStep = 0
       turnOpen = true
       break
     case 'turn/end':
@@ -50,6 +55,9 @@ for (const event of events) {
     case 'step/start':
       if (!turnOpen) errors.push(`step/start outside a turn at seq ${event.seq}`)
       if (stepOpen) errors.push(`step/start while step open at seq ${event.seq}`)
+      const stepNumber = event.data.step
+      if (stepNumber !== lastStep + 1) errors.push(`step number ${stepNumber} after ${lastStep} at seq ${event.seq}`)
+      lastStep = stepNumber
       stepOpen = true
       openStep = event.data
       headerInStep = false

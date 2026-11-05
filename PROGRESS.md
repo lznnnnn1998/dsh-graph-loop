@@ -27,7 +27,20 @@ Local working repo. Nothing here edits the DSH checkout; the driver is loaded th
 - [x] Composition evidence: `--dump-config` shows stock row disabled + graph rows inserted
       (installed profile), and `preset-explore` present with bundle A
 
-## Just landed (usability + reliability pass)
+## Just landed (packaging + cross-loop + structural A/B)
+- [x] **One-command install**: `scripts/install-explore.sh` installs the driver bundle + the Graph-tab
+      bundle and verifies the composed rows. `graph-ui` is now its own bundle layer.
+- [x] **Cross-loop resume e2e**: stock→graph and graph→stock both pass; event invariants hold on the
+      resulting logs (`scripts/e2e-cross-loop.sh`).
+- [x] **Stronger conformance**: turn/step numbering must be contiguous, in addition to pairing and
+      tool-call/result checks.
+- [x] **Structural A/B harness**: `scripts/ab-structural.sh` + `docs/AB-STRUCTURAL.md`. Mock route now;
+      `AB_REAL=1` runs the same tasks against the real model. First data: graph adds steps/bytes on
+      non-trivial tasks, wins on trivial ones (triage).
+- [x] Split dev patches: `dev-headless.patch.yml` (no Web rows) vs `dev.patch.yml` (Web rows), so
+      headless runs no longer warn about the pending `webServer` row.
+
+## Previously landed (usability + reliability pass)
 - [x] **Graph tab node inspector**: click a node → instruction + its tool calls (name, ok/error) +
       `open in trajectory` buttons using the conversation view's `openView('trajectory', callId)`.
 - [x] **Conformance invariants**: `scripts/e2e-conformance.sh` runs the same task through stock and
@@ -78,7 +91,7 @@ Local working repo. Nothing here edits the DSH checkout; the driver is loaded th
 - [x] Preview panel: `graph-runtime.traceDir` writes per-turn `{plan, trail, rationale, depth, replans}`;
       `scripts/preview.mjs` renders `preview/index.html` (SVG topology + information flow + node inspector,
       roots first, child turns labelled). Open the generated file directly.
-- [x] 73 unit tests + 8 e2e suites green
+- [x] 73 unit tests + 10 e2e suites green
 
 ## Previously landed (dynamic topology)
 - [x] `synthesizeTopology`: arbitrary DAG from the capability graph (no template): discovery,

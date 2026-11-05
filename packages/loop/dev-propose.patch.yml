@@ -13,11 +13,16 @@
       name: /Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/packages/loop/src/router.ts
     - id: graph-runtime
       name: /Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/packages/loop/src/runtime.ts
+      config:
+        traceDir: /tmp/dsh-graph-traces
     - id: graph-loop
       name: /Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/packages/loop/src/index.ts
       config:
         maxParallelToolCalls: 10
         agents: []
         topology: propose
+
+
+
     - id: graph-tools
       name: /Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/packages/loop/src/tools.ts

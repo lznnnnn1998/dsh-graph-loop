@@ -16,7 +16,9 @@
     "preview": "node scripts/preview.mjs /tmp/dsh-graph-traces preview",
     "e2e:graph-chat": "bash scripts/e2e-graph-chat.sh",
     "e2e:graph-tab": "bash scripts/e2e-graph-tab.sh",
-    "e2e:conformance": "bash scripts/e2e-conformance.sh"
+    "e2e:conformance": "bash scripts/e2e-conformance.sh",
+    "e2e:cross-loop": "bash scripts/e2e-cross-loop.sh",
+    "ab": "bash scripts/ab-structural.sh"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
