@@ -27,7 +27,17 @@ Local working repo. Nothing here edits the DSH checkout; the driver is loaded th
 - [x] Composition evidence: `--dump-config` shows stock row disabled + graph rows inserted
       (installed profile), and `preset-explore` present with bundle A
 
-## Just landed (parallel subagents, boundary replan, preview)
+## Just landed (graph-chat)
+- [x] Live `graph-chat` page at `/graph-chat` served by a host plugin: chat on the left, the current
+      turn's topology on the right, polling the graph runtime every 1.2s. New chat + send message APIs.
+- [x] `POST /api/new` binds the `standard` preset so preset-scoped tools are visible (the host view
+      only had 3 globals; the fix uses `ctx.agentPresets.select` + agent-scoped tool resolution).
+- [x] `POST /api/send` goes through `agent.followup()`, the same path as the Web input.
+- [x] E2E: `scripts/e2e-graph-chat.sh` starts a real Web host + mock LLM, sends a message over HTTP,
+      asserts a 4-node dynamic topology, and captures `preview/graph-chat-live.png` with headless Chrome.
+- [x] Offline preview remains for arbitrary trace dirs (`scripts/preview.mjs`).
+
+## Previously landed (parallel subagents, boundary replan, preview)
 - [x] Graph nodes can be `subagent` executions: a batch of ready subagent nodes runs concurrently via
       `ctx.subagents.startActivation({delivery:'caller'})`, results are injected as `[subagent <node>]`
       context for the join node. Children do not fan out again (`delegationDepth > 0` disables nested

@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Graph Chat · DSH</title>
+<style>
+  :root { color-scheme: dark; --bg:#070b10; --panel:#0e141c; --line:#1c2632; --text:#e6e9ef; --muted:#8b97a6; --ok:#22c55e; --fail:#ef4444; --pending:#475569; --accent:#38bdf8; --user:#13202e; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans SC",sans-serif; height:100vh; display:flex; flex-direction:column; }
+  header { display:flex; align-items:center; gap:12px; padding:12px 16px; background:var(--panel); border-bottom:1px solid var(--line); }
+  header h1 { font-size:15px; margin:0; letter-spacing:.02em; }
+  header .dot { width:8px; height:8px; border-radius:50%; background:var(--ok); box-shadow:0 0 10px var(--ok); }
+  header select, header button, .composer button { background:#101923; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:7px 10px; font:inherit; }
+  header button:hover, .composer button:hover { border-color:var(--accent); cursor:pointer; }
+  header .grow { flex:1; }
+  main { flex:1; min-height:0; display:grid; grid-template-columns:minmax(360px, 46%) minmax(0,1fr); }
+  .chat { display:flex; flex-direction:column; min-height:0; border-right:1px solid var(--line); }
+  .messages { flex:1; overflow:auto; padding:18px; display:flex; flex-direction:column; gap:12px; }
+  .msg { max-width:86%; padding:10px 12px; border-radius:12px; background:var(--panel); border:1px solid var(--line); white-space:pre-wrap; word-break:break-word; }
+  .msg.user { align-self:flex-end; background:var(--user); border-color:#1e3a52; }
+  .msg.assistant { align-self:flex-start; }
+  .msg.tool { align-self:flex-start; color:var(--muted); font-size:12px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; max-height:130px; overflow:auto; }
+  .msg.node { align-self:flex-start; background:transparent; border-style:dashed; color:var(--muted); font-size:12px; }
+  .msg.node .role { color:var(--accent); }
+  .msg .role { display:block; font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; margin-bottom:4px; }
+  .composer { display:flex; gap:8px; padding:12px; border-top:1px solid var(--line); background:var(--panel); }
+  .composer textarea { flex:1; resize:none; min-height:44px; max-height:140px; background:#0a1118; color:var(--text); border:1px solid var(--line); border-radius:10px; padding:10px 12px; font:inherit; outline:none; }
+  .composer textarea:focus { border-color:var(--accent); }
+  .graph { display:flex; flex-direction:column; min-height:0; background:var(--panel); }
+  .graph header { background:transparent; border-bottom:1px solid var(--line); }
+  .turns { display:flex; gap:6px; overflow:auto; padding:10px 14px; border-bottom:1px solid var(--line); }
+  .turns button { background:#0a1118; border:1px solid var(--line); color:var(--muted); border-radius:999px; padding:4px 10px; font-size:12px; cursor:pointer; white-space:nowrap; }
+  .turns button.active { color:var(--accent); border-color:var(--accent); }
+  .canvas { flex:1; overflow:auto; padding:10px; }
+  .canvas svg { display:block; }
+  .edge { fill:none; stroke:#3b4a5c; stroke-width:1.5; }
+  .node rect { fill:#0b1118; stroke:var(--pending); stroke-width:2; }
+  .node.ok rect { stroke:var(--ok); } .node.failed rect { stroke:var(--fail); }
+  .node.running rect { stroke:var(--accent); animation:pulse 1.2s infinite; }
+  @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.45 } }
+  .node .id { fill:var(--text); font-size:12px; font-weight:600; }
+  .node .meta { fill:var(--muted); font-size:11px; }
+  .node .status { fill:var(--muted); font-size:10px; text-transform:uppercase; letter-spacing:.08em; }
+  .node.ok .status { fill:var(--ok); } .node.failed .status { fill:var(--fail); } .node.running .status { fill:var(--accent); }
+  .node { cursor:pointer; }
+  aside { border-top:1px solid var(--line); max-height:34vh; overflow:auto; padding:12px 16px; }
+  aside h3 { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin:0 0 8px; }
+  .flow { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:6px; }
+  .flow li { display:flex; gap:8px; align-items:baseline; font-size:12px; }
+  .flow b { color:var(--text); font-weight:600; } .flow span { color:var(--muted); }
+  .inspect { margin-top:10px; padding:10px; background:#0a1118; border:1px solid var(--line); border-radius:10px; font-size:12px; display:none; }
+  .empty { color:var(--muted); font-size:13px; padding:24px; text-align:center; }
+  .error { color:var(--fail); font-size:12px; padding:8px 16px; }
+  @media (max-width:900px) { main { grid-template-columns:1fr; } .chat { border-right:none; } .graph { border-top:1px solid var(--line); } }
+</style>
+</head>
+<body>
+<header>
+  <span class="dot"></span><h1>Graph Chat</h1>
+  <span class="grow"></span>
+  <select id="sessions" title="session"></select>
+  <button id="new">New graph chat</button>
+</header>
+<main>
+  <section class="chat">
+    <div class="messages" id="messages"><div class="empty">Select a session or start a new graph chat.</div></div>
+    <div class="composer">
+      <textarea id="input" placeholder="Message the graph agent… (Enter to send, Shift+Enter for newline)"></textarea>
+      <button id="send">Send</button>
+    </div>
+    <div class="error" id="error" hidden></div>
+  </section>
+  <section class="graph">
+    <div class="turns" id="turns"></div>
+    <div class="canvas" id="canvas"><div class="empty">No graph run yet. Send a message to discover a topology.</div></div>
+    <aside>
+      <h3>Information flow</h3>
+      <ol class="flow" id="flow"></ol>
+      <div class="inspect" id="inspect"></div>
+    </aside>
+  </section>
+</main>
+<script>
+(() => {
+  const $ = id => document.getElementById(id)
+  const state = { sessionId: null, turns: [], selectedTurn: null, sessions: [] }
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]))
+
+  async function api(path, options) {
+    const response = await fetch('/graph-chat/api/' + path, options)
+    const body = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(body.error || response.statusText)
+    return body
+  }
+
+  function showError(error) {
+    const box = $('error')
+    box.hidden = false
+    box.textContent = String(error && error.message ? error.message : error)
+  }
+  function clearError() { $('error').hidden = true }
+
+  async function refresh() {
+    try {
+      const query = state.sessionId ? '?sessionId=' + encodeURIComponent(state.sessionId) : ''
+      const data = await api('state' + query)
+      state.sessions = data.sessions || []
+      if (!state.sessionId && data.sessionId) state.sessionId = data.sessionId
+      if (state.selectedTurn === null && data.turns && data.turns.length > 0) state.selectedTurn = data.turns.length - 1
+      if (state.selectedTurn !== null && (!data.turns || state.selectedTurn >= data.turns.length)) state.selectedTurn = (data.turns || []).length - 1
+      state.turns = data.turns || []
+      renderSessions()
+      renderTurns()
+      renderGraph()
+      if (state.sessionId) {
+        const messages = await api('messages?sessionId=' + encodeURIComponent(state.sessionId))
+        renderMessages(messages.messages || [])
+      }
+    } catch (error) { showError(error) }
+  }
+
+  function renderSessions() {
+    const select = $('sessions')
+    const current = state.sessionId || ''
+    select.innerHTML = state.sessions.map(session =>
+      '<option value="' + esc(session.id) + '"' + (session.id === current ? ' selected' : '') + '>' +
+      esc(session.id.slice(0, 18)) + ' · ' + esc(session.status) + ' · ' + session.turnCount + ' turns</option>'
+    ).join('') || '<option value="">no sessions</option>'
+  }
+
+  function renderMessages(messages) {
+    const box = $('messages')
+    const visible = messages.filter(message => message.role !== 'system')
+    if (visible.length === 0) { box.innerHTML = '<div class="empty">No messages yet.</div>'; return }
+    box.innerHTML = visible.map(message => {
+      const isNode = message.role === 'user' && message.text.startsWith('[graph node ')
+      const role = isNode ? 'graph node' : message.role
+      return '<div class="msg ' + (isNode ? 'node' : esc(message.role)) + '"><span class="role">' + esc(role) + '</span>' + esc(message.text) + '</div>'
+    }).join('')
+    box.scrollTop = box.scrollHeight
+  }
+
+  function renderTurns() {
+    const box = $('turns')
+    box.innerHTML = state.turns.map((turn, index) =>
+      '<button data-index="' + index + '" class="' + (index === state.selectedTurn ? 'active' : '') + '">Turn ' + (index + 1) + ' · ' + esc(turn.mode || '') + '</button>'
+    ).join('') || '<span class="empty" style="padding:2px 6px">no turns</span>'
+    box.querySelectorAll('button').forEach(button => button.addEventListener('click', () => {
+      state.selectedTurn = Number(button.dataset.index)
+      renderTurns(); renderGraph()
+    }))
+  }
+
+  function depths(plan) {
+    const nodes = plan && plan.nodes ? plan.nodes : []
+    const edges = plan && plan.edges ? plan.edges : []
+    const ids = new Set(nodes.map(node => node.id))
+    const depth = new Map(); const queue = [[plan && plan.entry, 0]]
+    while (queue.length) {
+      const [id, d] = queue.shift()
+      if (typeof id !== 'string' || !ids.has(id)) continue
+      if (depth.has(id) && depth.get(id) <= d) continue
+      depth.set(id, d)
+      edges.forEach(edge => { if (edge.from === id) queue.push([edge.to, d + 1]) })
+    }
+    let fallback = 0
+    nodes.forEach(node => { if (!depth.has(node.id)) depth.set(node.id, fallback++) })
+    return depth
+  }
+
+  function renderGraph() {
+    const canvas = $('canvas'); const flow = $('flow'); const inspect = $('inspect')
+    const turn = state.turns[state.selectedTurn]
+    if (!turn || !turn.plan) {
+      canvas.innerHTML = '<div class="empty">No graph run yet. Send a message to discover a topology.</div>'
+      flow.innerHTML = ''; inspect.style.display = 'none'; return
+    }
+    const plan = turn.plan; const trail = turn.trail || []
+    const trailById = new Map(trail.map(item => [item.id, item]))
+    const depth = depths(plan); const columns = new Map()
+    const ordered = (plan.nodes || []).slice().sort((a, b) => (depth.get(a.id) || 0) - (depth.get(b.id) || 0) || String(a.id).localeCompare(String(b.id)))
+    ordered.forEach(node => { const d = depth.get(node.id) || 0; if (!columns.has(d)) columns.set(d, []); columns.get(d).push(node) })
+    const W = 236, H = 104, PAD = 28
+    const maxRows = Math.max.apply(null, Array.from(columns.values()).map(list => list.length).concat([1]))
+    const width = PAD * 2 + columns.size * W; const height = PAD * 2 + maxRows * H
+    const pos = new Map()
+    Array.from(columns.entries()).sort((a, b) => a[0] - b[0]).forEach(function (entry) {
+      entry[1].forEach(function (node, row) { pos.set(node.id, { x: PAD + entry[0] * W + 16, y: PAD + row * H + 16 }) })
+    })
+    const edges = (plan.edges || []).map(edge => {
+      const a = pos.get(edge.from); const b = pos.get(edge.to)
+      if (!a || !b) return ''
+      const x1 = a.x + 200, y1 = a.y + 32, x2 = b.x, y2 = b.y + 32, mid = (x1 + x2) / 2
+      return '<path d="M ' + x1 + ' ' + y1 + ' C ' + mid + ' ' + y1 + ', ' + mid + ' ' + y2 + ', ' + x2 + ' ' + y2 + '" class="edge" marker-end="url(#arrow)"/>'
+    }).join('')
+    const nodes = (plan.nodes || []).map(node => {
+      const p = pos.get(node.id) || { x: 0, y: 0 }; const t = trailById.get(node.id)
+      const status = t ? t.status : 'pending'
+      return '<g class="node ' + status + '" data-node="' + esc(node.id) + '" transform="translate(' + p.x + ',' + p.y + ')">' +
+        '<rect width="200" height="64" rx="10"></rect>' +
+        '<text class="id" x="12" y="22">' + esc(node.id) + '</text>' +
+        '<text class="meta" x="12" y="41">' + esc(node.executor || 'step') + (t ? ' · step ' + t.step : '') + '</text>' +
+        '<text class="status" x="12" y="58">' + esc(status) + '</text></g>'
+    }).join('')
+    canvas.innerHTML = '<svg viewBox="0 0 ' + width + ' ' + height + '" width="' + width + '" height="' + height + '">' +
+      '<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#3b4a5c"/></marker></defs>' +
+      edges + nodes + '</svg>'
+    flow.innerHTML = trail.map(item => '<li><b>' + esc(item.id) + '</b><span>step ' + item.step + ' · ' + esc(item.executor) + ' · ' + esc(item.status) + '</span></li>').join('') ||
+      '<li class="empty" style="padding:0">no nodes executed</li>'
+    const byId = new Map((plan.nodes || []).map(node => [node.id, node]))
+    canvas.querySelectorAll('.node').forEach(element => element.addEventListener('click', () => {
+      const node = byId.get(element.dataset.node); if (!node) return
+      inspect.style.display = 'block'
+      inspect.innerHTML = '<b>' + esc(node.id) + '</b><br><span style="color:var(--muted)">' + esc(node.kind || '') + ' · ' + esc(node.executor || 'step') + '</span><br><br>' + esc(node.instruction || '(no instruction)')
+    }))
+  }
+
+  async function send() {
+    clearError()
+    const input = $('input'); const text = input.value.trim()
+    if (!state.sessionId) { showError('select or create a session first'); return }
+    if (!text) return
+    input.value = ''
+    try {
+      await api('send', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId: state.sessionId, text }) })
+      setTimeout(refresh, 150)
+    } catch (error) { showError(error) }
+  }
+
+  async function newChat() {
+    clearError()
+    try {
+      const result = await api('new', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({}) })
+      state.sessionId = result.sessionId; state.selectedTurn = null
+      await refresh()
+    } catch (error) { showError(error) }
+  }
+
+  $('send').addEventListener('click', send)
+  $('new').addEventListener('click', newChat)
+  $('sessions').addEventListener('change', event => { state.sessionId = event.target.value || null; state.selectedTurn = null; refresh() })
+  $('input').addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); send() } })
+  setInterval(refresh, 1200)
+  refresh()
+})()
+</script>
+</body>
+</html>

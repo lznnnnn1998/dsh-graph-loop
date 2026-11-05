@@ -19,7 +19,9 @@ bash scripts/e2e-installed.sh       # install bundle B into a throwaway profile 
 bash scripts/e2e-propose.sh         # model-authored topology via graph_plan
 bash scripts/e2e-subagents.sh       # parallel subagent branches in the graph
 bash scripts/e2e-replan.sh          # boundary replan after a failed verify
-node scripts/preview.mjs /tmp/dsh-graph-traces preview   # topology preview panel
+bash scripts/e2e-graph-chat.sh      # live graph-chat page + API + screenshot
+node scripts/preview.mjs /tmp/dsh-graph-traces preview   # offline topology preview
+# live: http://127.0.0.1:3085/graph-chat (after e2e-graph-chat or your web profile)
 node scripts/build-bundles.mjs      # rebuild packages/*/lib
 ```
 

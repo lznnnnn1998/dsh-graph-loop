@@ -442,7 +442,7 @@ export class ReactLoopAgent implements Agent {
     if (this.turnGraph !== undefined) {
       try {
         const pending = [...this.inbox.nextTurn]
-        this.turnGraph.beginTurn({ text: inboxText(pending), surface: 'api' })
+        await this.turnGraph.beginTurn({ text: inboxText(pending), surface: 'api' })
       } catch (error: unknown) {
         this.throwError(error)
       }

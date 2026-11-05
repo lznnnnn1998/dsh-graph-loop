@@ -35,6 +35,8 @@ import type { SessionHandle, SessionPersistence } from '@deepseek-ai/dsh-session
 import { ReactLoopAgent } from './agent.ts'
 import { inboxProjectionDefinition } from './inbox.ts'
 import { createGraphTurnDriver } from '../scheduler.ts'
+import { buildRegistrySnapshot, type ToolSource } from '@dsh/explore-core/registry'
+import { scopeOf } from '@deepseek-ai/dsh-scope'
 import { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from './constants.ts'
 import type {} from './runtime-context.ts'
 
@@ -601,11 +603,31 @@ export class AgentLoop extends Service implements AgentFactory {
             }): void
             recordTurn(sessionId: string, snapshot: unknown): void
           } | undefined
+        const agentGraph = async (): Promise<import('@dsh/explore-core/graph-schema').RegistryGraph | undefined> => {
+          // The capability graph is agent-scoped: preset tools register inside the
+          // agent's own scope, so only a resolved step admission sees them all.
+          const selection = created.model.current()
+          if (selection !== undefined) {
+            const controller = new AbortController()
+            const toolSet = await loopCtx.tools.resolve({ agent: created, modelSelection: selection, signal: controller.signal })
+            try {
+              const tools: ToolSource[] = loopCtx.tools.definitions(created as unknown as object, toolSet).map(definition => ({
+                name: definition.name,
+                description: definition.description,
+                parameters: definition.parameters as Readonly<Record<string, unknown>>,
+              }))
+              if (tools.length > 0) return buildRegistrySnapshot({ tools }).graph
+            } finally {
+              toolSet.dispose()
+            }
+          }
+          return graphRegistry?.snapshot().graph
+        }
         created.setTurnGraph(createGraphTurnDriver({
           mode: topologyMode,
           allowSubagents: delegationDepth === 0,
           depth: delegationDepth,
-          graphProvider: () => graphRegistry?.snapshot().graph,
+          graphProvider: agentGraph,
           templatesProvider: () => graphRouter?.templates(),
           proposalSource: graphRuntime === undefined ? undefined : () => graphRuntime.takeProposal(id),
           onSnapshot: snapshot => graphRuntime?.record(id, {

@@ -63,7 +63,7 @@ export interface GraphTurnSnapshot {
 }
 
 export interface GraphTurnDriver {
-  beginTurn(task: TurnTask): GraphTurnSnapshot
+  beginTurn(task: TurnTask): Promise<GraphTurnSnapshot>
   current(): PlanNode | undefined
   instruction(): string | undefined
   advance(outcome: { readonly ok: boolean; readonly failedTool?: string }): GraphTurnSnapshot
@@ -91,7 +91,7 @@ export interface GraphTurnDriverOptions {
   readonly adoptPolicy?: AdoptPolicy
   readonly graph?: RegistryGraph
   readonly templates?: TemplateLibrary
-  readonly graphProvider?: () => RegistryGraph | undefined
+  readonly graphProvider?: () => RegistryGraph | undefined | Promise<RegistryGraph | undefined>
   readonly templatesProvider?: () => TemplateLibrary | undefined
   readonly proposalSource?: () => TaskPlan | undefined
   readonly weights?: RouteWeights
@@ -132,7 +132,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
   const cooccurrence = toCooccurrenceTable(options.cooccurrence)
   const presetId = options.presetId ?? 'explore'
   const maxSteps = options.maxSteps ?? 24
-  const liveGraph = (): RegistryGraph | undefined => options.graphProvider?.() ?? currentGraph
+  const liveGraph = async (): Promise<RegistryGraph | undefined> => await options.graphProvider?.() ?? currentGraph
   const liveTemplates = (): TemplateLibrary | undefined => options.templatesProvider?.() ?? currentTemplates
 
   let plan: TaskPlan | undefined
@@ -181,14 +181,14 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
   }
 
   return {
-    beginTurn(task: TurnTask): GraphTurnSnapshot {
+    async beginTurn(task: TurnTask): Promise<GraphTurnSnapshot> {
       plan = undefined
       decision = undefined
       topology = undefined
       lastNode = undefined
       rationale = []
       trail = []
-      const graph = liveGraph()
+      const graph = await liveGraph()
       const surface = task.surface ?? 'api'
       const fingerprint = extractFingerprint({
         text: task.text,

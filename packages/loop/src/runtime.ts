@@ -33,6 +33,8 @@ type GraphRuntimeService = {
   last(sessionId: string): GraphRunRecord | undefined
   /** Persist one turn trace when `traceDir` is configured (for the preview panel). */
   recordTurn(sessionId: string, snapshot: unknown): void
+  /** In-memory turn traces for the live graph-chat panel. */
+  traceHistory(sessionId: string): readonly unknown[]
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -45,6 +47,7 @@ declare module '@deepseek-ai/cordis' {
 export class GraphRuntime extends Service implements GraphRuntimeService {
   private readonly proposals = new Map<string, TaskPlan>()
   private readonly records = new Map<string, GraphRunRecord>()
+  private readonly traces = new Map<string, unknown[]>()
   private readonly maxProposals: number
   private readonly traceDir: string
 
@@ -78,7 +81,15 @@ export class GraphRuntime extends Service implements GraphRuntimeService {
     return this.records.get(sessionId)
   }
 
+  traceHistory(sessionId: string): readonly unknown[] {
+    return this.traces.get(sessionId) ?? []
+  }
+
   recordTurn(sessionId: string, snapshot: unknown): void {
+    const history = this.traces.get(sessionId) ?? []
+    history.push(snapshot)
+    while (history.length > 20) history.shift()
+    this.traces.set(sessionId, history)
     if (this.traceDir === '') return
     try {
       mkdirSync(this.traceDir, { recursive: true })

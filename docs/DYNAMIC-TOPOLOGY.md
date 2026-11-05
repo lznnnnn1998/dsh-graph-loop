@@ -89,14 +89,25 @@ instruction 长度有上限、预算达标。**模型画图，harness 校验，d
 - e2e：`scripts/e2e-replan.sh` —— 第 4 步 `bash false` 失败，driver 重规划，会话里出现
   `r_diagnose`/`r_retry`，最终完成（6 步）。
 
-## 7. 预览面板
+## 7. graph-chat：随对话动态的界面（已实现）
+
+- 独立页面 `GET /graph-chat`（由 `graph-chat` host 插件通过 `ctx.webServer` 提供），左侧是对话，
+  右侧是当前 turn 的拓扑；每 1.2s 轮询 `/graph-chat/api/state` 与 `/api/messages`，所以是**随对话动态**的。
+- `POST /graph-chat/api/new` 新建会话并绑定 `standard` preset（否则工具只有 host 全局的 3 个）；
+  模型路由从现有 root agent 继承，或由插件配置 `provider/model` 兜底。
+- `POST /graph-chat/api/send` 走 `agent.followup()`，和普通 Web 输入同一条路径。
+- 拓扑来自 `graphRuntime` 的内存 trace（`recordTurn`），所以不需要自定义 session 事件，也不需要 client plugin 构建。
+- e2e：`scripts/e2e-graph-chat.sh` 启动真实 Web host + mock LLM，走 API 发消息，断言 trace 出现
+  4 节点拓扑，并用 Chrome headless 截图到 `preview/graph-chat-live.png`。
+
+## 8. 预览面板（离线）
 
 - `graph-runtime.traceDir` 打开后，每轮写一份 trace JSON：`{mode, plan(nodes/edges), trail, rationale, depth, replans}`。
 - `node scripts/preview.mjs <traceDir> preview` 生成 `preview/index.html`：每轮一个 tab，SVG 拓扑 +
   information flow + 节点详情；root 轮在前，child 轮标注 depth。
 - 这是离线面板（不依赖 Web UI、不新增 client plugin）；后续可把同一 trace 接成 Web 侧栏。
 
-## 8. 还没做到的「自由」
+## 9. 还没做到的「自由」
 
 - 并行分支已可走 subagent 节点并发，但 tool 节点仍是父会话串行（工具批并发由 executor 决定）；
 - 运行中 `addNode/removeNode` 已可用，但没有暴露成模型工具（避免每步改图）；

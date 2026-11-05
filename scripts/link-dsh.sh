@@ -22,6 +22,7 @@ dsh-util-values:packages/util/values
 dsh-scope:packages/core/scope
 dsh-util-time:packages/util/time
 dsh-agent-loop:packages/core/agent-loop
+dsh-host-webserver:packages/host/webserver
 schemastery:vendor/schemastery
 cordis:vendor/cordis
 MAP

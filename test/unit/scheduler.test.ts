@@ -23,12 +23,12 @@ test('registry is deterministic and marks the tool set', () => {
   assert.ok(registry.graph.nodes.some(node => node.id === 'tool:read' && node.produces.some(spec => spec.type === 'file.text')))
 })
 
-test('a code question routes to t_investigate and walks its nodes', () => {
+test('a code question routes to t_investigate and walks its nodes', async () => {
   const driver = createGraphTurnDriver({
     graphProvider: () => registry.graph,
     templatesProvider: () => TEMPLATE_LIBRARY,
   })
-  const started = driver.beginTurn({ text: 'explain how the config loader works' })
+  const started = await driver.beginTurn({ text: 'explain how the config loader works' })
   assert.equal(started.templateId, 't_investigate')
   assert.equal(driver.current()?.id, 'n_discover')
   driver.advance({ ok: true })
@@ -40,21 +40,21 @@ test('a code question routes to t_investigate and walks its nodes', () => {
   assert.deepEqual(driver.snapshot().visited, ['n_discover', 'n_inspect', 'n_done'])
 })
 
-test('without a registry the driver falls back to a single stock node', () => {
+test('without a registry the driver falls back to a single stock node', async () => {
   const driver = createGraphTurnDriver({ fallbackInstruction: 'answer' })
-  const started = driver.beginTurn({ text: 'hello' })
+  const started = await driver.beginTurn({ text: 'hello' })
   assert.equal(started.fallback, true)
   assert.equal(driver.current()?.id, 'node:respond')
   driver.advance({ ok: true })
   assert.equal(driver.done(), true)
 })
 
-test('dynamic mode synthesizes a topology from the capability graph', () => {
+test('dynamic mode synthesizes a topology from the capability graph', async () => {
   const driver = createGraphTurnDriver({
     mode: 'dynamic',
     graphProvider: () => registry.graph,
   })
-  const started = driver.beginTurn({ text: 'explain how the config loader works' })
+  const started = await driver.beginTurn({ text: 'explain how the config loader works' })
   assert.equal(started.templateId, 'dynamic')
   assert.equal(started.fallback, false)
   let steps = 0
@@ -67,7 +67,7 @@ test('dynamic mode synthesizes a topology from the capability graph', () => {
   assert.ok(driver.snapshot().rationale.some(line => line.includes('discovery') || line.includes('terminal')))
 })
 
-test('propose mode starts from a frame and adopts a model-authored topology at the first boundary', () => {
+test('propose mode starts from a frame and adopts a model-authored topology at the first boundary', async () => {
   let proposal: import('../../packages/core/src/graph-schema.ts').TaskPlan | undefined
   const driver = createGraphTurnDriver({
     mode: 'propose',
@@ -77,7 +77,7 @@ test('propose mode starts from a frame and adopts a model-authored topology at t
       return current
     },
   })
-  const started = driver.beginTurn({ text: 'explain how the config loader works' })
+  const started = await driver.beginTurn({ text: 'explain how the config loader works' })
   assert.equal(started.templateId, 'propose')
   assert.equal(driver.current()?.id, 'p_frame')
   proposal = {
@@ -98,12 +98,12 @@ test('propose mode starts from a frame and adopts a model-authored topology at t
   assert.ok(driver.snapshot().rationale.some(line => line.includes('adopted')))
 })
 
-test('a failed work node triggers a boundary recovery plan', () => {
+test('a failed work node triggers a boundary recovery plan', async () => {
   const driver = createGraphTurnDriver({
     mode: 'dynamic',
     graphProvider: () => registry.graph,
   })
-  const started = driver.beginTurn({ text: 'fix the failing test in the loader' })
+  const started = await driver.beginTurn({ text: 'fix the failing test in the loader' })
   assert.equal(started.templateId, 'dynamic')
   assert.equal(driver.current()?.id, 'd_entry')
   driver.advance({ ok: true })
