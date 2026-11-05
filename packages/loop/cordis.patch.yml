@@ -17,11 +17,15 @@
     - id: graph-router
       name: '@dsh/explore-loop/router'
 
+    - id: graph-runtime
+      name: '@dsh/explore-loop/runtime'
+
     - id: graph-loop
       name: '@dsh/explore-loop'
       config:
         maxParallelToolCalls: 10
         agents: []
+        topology: dynamic
 
     - id: graph-tools
       name: '@dsh/explore-loop/tools'

@@ -25,6 +25,7 @@ await buildPackage('packages/loop', {
   index: 'packages/loop/src/index.ts',
   registry: 'packages/loop/src/registry.ts',
   router: 'packages/loop/src/router.ts',
+  runtime: 'packages/loop/src/runtime.ts',
   tools: 'packages/loop/src/tools.ts',
   scheduler: 'packages/loop/src/scheduler.ts',
   kernel: 'packages/loop/src/kernel/index.ts',

@@ -27,7 +27,20 @@ Local working repo. Nothing here edits the DSH checkout; the driver is loaded th
 - [x] Composition evidence: `--dump-config` shows stock row disabled + graph rows inserted
       (installed profile), and `preset-explore` present with bundle A
 
-## Just landed
+## Just landed (dynamic topology)
+- [x] `synthesizeTopology`: arbitrary DAG from the capability graph (no template): discovery,
+      inspect→edit→verify, parallel research fan-out, terminal answer (`packages/core/src/topology.ts`)
+- [x] `FrontierTopology`: frontier executor with runtime `addNode/removeNode/addEdge`, bounded cycles,
+      conditional/failure edges
+- [x] `graph_plan` tool + proposal validator: the model authors any node/edge topology; the harness
+      validates against the registry/budget and the driver adopts it (`proposal.ts`, `tools.ts`)
+- [x] Three topology modes `template | dynamic | propose` + `adoptPolicy` (default `start-only`,
+      i.e. topology is fixed once real work starts)
+- [x] E2E: dynamic synthesis (4 nodes) and **model-authored topology** (model called `graph_plan`,
+      harness adopted `p1→p2`, both nodes ran)
+- [x] Design rationale: `docs/DYNAMIC-TOPOLOGY.md`
+
+## Previously landed
 
 - [x] Kernel: minimal stepwise + LangGraph 1.7 adapter behind `KernelPort`
       (`packages/loop/src/kernel/`), 26 tests incl. one-node-per-`next()` semantics,

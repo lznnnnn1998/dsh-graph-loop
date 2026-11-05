@@ -6,7 +6,7 @@ which runs one compiled graph node per DSH step. No DSH source is modified.
 
 - Evaluation and full implementation plan: [`docs/explore-mode-plan.zh.md`](docs/explore-mode-plan.zh.md)
 - Research evidence: [`research/`](research/)
-- Design contracts: [`design/`](design/)
+- Design contracts: [`design/`](design/) · dynamic topology: [`docs/DYNAMIC-TOPOLOGY.md`](docs/DYNAMIC-TOPOLOGY.md)
 - Build status: [`PROGRESS.md`](PROGRESS.md) · implementation notes: [`docs/IMPLEMENTATION.md`](docs/IMPLEMENTATION.md)
 
 ## Quick start
@@ -16,6 +16,7 @@ bash scripts/link-dsh.sh            # link the read-only DSH checkout packages
 npm test                            # 36 unit tests
 npm run e2e                         # dev overlay + mock LLM (3 graph nodes)
 bash scripts/e2e-installed.sh       # install bundle B into a throwaway profile and run
+bash scripts/e2e-propose.sh         # model-authored topology via graph_plan
 node scripts/build-bundles.mjs      # rebuild packages/*/lib
 ```
 
