@@ -7,7 +7,7 @@ DSH="${DSH_ROOT:-/Users/zhinan/deepseek-harness}"
 PORT="${PORT:-8157}"
 HOME_DIR="${HOME_DIR:-$(mktemp -d /tmp/dsh-explore-sub.XXXXXX)}"
 LOG="$HOME_DIR/mock.log"
-PATCH="$ROOT/packages/loop/dev.patch.yml"
+PATCH="$ROOT/packages/loop/dev-headless.patch.yml"
 cleanup() { [ -n "${MOCK_PID:-}" ] && kill "$MOCK_PID" 2>/dev/null || true; }
 trap cleanup EXIT
 

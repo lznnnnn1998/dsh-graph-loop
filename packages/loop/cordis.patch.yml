@@ -38,8 +38,6 @@
         model: deepseek-flash
 
 
-    - id: graph-ui
-      name: '@dsh/explore-graph-ui'
 
     - id: graph-tools
       name: '@dsh/explore-loop/tools'

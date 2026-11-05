@@ -29,7 +29,7 @@ echo "== graph driver"
 start_mock "$((LLM_PORT + 1))" "$GRAPH_HOME/mock.log"
 ( cd "$DSH" && DSH_HOME="$GRAPH_HOME" DEEPSEEK_BASE_URL="http://127.0.0.1:$((LLM_PORT + 1))" DEEPSEEK_API_KEY=mock \
     node --import tsx/esm apps/cli/src/bin.ts --profile headless \
-    --patch "$ROOT/packages/loop/dev.patch.yml" "read the README and summarize" > /dev/null 2>&1 )
+    --patch "$ROOT/packages/loop/dev-headless.patch.yml" "read the README and summarize" > /dev/null 2>&1 )
 
 STOCK_LOG=$(ls -t "$STOCK_HOME"/sessions/*/*/session.v4.jsonl.zstd | head -1)
 GRAPH_LOG=$(ls -t "$GRAPH_HOME"/sessions/*/*/session.v4.jsonl.zstd | head -1)

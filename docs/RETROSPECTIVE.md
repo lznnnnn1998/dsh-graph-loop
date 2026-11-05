@@ -58,7 +58,16 @@
 3. **Conformance replay-diff + 跨 loop resume**：补上 fork 的可靠性缺口。
 4. **打包一体化 + CI**：`dsh plugin add` 一条命令、loop bundle 带上 graph-ui、e2e 进 CI。
 
-## 5. 本轮已做的下一步
+## 5. 本轮已做的下一步（续）
+
+- **一键安装**：`scripts/install-explore.sh`；`graph-ui` 独立成 bundle 层，安装顺序不再依赖 loop patch。
+- **跨 loop resume**：stock→graph、graph→stock 都通过；会话日志不变量仍成立。
+- **Conformance 加强**：turn/step 编号必须连续；e2e 覆盖两个方向。
+- **结构 A/B**：`docs/AB-STRUCTURAL.md`。mock 路由下：graph 在非平凡任务上多 2–3 步、多 1–2KB
+  user bytes；平凡任务因 triage 反而少 1 步。真实质量仍需 `AB_REAL=1` + 人工评分。
+- **Patch 拆分**：headless 用 `dev-headless.patch.yml`，不再出现 `webServer` pending 警告。
+
+## 5b. 之前的下一步
 
 - SSE：`/graph-chat/api/events` 推送 live snapshot，Graph tab 优先 SSE、失败回退轮询。
 - Triage：简单任务单节点，避免「graph 比 stock 还贵」。

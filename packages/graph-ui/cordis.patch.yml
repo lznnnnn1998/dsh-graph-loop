@@ -1,0 +1,6 @@
+# @dsh/explore-graph-ui — one host row that carries the Web client bundle.
+# The row exists so client-modules can find exactly one active Loader source for
+# this package; the host plugin itself is a no-op.
+- insert:
+    - id: graph-ui
+      name: '@dsh/explore-graph-ui'
