@@ -101,6 +101,8 @@ export interface GraphTurnDriverOptions {
   readonly maxSteps?: number
   /** False for subagent children: no nested fan-out. */
   readonly allowSubagents?: boolean
+  /** Force the single-node fallback plan (used for subagent children). */
+  readonly forceFallback?: boolean
   /** Delegation depth (0 for a root agent), included in the trace. */
   readonly depth?: number
   readonly onSnapshot?: (snapshot: GraphTurnSnapshot) => void
@@ -202,6 +204,25 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       if (mode === 'propose') {
         install(bootstrapTopology(fingerprint.hash, { maxSteps }))
         rationale = ['bootstrap frame: the model authors the topology']
+        return emit()
+      }
+
+      if (options.forceFallback === true) {
+        install(fallbackPlan({ id: fingerprint.hash, instruction: options.fallbackInstruction, maxSteps }))
+        rationale = ['child agent: single-node fallback']
+        return emit()
+      }
+
+      // Triage: a trivial task does not deserve a synthesized graph. One step
+      // keeps short chats at stock-loop cost instead of paying plan overhead.
+      const trivial = task.text.trim().length > 0 && task.text.trim().length < 32
+        && fingerprint.intent === 'other'
+        && !fingerprint.mutating
+        && fingerprint.artifactsIn.length === 0
+        && fingerprint.artifactsOut.length === 0
+      if (mode !== 'template' && trivial) {
+        install(fallbackPlan({ id: fingerprint.hash, instruction: options.fallbackInstruction, maxSteps }))
+        rationale = ['triage: trivial task, single-node plan']
         return emit()
       }
 

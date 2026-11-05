@@ -49,6 +49,7 @@ const PAGE = (() => {
 interface RuntimeLike {
   traceHistory(sessionId: string): readonly unknown[]
   last(sessionId: string): unknown
+  subscribe(sessionId: string, listener: (payload: { snapshot: unknown; turns: readonly unknown[] }) => void): () => void
 }
 interface AgentsLike {
   get(id: SessionId): { status?: string; model?: { current(): { provider: string; model: string } | undefined }; followup(message: UserMessage): void } | undefined
@@ -132,7 +133,12 @@ export class GraphChat extends Service {
       path: `${this.base}/api/send`,
       handler: (req, res) => { void this.send(req, res) },
     })
-    ctx.effect(() => () => { disposePage(); disposeState(); disposeMessages(); disposeNew(); disposeSend() }, 'graphChat.routes()')
+    const disposeEvents = ctx.webServer.register({
+      kind: 'exact',
+      path: `${this.base}/api/events`,
+      handler: (req, res) => { this.events(req, res) },
+    })
+    ctx.effect(() => () => { disposePage(); disposeState(); disposeMessages(); disposeNew(); disposeSend(); disposeEvents() }, 'graphChat.routes()')
   }
 
   private sessions(): SessionsLike | undefined {
@@ -168,6 +174,30 @@ export class GraphChat extends Service {
       sessionId: selected ?? null,
       turns: selected === undefined ? [] : (runtime?.traceHistory(selected) ?? []),
     })
+  }
+
+  private events(req: IncomingMessage, res: ServerResponse): void {
+    const url = new URL(req.url ?? this.base, 'http://localhost')
+    const sessionId = url.searchParams.get('sessionId')
+    const runtime = this.runtime()
+    if (sessionId === null || runtime === undefined) {
+      json(res, 404, { error: 'sessionId and graphRuntime are required' })
+      return
+    }
+    res.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-store',
+      connection: 'keep-alive',
+      'x-accel-buffering': 'no',
+    })
+    const send = (payload: { snapshot: unknown; turns: readonly unknown[] }): void => {
+      res.write(`event: graph\ndata: ${JSON.stringify({ sessionId, ...payload })}\n\n`)
+    }
+    const unsubscribe = runtime.subscribe(sessionId, send)
+    const heartbeat = setInterval(() => { res.write(': keepalive\n\n') }, 15_000)
+    const close = (): void => { clearInterval(heartbeat); unsubscribe(); res.end() }
+    req.on('close', close)
+    req.on('error', close)
   }
 
   private messages(req: IncomingMessage, res: ServerResponse): void {

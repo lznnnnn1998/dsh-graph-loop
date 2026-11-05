@@ -114,3 +114,24 @@ test('a failed work node triggers a boundary recovery plan', async () => {
   assert.equal(driver.current()?.id, 'r_diagnose')
   assert.ok(snapshot.rationale.some(line => line.includes('replan 1')))
 })
+
+test('triage keeps a trivial task at one step', async () => {
+  const driver = createGraphTurnDriver({ mode: 'dynamic', graphProvider: () => registry.graph })
+  const started = await driver.beginTurn({ text: 'hi' })
+  assert.equal(started.plan.nodes.length, 1)
+  assert.equal(driver.current()?.id, 'node:respond')
+  assert.ok(started.rationale.some(line => line.includes('trivial')))
+})
+
+test('subagent children force the single-node fallback', async () => {
+  const driver = createGraphTurnDriver({
+    mode: 'dynamic',
+    graphProvider: () => registry.graph,
+    forceFallback: true,
+    depth: 1,
+  })
+  const started = await driver.beginTurn({ text: 'investigate the first half of the research question' })
+  assert.equal(started.plan.nodes.length, 1)
+  assert.equal(started.depth, 1)
+  assert.ok(started.rationale.some(line => line.includes('child agent')))
+})
