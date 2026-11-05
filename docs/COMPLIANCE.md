@@ -43,13 +43,18 @@ hidden behind the green e2e suite.
 | Error handling | Misconfiguration fails loud | ✅ | missing page asset throws with path; malformed JSON body → 400 |
 | Model-facing text | Snapshot/fixture coverage | ❌ | no DSH snapshot harness; e2e asserts structure, not pinned text |
 | Tests | Coverage gate / vitest | ❌ | `node:test` only; no per-file 100% coverage |
-| Checks | `pnpm lint`, `publint`, `hygiene`, `doc-sync`, `build:check` | ❌ | not runnable against this external workspace as-is; ran `tsc`, build, `publint`-equivalent not run |
+| Checks | `pnpm lint`, `publint`, `hygiene`, `doc-sync`, `build:check` | ⚠️ | `publint` run on all four packages: `loop`/`mode`/`core` clean, `graph-ui` has the same CJS-interpreted client-bundle warning as official `ui-trajectory`/`ui-chat`; other DSH gates are workspace-scoped and not runnable as-is |
 | Client build | tsdown client preset (source map, CSS/assets pipeline) | ⚠️ | hand-authored closure factory; runtime contract verified, build pipeline not |
 | Snapshot | Keyless recorded-session snapshot | ❌ | not implemented |
 | Naming/i18n docs | Bilingual package docs | ⚠️ | English READMEs only; external workspace, not DSH docs tree |
 
 ## Checks actually run
 
+- `publint` on `packages/core`, `packages/loop`, `packages/mode`, `packages/graph-ui` — three clean;
+  `graph-ui` warns that `lib/client.js` is CJS-interpreted, which official client packages also warn
+  about (same closure-factory envelope). One stale `loop` export was found and removed.
+- DSH's own `vitest` suite (sample: `packages/core/agent-loop/tests/contract-regressions.spec.ts`) —
+  44/44 passed, proving the harness; it does not include this external package.
 - `npx tsc -p tsconfig.json --noEmit` — 0 errors
 - `npm test` — 73/73
 - 10 e2e: headless dynamic, propose, subagents, replan, installed bundle, graph-chat page, Graph tab

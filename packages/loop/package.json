@@ -11,8 +11,7 @@
     "./tools": "./lib/tools.js",
     "./scheduler": "./lib/scheduler.js",
     "./kernel": "./lib/kernel.js",
-    "./runtime": "./lib/runtime.js",
-    "./client": "./client/graph-view.js"
+    "./runtime": "./lib/runtime.js"
   },
   "files": [
     "lib",
