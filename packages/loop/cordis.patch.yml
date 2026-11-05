@@ -1,0 +1,27 @@
+# @dsh/explore-loop — the graph driver replacing the stock agent loop.
+#
+# INSTALL IN A DEDICATED PROFILE. `ctx.agents.setFactory()` is exclusive
+# (packages/core/agent/src/index.ts:383-392), so exactly one loop may register.
+# A patch's `name` is a GUARD, never an override (vendor/include/src/index.ts:115-118),
+# so the stock row is disabled and the graph row inserted.
+- id: agent-loop
+  name: '@deepseek-ai/dsh-agent-loop'
+  disabled: true
+
+- insert:
+    - id: graph-registry
+      name: '@dsh/explore-loop/registry'
+      config:
+        snapshotTtlMs: 25
+
+    - id: graph-router
+      name: '@dsh/explore-loop/router'
+
+    - id: graph-loop
+      name: '@dsh/explore-loop'
+      config:
+        maxParallelToolCalls: 10
+        agents: []
+
+    - id: graph-tools
+      name: '@dsh/explore-loop/tools'

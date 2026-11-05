@@ -1,0 +1,36 @@
+{
+ "generatedAt": "2026-11-05T14:13:55.980Z",
+ "thresholds": {
+  "minBilledInputDrop": 0.15,
+  "minPromptTokenDrop": 0.25,
+  "maxCacheReadRatioDrop": 0.2,
+  "maxSuccessDrop": 0.05,
+  "maxWallTimeRise": 0.3
+ },
+ "files": [
+  "bench/results/measured-web-sessions.jsonl"
+ ],
+ "summary": {
+  "baseline": {
+   "rows": 5,
+   "tasks": 5,
+   "sessionCount": 1,
+   "stepsMedian": 48,
+   "promptTokensMedian": 4234519,
+   "billedInputMedian": 142917.08000000002,
+   "cacheReadRatioMedian": 0.9842441873227755,
+   "successRate": 1,
+   "wallTimeMedianMs": 0,
+   "tokenSources": [
+    "provider",
+    "heuristic"
+   ]
+  }
+ },
+ "verdicts": {
+  "baseline": {
+   "verdict": "baseline",
+   "rules": []
+  }
+ }
+}

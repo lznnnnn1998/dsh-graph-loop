@@ -1,0 +1,36 @@
+# Graph-loop bundle layer: take the stock loop row out and put the graph loop in.
+#
+# This is a BUNDLE layer (`dsh.bundle.patch` in package.json), applied after the
+# base layer inside a profile. Two facts constrain the shape:
+#
+#   1. The base layer inserts the stock row (`packages/bundle/base/cordis.patch.yml:513`).
+#   2. A patch CANNOT rename a row: `name` in a patch entry is a guard, not an
+#      override — `applyEntryPatches` compares it with the live name and SKIPS the
+#      patch on mismatch (vendor/include/src/index.ts:105-109). Only every OTHER
+#      field (config, disabled, group, isolate, inject, intercept) is assignable.
+#
+# So replacing the loop is "disable the stock row, insert the graph row". The
+# `name` guard is used deliberately below: if a future release renames the stock
+# row, the disable warns instead of silently disabling something else.
+#
+# Compatibility note: overlays that configure `- id: agent-loop` (test fixtures,
+# user profiles, web presets) will keep patching the DISABLED row. Either keep the
+# graph row's id as `agent-loop` (duplicate-id risk: the Loader keys rows in
+# `store[id]`, vendor/loader/src/config/tree.ts:51-58) or re-point those overlays.
+
+# 1. Retire the stock implementation. This removes the AgentFactory, the
+#    `agentLoop` service, and the modelSelection/inbox projection registrations
+#    (packages/core/agent-loop/src/index.ts:329-338) from the composition.
+- id: agent-loop
+  name: '@deepseek-ai/dsh-agent-loop'   # guard: fail soft if this row changes owner
+  disabled: true
+
+# 2. Insert the replacement rows. The bundle's package name resolves through the
+#    profile's node_modules (docs/user/develop/basic/publish.md).
+- insert:
+    - id: graph-loop
+      name: '@deepseek-ai/dsh-graph-loop'
+      config:
+        mode: explore
+        maxParallelToolCalls: 4
+        agents: []

@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dsh-graph-loop/bench/results.schema.json",
+  "title": "DSH graph-loop bench result row",
+  "description": "One row per (arm, task, repetition). Emitted by scripts/analyze-session.mjs for logged sessions and by scripts/run-arm.mjs for live runs. Arms: baseline (stock loop + standard preset), explore (stock loop + explore preset), graph-control (graph as control plane, one session), graph-node (graph nodes as subagent sessions).",
+  "type": "object",
+  "required": [
+    "schemaVersion", "arm", "runId", "kind", "sessionCount", "tools", "toolSchemaBytes",
+    "toolSchemaTokens", "systemChars", "systemTokens", "steps", "toolCalls",
+    "promptTokens", "cacheReadTokens", "missTokens", "outputTokens", "cacheReadRatio",
+    "billedInputUnits", "billedCostUsd", "wallTimeMs", "tokenSource"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "arm": { "enum": ["baseline", "explore", "graph-control", "graph-node"] },
+    "runId": { "type": "string", "description": "Stable id of this row, e.g. <task>.<arm>.r<repetition>." },
+    "taskId": { "type": "string", "description": "Task id from tasks/tasks.jsonl." },
+    "repetition": { "type": "integer", "minimum": 1 },
+    "sessionFile": { "type": "string" },
+    "kind": { "enum": ["main", "subagent"] },
+    "sessionCount": {
+      "type": "integer", "minimum": 1,
+      "description": "Sessions this row aggregates. Subagent-node mode counts parent plus every node; a main-session row is always 1."
+    },
+    "provider": { "type": "string" },
+    "model": { "type": "string" },
+    "tools": { "type": "integer", "description": "Distinct tool schemas visible in the request." },
+    "toolSchemaBytes": { "type": "integer", "description": "Exact JSON.stringify length of the request's tools array." },
+    "toolSchemaTokens": { "type": "integer", "description": "ceil(bytes/4)+4, DSH token-meter heuristic." },
+    "systemChars": { "type": "integer", "description": "Rendered system-prompt characters." },
+    "systemTokens": { "type": "integer", "description": "ceil(chars/4)+4, DSH token-meter heuristic." },
+    "steps": { "type": "integer", "description": "step/start events." },
+    "toolCalls": { "type": "integer" },
+    "promptTokens": { "type": "integer", "description": "Provider prompt tokens summed over steps (cache hit + miss + write). Heuristic when tokenSource=heuristic." },
+    "cacheReadTokens": { "type": "integer" },
+    "cacheWriteTokens": { "type": "integer" },
+    "missTokens": { "type": "integer", "description": "Provider inputTokens = uncached input. This is the expensive bucket." },
+    "outputTokens": { "type": "integer" },
+    "cacheReadRatio": { "type": "number", "minimum": 0, "maximum": 1, "description": "cacheReadTokens / promptTokens. Kill-criterion metric: a per-node tool change breaks it." },
+    "billedInputUnits": {
+      "type": "number",
+      "description": "missTokens + 0.02 * cacheReadTokens. One unit = one cache-miss token at list price, so arms are comparable across token sources."
+    },
+    "billedOutputUnits": { "type": "number", "description": "4 * outputTokens at DeepSeek flash off-peak list prices." },
+    "billedCostUsd": { "type": "number", "description": "billedInputUnits * $0.15/M + output at $0.60/M. Reprice with scripts/cost-model.mjs if prices change." },
+    "wallTimeMs": { "type": "integer", "description": "turn/start of the first turn to turn/end of the last." },
+    "tokenSource": { "enum": ["provider", "heuristic"], "description": "provider = real usage from the API; heuristic = DSH token-meter price over the logged surface (mock/replay runs)." },
+    "success": { "type": "boolean", "description": "Task-specific check from tasks.jsonl; null when not evaluated." },
+    "contextBreakdownFirstStep": { "$ref": "#/$defs/breakdown" },
+    "contextBreakdownLastStep": { "$ref": "#/$defs/breakdown" },
+    "perStep": { "type": "array", "items": { "$ref": "#/$defs/breakdown" } }
+  },
+  "$defs": {
+    "breakdown": {
+      "type": "object",
+      "description": "Mirrors DSH's contextBreakdown projection (systemTokens/toolsTokens/messageTokens) plus the provider's buckets.",
+      "properties": {
+        "step": { "type": "integer" },
+        "promptTokens": { "type": "integer" },
+        "cacheReadTokens": { "type": "integer" },
+        "missTokens": { "type": "integer" },
+        "outputTokens": { "type": "integer" },
+        "systemTokens": { "type": "integer" },
+        "toolsTokens": { "type": "integer" },
+        "messageTokens": { "type": "integer" }
+      }
+    }
+  }
+}

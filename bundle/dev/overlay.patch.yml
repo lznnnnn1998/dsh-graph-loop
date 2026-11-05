@@ -1,0 +1,46 @@
+# Developer overlay: replace the agent loop without installing anything.
+#
+# Apply it on top of ANY profile whose composition ends in `@deepseek-ai/dsh-base`:
+#
+#   dsh --profile web --patch /abs/path/bundle/dev/overlay.patch.yml --dump-config
+#   dsh --profile web --patch /abs/path/bundle/dev/overlay.patch.yml
+#
+# Absolute paths and patch-relative `./`/`../` paths become file URLs inside `insert`
+# rows (packages/boot/app-boot/README.md:65), so a checkout runs from source with no
+# profile mutation. Point these at the real TS packages once they exist — the source
+# launcher runs `node --import tsx/esm`, so an absolute `.ts` path resolves.
+#
+# Row ids patched: `agent-loop` (disabled, guard name) — same surgery as
+# bundle/b-loop/cordis.patch.yml, which is the release form of this file.
+
+- id: agent-loop
+  name: '@deepseek-ai/dsh-agent-loop'
+  disabled: true
+
+- insert:
+    - id: graph-registry
+      name: /Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/bundle/b-loop/src/registry.js
+      config:
+        document: /Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/design/example-graph.yaml
+        snapshotTtlMs: 5000
+
+    - id: graph-router
+      name: /Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/bundle/b-loop/src/router.js
+      config:
+        confidenceThreshold: 0.55
+
+    - id: graph-runtime
+      name: /Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/bundle/b-loop/src/runtime.js
+      config:
+        mode: observe
+        maxReplans: 2
+
+    - id: graph-loop
+      name: /Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/bundle/b-loop/src/index.js
+      config:
+        maxParallelToolCalls: 10
+        agents: []
+        mode: observe
+
+    - id: graph-tools
+      name: /Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/bundle/b-loop/src/tools.js
