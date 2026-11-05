@@ -20,7 +20,6 @@ import type {
   JsonValue,
   NodeContext,
   NodeId,
-  NodePolicy,
 } from '@dsh/explore-core/kernel'
 import type { GraphState, Json, PlanNode, TaskPlan } from '@dsh/explore-core/graph-schema'
 import { GRAPH_STATE_LIMITS } from '@dsh/explore-core/graph-schema'
@@ -37,6 +36,7 @@ import {
   asKernelError,
   createCheckpoint,
   hooksOf,
+  isAborted,
   isJson,
   mergeState,
   stripPregelKeys,
@@ -393,19 +393,17 @@ interface ResolvedRetry {
 }
 
 function retryPolicyOf(node: PlanNode, deps: ResolvedKernelDeps): ResolvedRetry {
-  const planRetry = node.retry
-  const policy: NodePolicy | undefined = undefined
-  const abort = deps.signal
+  const retry = node.retry
   return {
-    maxAttempts: Math.max(1, planRetry?.maxAttempts ?? policy?.retry?.maxAttempts ?? 1),
-    initialDelayMs: Math.max(0, planRetry?.backoffMs ?? policy?.retry?.initialDelayMs ?? 0),
-    backoffFactor: policy?.retry?.backoffFactor ?? 2,
-    maxDelayMs: policy?.retry?.maxDelayMs ?? 5_000,
+    maxAttempts: Math.max(1, retry?.maxAttempts ?? 1),
+    initialDelayMs: Math.max(0, retry?.backoffMs ?? 0),
+    backoffFactor: 2,
+    maxDelayMs: 5_000,
     retryOn: (error) => {
-      if (abort?.aborted === true) return false
+      if (isAborted(deps.signal)) return false
       const kernelError = error instanceof KernelError ? error : undefined
       if (kernelError?.code === 'ABORTED') return false
-      return policy?.retry?.retryOn?.(error) ?? true
+      return true
     },
   }
 }
@@ -488,7 +486,7 @@ export function failureOf(error: unknown, nodeId: NodeId): NodeFailure {
     code,
     nodeId,
     message: kernelError?.message ?? (error instanceof Error ? error.message : String(error)),
-    retryable: code === 'graph-error' ? false : false,
+    retryable: false,
   }
 }
 

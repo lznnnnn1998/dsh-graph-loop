@@ -94,6 +94,11 @@ export function asKernelError(error: unknown, node?: NodeId): KernelError {
   })
 }
 
+/** Snapshot test that defeats control-flow narrowing of a mutable signal. */
+export function isAborted(signal: AbortSignal | undefined): boolean {
+  return signal !== undefined && signal.aborted
+}
+
 /** `AbortSignal` reason normalised to a string. */
 export function abortMessage(signal: AbortSignal): string {
   const reason = signal.reason as unknown
@@ -135,10 +140,10 @@ export interface GraphSpec<S extends StateObject> {
   readonly name: string
   readonly validateJson: boolean
   readonly initialState?: S
-  readonly nodes: readonly NodeSpec<S>[]
-  readonly edges: readonly EdgeSpec[]
-  readonly conditionals: readonly ConditionalEdgeSpec<S>[]
-  readonly fanOuts: readonly FanOutSpec<S>[]
+  nodes: NodeSpec<S>[]
+  edges: EdgeSpec[]
+  conditionals: ConditionalEdgeSpec<S>[]
+  fanOuts: FanOutSpec<S>[]
 }
 
 export type GraphCompileFn<S extends StateObject> = (
@@ -194,7 +199,14 @@ export class GraphBuilderImpl<S extends StateObject> implements GraphBuilder<S> 
     return this
   }
 
+  /**
+   * Unconditional edge. Replaces any existing unconditional edge out of the
+   * same `from` node (a graph has exactly one sequential successor), which is
+   * what makes `withTopology()` able to splice a node into an existing edge.
+   */
   addEdge(from: NodeId | typeof START, to: NodeId | typeof END): this {
+    const existing = this.spec.edges.findIndex((edge) => edge.from === from)
+    if (existing >= 0) this.spec.edges.splice(existing, 1)
     this.spec.edges.push({ from, to })
     return this
   }

@@ -27,6 +27,7 @@ await buildPackage('packages/loop', {
   router: 'packages/loop/src/router.ts',
   tools: 'packages/loop/src/tools.ts',
   scheduler: 'packages/loop/src/scheduler.ts',
+  kernel: 'packages/loop/src/kernel/index.ts',
 })
 await buildPackage('packages/mode', {
   policy: 'packages/mode/src/policy.ts',
