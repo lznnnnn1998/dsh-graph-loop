@@ -18,7 +18,8 @@ end-to-end, but the "not implemented" list below is real.
 | Dynamic topology | `packages/core/src/topology.ts` | synthesizes arbitrary DAGs from the capability graph; frontier executor supports fan-out, bounded cycles and runtime node/edge mutation |
 | Model-authored topology | `packages/core/src/proposal.ts` + `graph_plan` | the model submits any node/edge graph; the harness validates and the driver adopts it |
 | Kernel | `packages/loop/src/kernel/` | `KernelPort` implementations: minimal stepwise (default) and a LangGraph 1.7 adapter behind a lazy import |
-| Graph-chat | `packages/loop/src/graph-chat.ts` + `assets/graph-chat.html` | live page `/graph-chat`: chat on the left, current turn topology on the right; new-chat/send APIs; polls the graph runtime |
+| Graph tab | `packages/graph-ui/` | Web conversation-view tab (`conversation.view` slot) next to Chat/Trajectory; reuses the whole chat shell and reads the graph-chat API |
+| Graph-chat page | `packages/loop/src/graph-chat.ts` + `assets/graph-chat.html` | live page `/graph-chat`: chat on the left, current turn topology on the right; new-chat/send APIs; polls the graph runtime |
 | Bundle A | `packages/mode/` | `explore` preset (standard preset minus delegation), policy section, idle-roster context, `suggest_executor`, `spawn_teammate` duplicate guard |
 | Bundle B | `packages/loop/cordis.patch.yml` | disables row `agent-loop`, inserts graph registry/router/loop/tools |
 
@@ -30,7 +31,8 @@ end-to-end, but the "not implemented" list below is real.
 - `scripts/e2e-subagents.sh` — parallel subagent branches (`{d_search,d_fetch}`) in one turn.
 - `scripts/e2e-replan.sh` — `bash` verify fails → recovery subgraph runs.
 - `scripts/preview.mjs /tmp/dsh-graph-traces preview` — offline topology preview panel.
-- `scripts/e2e-graph-chat.sh` — real Web host + graph-chat page/API; asserts a 4-node live topology and screenshots `preview/graph-chat-live.png`.
+- `scripts/e2e-graph-chat.sh` — real Web host + standalone graph-chat page/API; screenshots `preview/graph-chat-live.png`.
+- `scripts/e2e-graph-tab.sh` — installs both packages into a throwaway web profile, drives the real UI with Puppeteer, asserts the Graph tab, screenshots `preview/graph-tab-live.png`.
 - `bash scripts/e2e-installed.sh` — creates a profile from the headless template,
   `dsh plugin add packages/loop`, runs the same task through the installed bundle
   (no `--patch`), same result.
