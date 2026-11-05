@@ -70,8 +70,35 @@ instruction 长度有上限、预算达标。**模型画图，harness 校验，d
 - `graph_plan` / `graph_status`（`packages/loop/src/tools.ts`）：模型画图 + 观察。
 - e2e：`scripts/e2e-headless.sh`（dynamic 4 节点）、`scripts/e2e-propose.sh`（模型写图并执行）。
 
-## 5. 还没做到的「自由」
+## 5. 子代理 = 图里的节点，依赖决定并发
 
-- 并行分支目前是**拓扑上的 fan-out**，执行仍是单 agent 串行（真并行需要 subagent 节点）；
+- `PlanNode.executor` 有 `step` 与 `subagent` 两种。subagent 节点**不是**父会话里多一次模型调用，
+  而是一次 `ctx.subagents.startActivation`（fresh child，`delivery:'caller'`）；子会话有独立 session log。
+- 同一超步里入队的多个 subagent 节点会被 `takeSubagentBatch()` 取走并 **Promise.all 并发执行**，
+  结果以 `[subagent <node>] …` 注入父会话，供 join 节点使用；依赖节点等待，不依赖的并行。
+- 子代理**不会无限套娃**：`delegationDepth > 0` 时 `allowSubagents:false`，子图不再生成 subagent 节点
+  （否则深度上限会触发一批失败，预览里能直接看到）。
+- e2e：`scripts/e2e-subagents.sh` 的 research 任务生成 `d_entry → {d_search, d_fetch}(subagent) → d_answer`，
+  两个子代理并发执行，父会话 2 步。
+
+## 6. 边界重规划（已实现）
+
+- 触发：verify 类工具（`bash`/`pwsh`）的 `tool/result` 为 `isError`，或节点显式失败。
+- 动作：如果当前图有 `callFailed` 边就走恢复边；否则安装一个 `r_diagnose → r_retry → r_answer`
+  的恢复子图（`recoveryTopology`），最多 `budget.maxReplans` 次，并记录 `replan N`。
+- e2e：`scripts/e2e-replan.sh` —— 第 4 步 `bash false` 失败，driver 重规划，会话里出现
+  `r_diagnose`/`r_retry`，最终完成（6 步）。
+
+## 7. 预览面板
+
+- `graph-runtime.traceDir` 打开后，每轮写一份 trace JSON：`{mode, plan(nodes/edges), trail, rationale, depth, replans}`。
+- `node scripts/preview.mjs <traceDir> preview` 生成 `preview/index.html`：每轮一个 tab，SVG 拓扑 +
+  information flow + 节点详情；root 轮在前，child 轮标注 depth。
+- 这是离线面板（不依赖 Web UI、不新增 client plugin）；后续可把同一 trace 接成 Web 侧栏。
+
+## 8. 还没做到的「自由」
+
+- 并行分支已可走 subagent 节点并发，但 tool 节点仍是父会话串行（工具批并发由 executor 决定）；
 - 运行中 `addNode/removeNode` 已可用，但没有暴露成模型工具（避免每步改图）；
+- 重规划目前覆盖 verify 失败；对「意外产物/预算」的触发器还没接；
 - 拓扑跨轮持久化/继承还没做：每轮重新发现，长目标只保留「目标 + 产物引用」作为上下文。

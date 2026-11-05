@@ -17,6 +17,9 @@ npm test                            # 36 unit tests
 npm run e2e                         # dev overlay + mock LLM (3 graph nodes)
 bash scripts/e2e-installed.sh       # install bundle B into a throwaway profile and run
 bash scripts/e2e-propose.sh         # model-authored topology via graph_plan
+bash scripts/e2e-subagents.sh       # parallel subagent branches in the graph
+bash scripts/e2e-replan.sh          # boundary replan after a failed verify
+node scripts/preview.mjs /tmp/dsh-graph-traces preview   # topology preview panel
 node scripts/build-bundles.mjs      # rebuild packages/*/lib
 ```
 

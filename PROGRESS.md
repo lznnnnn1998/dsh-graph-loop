@@ -27,7 +27,21 @@ Local working repo. Nothing here edits the DSH checkout; the driver is loaded th
 - [x] Composition evidence: `--dump-config` shows stock row disabled + graph rows inserted
       (installed profile), and `preset-explore` present with bundle A
 
-## Just landed (dynamic topology)
+## Just landed (parallel subagents, boundary replan, preview)
+- [x] Graph nodes can be `subagent` executions: a batch of ready subagent nodes runs concurrently via
+      `ctx.subagents.startActivation({delivery:'caller'})`, results are injected as `[subagent <node>]`
+      context for the join node. Children do not fan out again (`delegationDepth > 0` disables nested
+      subagent synthesis). E2E: `scripts/e2e-subagents.sh` (2 parent steps, 2 children).
+- [x] Boundary replan: a failing verify tool (`bash`/`pwsh` `tool/result` `isError`) marks the node failed;
+      a pre-declared `callFailed` edge is taken, otherwise a recovery subgraph
+      `r_diagnose → r_retry → r_answer` is installed (bounded by `maxReplans`).
+      E2E: `scripts/e2e-replan.sh` (6 steps, recovery nodes ran).
+- [x] Preview panel: `graph-runtime.traceDir` writes per-turn `{plan, trail, rationale, depth, replans}`;
+      `scripts/preview.mjs` renders `preview/index.html` (SVG topology + information flow + node inspector,
+      roots first, child turns labelled). Open the generated file directly.
+- [x] 71 unit tests + 5 e2e suites green
+
+## Previously landed (dynamic topology)
 - [x] `synthesizeTopology`: arbitrary DAG from the capability graph (no template): discovery,
       inspect→edit→verify, parallel research fan-out, terminal answer (`packages/core/src/topology.ts`)
 - [x] `FrontierTopology`: frontier executor with runtime `addNode/removeNode/addEdge`, bounded cycles,

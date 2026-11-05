@@ -56,6 +56,35 @@ type Phase =
 
 type StepEndReason = Extract<TurnEndReason, { kind: 'completed' | 'max-tokens' }>
 
+/** Structural plan-node shape the driver needs (kept local to avoid a cycle). */
+interface PlanNodeLike {
+  readonly id: string
+  readonly executor?: 'step' | 'subagent'
+  readonly instruction?: string
+}
+
+/** Minimal structural view of `ctx.subagents` used by parallel graph nodes. */
+interface SubagentsLike {
+  startActivation(spec: {
+    readonly provider: string
+    readonly label: string
+    readonly request: {
+      readonly parent: Agent
+      readonly prompt: readonly { readonly type: 'text'; readonly text: string }[]
+      readonly signal: AbortSignal
+    }
+    readonly delivery: 'caller'
+    readonly signal: AbortSignal
+  }): Promise<{
+    readonly childId: string
+    readonly result: Promise<{
+      readonly output: readonly { readonly type: string; readonly text?: string }[]
+      readonly stopReason?: string
+    }>
+    dispose(): Promise<void>
+  }>
+}
+
 /** Flatten the text of pending inbox messages into one routing task string. */
 function inboxText(messages: readonly UserMessage[]): string {
   const parts: string[] = []
@@ -160,6 +189,54 @@ export class ReactLoopAgent implements Agent {
     this.phase = { kind: 'idle', lastTurn }
     this.runtimeContext = new RuntimeContextProjection(this.ctx, session)
     this.systemPrompt = new SystemPromptProjection(session)
+  }
+
+  /** `ctx.subagents` when the deployment mounts the delegation seam. */
+  private subagentsService(): SubagentsLike | undefined {
+    return (this.loopCtx as unknown as { get(name: string): unknown }).get('subagents') as SubagentsLike | undefined
+  }
+
+  /**
+   * Run one batch of graph subagent nodes concurrently inside the turn.
+   * Children are fresh subagent activations; their summaries are injected as
+   * model-visible context for the next parent step. No parent model request is
+   * logged for the batch, so step boundaries stay real.
+   */
+  private async runSubagentBatch(batch: readonly PlanNodeLike[]): Promise<void> {
+    const subagents = this.subagentsService()
+    if (subagents === undefined) return
+    const signal = this.phase.kind === 'running' ? this.phase.abort.signal : new AbortController().signal
+    await Promise.all(batch.map(async (node) => {
+      let activation: Awaited<ReturnType<SubagentsLike['startActivation']>> | undefined
+      try {
+        activation = await subagents.startActivation({
+          provider: 'spawn',
+          label: node.id,
+          request: {
+            parent: this,
+            prompt: [{ type: 'text', text: node.instruction ?? `Complete graph node ${node.id}.` }],
+            signal,
+          },
+          delivery: 'caller',
+          signal,
+        })
+        const result = await activation.result
+        const text = result.output
+          .map(block => block.type === 'text' ? block.text ?? '' : '')
+          .join('\n')
+          .trim()
+          .slice(0, 4000)
+        this.inject(createUserMessage({
+          content: [{ type: 'text', text: `[subagent ${node.id}] (${String(result.stopReason)}) ${text === '' ? '(no output)' : text}` }],
+          source: { kind: 'user' },
+        }))
+        this.turnGraph?.completeNode(node.id, result.stopReason === undefined || result.stopReason === 'completed')
+      } catch {
+        this.turnGraph?.completeNode(node.id, false)
+      } finally {
+        await activation?.dispose().catch(() => undefined)
+      }
+    }))
   }
 
   /** Attach the per-turn graph driver; the factory sets this before the first wake. */
@@ -383,12 +460,26 @@ export class ReactLoopAgent implements Agent {
             ? { provider, model }
             : { provider, model, reasoningEffort }) as Readonly<ModelSelection>)
         }
+        if (graphNode?.executor === 'subagent' && this.subagentsService() !== undefined) {
+          const batch = this.turnGraph?.takeSubagentBatch() ?? []
+          if (batch.length > 0) {
+            await this.runSubagentBatch(batch)
+            if (this.turnGraph?.done() === true) {
+              if (turnEnds === null) turnEnds = { kind: 'completed' }
+              await this.dispatch.serial('agent/turn-stopping', { turn, signal })
+              signal.throwIfAborted()
+              break
+            }
+            continue
+          }
+        }
         const step = phase.step + 1
         const decision = await this.preStep(target, { turn, step })
         if (decision.kind === 'reject') {
           turnEnds = { kind: 'blocked' }
           return false
         }
+        let stepFailedTool: string | undefined
         try {
           if (turnEnds && decision.messages.length === 0) break
           // A removed waking message or an enter decision rewritten to empty
@@ -401,8 +492,16 @@ export class ReactLoopAgent implements Agent {
           this.session.append('step/start', { turn, step })
           phase.step = step
           const toolRecovery = new ToolCallRecovery()
+          const toolNames = new Map<string, string>()
           const stopRecovery = this.ctx.on('session/event', (session, event) => {
-            if (session === this.session) toolRecovery.observe(event)
+            if (session !== this.session) return
+            toolRecovery.observe(event)
+            if (event.type === 'tool/call') {
+              toolNames.set(event.data.callId, event.data.name)
+            } else if (event.type === 'tool/result' && event.data.message.isError === true) {
+              const name = toolNames.get(event.data.message.toolCallId)
+              if (name === 'bash' || name === 'pwsh') stepFailedTool = name
+            }
           })
           try {
             // max-tokens is sticky: once any step hits the ceiling, later steps
@@ -433,8 +532,9 @@ export class ReactLoopAgent implements Agent {
         }
         signal.throwIfAborted()
         if (this.turnGraph !== undefined) {
-          const ok = turnEnds === null || turnEnds.kind === 'completed' || turnEnds.kind === 'max-tokens'
-          this.turnGraph.advance({ ok })
+          const ok = (turnEnds === null || turnEnds.kind === 'completed' || turnEnds.kind === 'max-tokens')
+            && stepFailedTool === undefined
+          this.turnGraph.advance({ ok, ...(stepFailedTool === undefined ? {} : { failedTool: stepFailedTool }) })
         }
         if (this.turnGraph !== undefined) {
           if (this.turnGraph.done()) {
@@ -472,6 +572,11 @@ export class ReactLoopAgent implements Agent {
         this.session.append('turn/end', { turn, reason: turnEnds! })
       } catch (error: unknown) {
         this.throwError(error)
+      }
+      try {
+        this.turnGraph?.endTurn()
+      } catch {
+        // Tracing must never fail a completed turn.
       }
     }
     if (!this.inbox.hasPending) return false

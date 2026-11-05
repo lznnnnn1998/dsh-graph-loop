@@ -576,6 +576,7 @@ export class AgentLoop extends Service implements AgentFactory {
           : new Error(`agent "${id}" creation aborted`, { cause: callerSignal.reason })
       }
       const topologyMode = this.config.topology
+      const delegationDepth = session.header.delegationDepth ?? 0
       const lastTurn = loopCtx.agents.turnBoundaryOf(session).lastTurn
       unfollowOwner = ownerCtx.effect(function* () {
         const created = machine = new ReactLoopAgent(
@@ -598,9 +599,12 @@ export class AgentLoop extends Service implements AgentFactory {
               planId: string
               rationale: readonly string[]
             }): void
+            recordTurn(sessionId: string, snapshot: unknown): void
           } | undefined
         created.setTurnGraph(createGraphTurnDriver({
           mode: topologyMode,
+          allowSubagents: delegationDepth === 0,
+          depth: delegationDepth,
           graphProvider: () => graphRegistry?.snapshot().graph,
           templatesProvider: () => graphRouter?.templates(),
           proposalSource: graphRuntime === undefined ? undefined : () => graphRuntime.takeProposal(id),
@@ -611,6 +615,7 @@ export class AgentLoop extends Service implements AgentFactory {
             planId: snapshot.planId,
             rationale: snapshot.rationale,
           }),
+          onTurnEnd: snapshot => graphRuntime?.recordTurn(id, snapshot),
           presetId: 'explore',
         }))
         machineReady.resolve()
