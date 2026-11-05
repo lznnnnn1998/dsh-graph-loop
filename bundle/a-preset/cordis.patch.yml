@@ -1,0 +1,214 @@
+# @dsh/explore-mode — the `explore` agent preset plus the host-level graph kernel rows.
+#
+# WHAT THIS LAYER DOES
+#   1. inserts three HOST-scoped rows that provide ctx.graphRegistry / ctx.graphRouter /
+#      ctx.graphRuntime. They must be host rows: a preset scope is an agent-scoped plugin
+#      tree, and activation auditing rejects a preset that *provides* a globally visible
+#      service (packages/preset/agent-preset-registry/README.md:56 and the "Activation
+#      auditing ... globally leaked services" paragraph in the same file section).
+#   2. inserts one `@deepseek-ai/dsh-agent-preset` row — the fifth mode in the Web mode
+#      chip. Shipped modes are exactly this: an inserted preset row
+#      (packages/bundle/web-app/presets/standard.patch.yml:4-16; registered by
+#      packages/preset/agent-preset/src/index.ts:12-29).
+#
+# WHAT THIS LAYER DOES NOT DO
+#   It does not touch the agent loop. The stock `agent-loop` row
+#   (packages/bundle/base/cordis.patch.yml:513) keeps running; the graph observes and
+#   steers through public seams only (`agent/pre-step`, `agent/turn-stopping`,
+#   `tools/*`, `ctx.tools.restrict`). See bundle/b-loop/ for the driver replacement.
+#
+# LAYER POSITION
+#   `dsh plugin --profile <p> add <this package>` appends this bundle AFTER
+#   `@deepseek-ai/dsh-base` and `@deepseek-ai/dsh-web-app` (docs/user/develop/basic/
+#   publish.md, "The loading order"), so the preset registry row already exists and
+#   these inserts land at the end of the composed entry list.
+#
+# ROW IDS PATCHED: none. Every row below is a new id; nothing shipped is disabled.
+
+# ── 1. Host-scoped graph kernel ────────────────────────────────────────────────
+- insert:
+    # Builds and caches the live capability graph from the mounted registries.
+    # `document` is the curated typed-edge layer; it is NOT required to boot
+    # (the registry can start from the mounted surface alone).
+    - id: graph-registry
+      name: '@dsh/explore-mode/registry'
+      config:
+        document: !!js dshHomePath('graph/explore.graph.yaml')
+        snapshotTtlMs: 5000
+        includeMcpResources: true
+
+    # Task signature -> template scoring -> top-1 (or fallback). Deterministic and
+    # cached per turn; low confidence falls back to the stock loop behaviour.
+    - id: graph-router
+      name: '@dsh/explore-mode/router'
+      config:
+        confidenceThreshold: 0.55
+        fallbackOnLowConfidence: true
+
+    # Node execution, replan points and budget. `mode` is the safety valve:
+    #   off      -> rows mount, no behaviour change at all
+    #   observe  -> decisions logged (graph_status), never applied
+    #   shadow   -> decisions computed and logged as if applied
+    #   active   -> applied
+    - id: graph-runtime
+      name: '@dsh/explore-mode/runtime'
+      config:
+        mode: observe
+        nodeExecutor: step
+        maxReplans: 2
+        budget:
+          maxNodes: 12
+          maxSteps: 40
+          maxTokens: 250000
+          maxWallMs: 900000
+
+# ── 2. The explore mode (a fifth agent preset) ─────────────────────────────────
+# This is the `standard` preset's child list with two additions (`explore-policy`,
+# `explore-tools`) and one omission (`tool-plugin-market`, already disabled in
+# standard). Child ids are kept identical to `standard` on purpose: the Web preset
+# editor overrides `config.plugins` *by id* (packages/bundle/web-app/presets/
+# standard.patch.yml:1-3), so a user override written for standard still applies here.
+- insert:
+    - id: preset-explore
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: explore
+        # `name` is unlocalized author copy; a non-shipped preset renders this string
+        # (or its id) instead of a locale key
+        # (packages/preset/agent-preset-registry/src/display.ts:60-77).
+        name: Explore (graph)
+        description: >-
+          Task-matched sub-graph over the same tools and the same session log. The graph
+          picks the path; the stock agent loop still runs every step.
+        # Shipped presets use 1..4; this one sorts last so the default stays `standard`.
+        order: 5
+        plugins:
+          # Preset-scoped bridge: reads the host kernel and contributes the node policy
+          # section for this session's steps. It only *consumes* host services, which a
+          # preset row may do (a row waiting for a Host service stays mounted).
+          - id: explore-policy
+            name: '@dsh/explore-mode/policy'
+            config:
+              section: |-
+                A capability graph selected the route for this task. Follow the node
+                policy injected in the developer message; do not restate the graph to
+                the user. Prefer the narrowest set of tools that completes the current
+                node, and report a node failure instead of silently widening scope.
+          - id: explore-tools
+            name: '@dsh/explore-mode/tools'
+
+          # ── below: unchanged copy of the standard preset ──
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: You are a coding agent powered by the {{model}} model.
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+            disabled: !!js process.platform === 'win32'
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+            disabled: !!js process.platform !== 'win32'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: tool-jobs
+            name: '@deepseek-ai/dsh-tool-jobs'
+          - id: tool-schedule
+            name: '@deepseek-ai/dsh-tool-schedule'
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+          - id: command-goal
+            name: '@deepseek-ai/dsh-command-goal'
+          - id: tool-goal
+            name: '@deepseek-ai/dsh-tool-goal'
+          - id: planning
+            name: cordis:group
+            group: true
+            isolate:
+              planMode: true
+            config:
+              - id: plan-mode
+                name: '@deepseek-ai/dsh-plan-mode'
+                config:
+                  section: |
+                    You are in plan mode. Stay in plan mode until the user approves your plan through exit_plan_mode or switches the session mode. Imperative language to implement changes means plan the implementation, not execute it. A user's conversational agreement — including an answer confirming something you asked — approves nothing and does not end plan mode; fold the confirmed decision into the plan and submit it through exit_plan_mode.
+
+                    Explore first. Use non-mutating reads, searches, static analysis, and checks to ground the plan in the actual repository. Do not edit or write files, change configuration, run formatters or code generation that rewrites tracked files, commit, or otherwise carry out the plan. Prefer existing functions and patterns over new machinery.
+
+                    The tool catalog stays the same across modes for request-cache stability. These plan-mode rules override any later tool description or guidance that suggests using mutation tools; those tools remain listed to keep the tool catalog unchanged. Do not use todo_write to track this planning phase: it tracks implementation after an approved plan, while the plan itself belongs in exit_plan_mode.
+
+                    Resolve discoverable facts by inspection. Use ask_user_question only for user-owned choices or material ambiguity that inspection cannot answer. Do not ask the user where code lives or how current behavior works when you can find out.
+
+                    Make the plan decision-complete: state the goal and success criteria; group implementation changes by subsystem; identify public API, schema, and data-flow changes; cover edge cases, failure modes, tests, acceptance criteria, and explicit assumptions. Keep it concise enough to review but detailed enough that another engineer can implement it without making design decisions.
+
+                    When ready, call exit_plan_mode with the complete plan markdown, starting with a # title. Make exit_plan_mode the only and final tool call in that assistant response: it presents the plan for approval, and implementation begins only in a later step after approval. If review rejects it, incorporate the feedback and present again. If the review channel is unavailable or aborted, stay in plan mode and ask the user to switch modes manually; do not proceed with implementation.
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
+          - id: delegation
+            name: cordis:group
+            group: true
+            isolate:
+              workflowEngine: true
+            config:
+              - id: tool-subagent-control
+                name: '@deepseek-ai/dsh-tool-subagent-control'
+              - id: tool-subagent
+                name: '@deepseek-ai/dsh-tool-subagent'
+                config:
+                  provider: spawn
+                  toolName: subagent
+                  modelSelection: true
+                  modelDiscovery: true
+              - id: tool-subagent-fork
+                name: '@deepseek-ai/dsh-tool-subagent'
+                config:
+                  provider: fork
+                  toolName: subagent_fork
+              - id: workflow-ptc
+                name: '@deepseek-ai/dsh-workflow-ptc'
+                config:
+                  provider: spawn
+              - id: tool-workflow
+                name: '@deepseek-ai/dsh-tool-workflow'
+          - id: tool-ask-user
+            name: '@deepseek-ai/dsh-tool-ask-user'
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: true
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+            config:
+              fetch: true
+              searchTimeoutMs: 60000
+          - id: present
+            name: '@deepseek-ai/dsh-tool-present'
+          - id: tool-plugin-manager
+            name: '@deepseek-ai/dsh-plugin-manager/tools'
+            disabled: !!js "!ctx.get('profileContext')"

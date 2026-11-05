@@ -1,0 +1,12 @@
+{
+  "name": "dsh-graph-loop-seam-probe",
+  "private": true,
+  "type": "module",
+  "description": "Runnable probes against a read-only DeepSeek Harness checkout: what a no-source-change plugin can control.",
+  "scripts": {
+    "probe:a": "node src/probe-a-tool-gating.ts",
+    "probe:b": "node src/probe-b-patch.ts",
+    "probe:c": "node src/probe-c-live-loop.ts",
+    "typecheck": "node /Users/zhinan/deepseek-harness/node_modules/typescript/bin/tsc -p tsconfig.json"
+  }
+}

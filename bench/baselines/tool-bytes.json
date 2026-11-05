@@ -1,0 +1,807 @@
+{
+ "source": "live web-profile session request/header.tools",
+ "toolCount": 160,
+ "arrayBytes": 120108,
+ "tools": {
+  "ask_user_question": {
+   "bytes": 1249,
+   "descChars": 111,
+   "paramBytes": 1079
+  },
+  "bash": {
+   "bytes": 2280,
+   "descChars": 795,
+   "paramBytes": 1439
+  },
+  "cadcraft_commands": {
+   "bytes": 607,
+   "descChars": 154,
+   "paramBytes": 394
+  },
+  "cadcraft_convert": {
+   "bytes": 519,
+   "descChars": 118,
+   "paramBytes": 343
+  },
+  "cadcraft_describe": {
+   "bytes": 397,
+   "descChars": 218,
+   "paramBytes": 120
+  },
+  "cadcraft_inspect": {
+   "bytes": 418,
+   "descChars": 122,
+   "paramBytes": 238
+  },
+  "cadcraft_job": {
+   "bytes": 785,
+   "descChars": 267,
+   "paramBytes": 464
+  },
+  "cadcraft_mcp_call": {
+   "bytes": 784,
+   "descChars": 312,
+   "paramBytes": 413
+  },
+  "cadcraft_mcp_status": {
+   "bytes": 183,
+   "descChars": 89,
+   "paramBytes": 33
+  },
+  "cadcraft_mcp_tools": {
+   "bytes": 946,
+   "descChars": 410,
+   "paramBytes": 476
+  },
+  "cadcraft_run": {
+   "bytes": 1749,
+   "descChars": 530,
+   "paramBytes": 1149
+  },
+  "create_goal": {
+   "bytes": 577,
+   "descChars": 222,
+   "paramBytes": 300
+  },
+  "deckcraft_commands": {
+   "bytes": 610,
+   "descChars": 156,
+   "paramBytes": 394
+  },
+  "deckcraft_convert": {
+   "bytes": 521,
+   "descChars": 119,
+   "paramBytes": 343
+  },
+  "deckcraft_describe": {
+   "bytes": 400,
+   "descChars": 220,
+   "paramBytes": 120
+  },
+  "deckcraft_inspect": {
+   "bytes": 411,
+   "descChars": 114,
+   "paramBytes": 238
+  },
+  "deckcraft_job": {
+   "bytes": 787,
+   "descChars": 268,
+   "paramBytes": 464
+  },
+  "deckcraft_mcp_call": {
+   "bytes": 789,
+   "descChars": 315,
+   "paramBytes": 414
+  },
+  "deckcraft_mcp_status": {
+   "bytes": 185,
+   "descChars": 90,
+   "paramBytes": 33
+  },
+  "deckcraft_mcp_tools": {
+   "bytes": 951,
+   "descChars": 413,
+   "paramBytes": 477
+  },
+  "deckcraft_run": {
+   "bytes": 1767,
+   "descChars": 534,
+   "paramBytes": 1162
+  },
+  "designcraft_commands": {
+   "bytes": 616,
+   "descChars": 160,
+   "paramBytes": 394
+  },
+  "designcraft_describe": {
+   "bytes": 406,
+   "descChars": 224,
+   "paramBytes": 120
+  },
+  "designcraft_job": {
+   "bytes": 791,
+   "descChars": 270,
+   "paramBytes": 464
+  },
+  "designcraft_mcp_call": {
+   "bytes": 799,
+   "descChars": 321,
+   "paramBytes": 416
+  },
+  "designcraft_mcp_status": {
+   "bytes": 189,
+   "descChars": 92,
+   "paramBytes": 33
+  },
+  "designcraft_mcp_tools": {
+   "bytes": 961,
+   "descChars": 419,
+   "paramBytes": 479
+  },
+  "designcraft_run": {
+   "bytes": 1659,
+   "descChars": 525,
+   "paramBytes": 1061
+  },
+  "edit": {
+   "bytes": 1151,
+   "descChars": 59,
+   "paramBytes": 1046
+  },
+  "effectcraft_commands": {
+   "bytes": 616,
+   "descChars": 160,
+   "paramBytes": 394
+  },
+  "effectcraft_convert": {
+   "bytes": 525,
+   "descChars": 121,
+   "paramBytes": 343
+  },
+  "effectcraft_describe": {
+   "bytes": 406,
+   "descChars": 224,
+   "paramBytes": 120
+  },
+  "effectcraft_inspect": {
+   "bytes": 409,
+   "descChars": 110,
+   "paramBytes": 238
+  },
+  "effectcraft_job": {
+   "bytes": 791,
+   "descChars": 270,
+   "paramBytes": 464
+  },
+  "effectcraft_mcp_call": {
+   "bytes": 799,
+   "descChars": 321,
+   "paramBytes": 416
+  },
+  "effectcraft_mcp_status": {
+   "bytes": 189,
+   "descChars": 92,
+   "paramBytes": 33
+  },
+  "effectcraft_mcp_tools": {
+   "bytes": 961,
+   "descChars": 419,
+   "paramBytes": 479
+  },
+  "effectcraft_run": {
+   "bytes": 1425,
+   "descChars": 547,
+   "paramBytes": 805
+  },
+  "figcraft_commands": {
+   "bytes": 607,
+   "descChars": 154,
+   "paramBytes": 394
+  },
+  "figcraft_convert": {
+   "bytes": 519,
+   "descChars": 118,
+   "paramBytes": 343
+  },
+  "figcraft_describe": {
+   "bytes": 397,
+   "descChars": 218,
+   "paramBytes": 120
+  },
+  "figcraft_inspect": {
+   "bytes": 452,
+   "descChars": 156,
+   "paramBytes": 238
+  },
+  "figcraft_job": {
+   "bytes": 785,
+   "descChars": 267,
+   "paramBytes": 464
+  },
+  "figcraft_mcp_call": {
+   "bytes": 784,
+   "descChars": 312,
+   "paramBytes": 413
+  },
+  "figcraft_mcp_status": {
+   "bytes": 183,
+   "descChars": 89,
+   "paramBytes": 33
+  },
+  "figcraft_mcp_tools": {
+   "bytes": 946,
+   "descChars": 410,
+   "paramBytes": 476
+  },
+  "figcraft_run": {
+   "bytes": 1560,
+   "descChars": 569,
+   "paramBytes": 921
+  },
+  "filmcraft_commands": {
+   "bytes": 610,
+   "descChars": 156,
+   "paramBytes": 394
+  },
+  "filmcraft_convert": {
+   "bytes": 521,
+   "descChars": 119,
+   "paramBytes": 343
+  },
+  "filmcraft_describe": {
+   "bytes": 400,
+   "descChars": 220,
+   "paramBytes": 120
+  },
+  "filmcraft_inspect": {
+   "bytes": 408,
+   "descChars": 111,
+   "paramBytes": 238
+  },
+  "filmcraft_job": {
+   "bytes": 787,
+   "descChars": 268,
+   "paramBytes": 464
+  },
+  "filmcraft_mcp_call": {
+   "bytes": 789,
+   "descChars": 315,
+   "paramBytes": 414
+  },
+  "filmcraft_mcp_status": {
+   "bytes": 185,
+   "descChars": 90,
+   "paramBytes": 33
+  },
+  "filmcraft_mcp_tools": {
+   "bytes": 951,
+   "descChars": 413,
+   "paramBytes": 477
+  },
+  "filmcraft_run": {
+   "bytes": 1481,
+   "descChars": 509,
+   "paramBytes": 901
+  },
+  "get_goal": {
+   "bytes": 170,
+   "descChars": 87,
+   "paramBytes": 33
+  },
+  "glob": {
+   "bytes": 750,
+   "descChars": 235,
+   "paramBytes": 469
+  },
+  "grep": {
+   "bytes": 702,
+   "descChars": 206,
+   "paramBytes": 450
+  },
+  "gridcraft_commands": {
+   "bytes": 610,
+   "descChars": 156,
+   "paramBytes": 394
+  },
+  "gridcraft_convert": {
+   "bytes": 521,
+   "descChars": 119,
+   "paramBytes": 343
+  },
+  "gridcraft_describe": {
+   "bytes": 400,
+   "descChars": 220,
+   "paramBytes": 120
+  },
+  "gridcraft_inspect": {
+   "bytes": 430,
+   "descChars": 133,
+   "paramBytes": 238
+  },
+  "gridcraft_job": {
+   "bytes": 787,
+   "descChars": 268,
+   "paramBytes": 464
+  },
+  "gridcraft_mcp_call": {
+   "bytes": 789,
+   "descChars": 315,
+   "paramBytes": 414
+  },
+  "gridcraft_mcp_status": {
+   "bytes": 185,
+   "descChars": 90,
+   "paramBytes": 33
+  },
+  "gridcraft_mcp_tools": {
+   "bytes": 951,
+   "descChars": 413,
+   "paramBytes": 477
+  },
+  "gridcraft_run": {
+   "bytes": 1662,
+   "descChars": 553,
+   "paramBytes": 1038
+  },
+  "interrupt_agent": {
+   "bytes": 302,
+   "descChars": 89,
+   "paramBytes": 156
+  },
+  "job_kill": {
+   "bytes": 370,
+   "descChars": 49,
+   "paramBytes": 271
+  },
+  "job_list": {
+   "bytes": 168,
+   "descChars": 85,
+   "paramBytes": 33
+  },
+  "job_output": {
+   "bytes": 615,
+   "descChars": 116,
+   "paramBytes": 447
+  },
+  "lightcraft_commands": {
+   "bytes": 613,
+   "descChars": 158,
+   "paramBytes": 394
+  },
+  "lightcraft_describe": {
+   "bytes": 403,
+   "descChars": 222,
+   "paramBytes": 120
+  },
+  "lightcraft_inspect": {
+   "bytes": 422,
+   "descChars": 124,
+   "paramBytes": 238
+  },
+  "lightcraft_job": {
+   "bytes": 789,
+   "descChars": 269,
+   "paramBytes": 464
+  },
+  "lightcraft_mcp_call": {
+   "bytes": 640,
+   "descChars": 318,
+   "paramBytes": 261
+  },
+  "lightcraft_mcp_status": {
+   "bytes": 187,
+   "descChars": 91,
+   "paramBytes": 33
+  },
+  "lightcraft_mcp_tools": {
+   "bytes": 802,
+   "descChars": 416,
+   "paramBytes": 324
+  },
+  "lightcraft_run": {
+   "bytes": 1704,
+   "descChars": 587,
+   "paramBytes": 1047
+  },
+  "list_agents": {
+   "bytes": 285,
+   "descChars": 199,
+   "paramBytes": 33
+  },
+  "list_subagent_models": {
+   "bytes": 515,
+   "descChars": 271,
+   "paramBytes": 182
+  },
+  "pdfcraft_commands": {
+   "bytes": 607,
+   "descChars": 154,
+   "paramBytes": 394
+  },
+  "pdfcraft_convert": {
+   "bytes": 519,
+   "descChars": 118,
+   "paramBytes": 343
+  },
+  "pdfcraft_describe": {
+   "bytes": 397,
+   "descChars": 218,
+   "paramBytes": 120
+  },
+  "pdfcraft_inspect": {
+   "bytes": 408,
+   "descChars": 112,
+   "paramBytes": 238
+  },
+  "pdfcraft_job": {
+   "bytes": 785,
+   "descChars": 267,
+   "paramBytes": 464
+  },
+  "pdfcraft_mcp_call": {
+   "bytes": 632,
+   "descChars": 312,
+   "paramBytes": 261
+  },
+  "pdfcraft_mcp_status": {
+   "bytes": 183,
+   "descChars": 89,
+   "paramBytes": 33
+  },
+  "pdfcraft_mcp_tools": {
+   "bytes": 794,
+   "descChars": 410,
+   "paramBytes": 324
+  },
+  "pdfcraft_run": {
+   "bytes": 1610,
+   "descChars": 543,
+   "paramBytes": 999
+  },
+  "photocraft_commands": {
+   "bytes": 613,
+   "descChars": 158,
+   "paramBytes": 394
+  },
+  "photocraft_convert": {
+   "bytes": 523,
+   "descChars": 120,
+   "paramBytes": 343
+  },
+  "photocraft_describe": {
+   "bytes": 403,
+   "descChars": 222,
+   "paramBytes": 120
+  },
+  "photocraft_inspect": {
+   "bytes": 423,
+   "descChars": 125,
+   "paramBytes": 238
+  },
+  "photocraft_job": {
+   "bytes": 789,
+   "descChars": 269,
+   "paramBytes": 464
+  },
+  "photocraft_mcp_call": {
+   "bytes": 794,
+   "descChars": 318,
+   "paramBytes": 415
+  },
+  "photocraft_mcp_status": {
+   "bytes": 187,
+   "descChars": 91,
+   "paramBytes": 33
+  },
+  "photocraft_mcp_tools": {
+   "bytes": 956,
+   "descChars": 416,
+   "paramBytes": 478
+  },
+  "photocraft_run": {
+   "bytes": 1688,
+   "descChars": 563,
+   "paramBytes": 1053
+  },
+  "plugin_manager": {
+   "bytes": 2675,
+   "descChars": 835,
+   "paramBytes": 1784
+  },
+  "present": {
+   "bytes": 1006,
+   "descChars": 503,
+   "paramBytes": 454
+  },
+  "read": {
+   "bytes": 438,
+   "descChars": 56,
+   "paramBytes": 336
+  },
+  "read_image": {
+   "bytes": 389,
+   "descChars": 174,
+   "paramBytes": 163
+  },
+  "schedule_create": {
+   "bytes": 3143,
+   "descChars": 404,
+   "paramBytes": 2682
+  },
+  "schedule_delete": {
+   "bytes": 295,
+   "descChars": 130,
+   "paramBytes": 108
+  },
+  "schedule_list": {
+   "bytes": 137,
+   "descChars": 49,
+   "paramBytes": 33
+  },
+  "schedule_update": {
+   "bytes": 2403,
+   "descChars": 196,
+   "paramBytes": 2150
+  },
+  "send_message": {
+   "bytes": 461,
+   "descChars": 144,
+   "paramBytes": 263
+  },
+  "skill": {
+   "bytes": 332,
+   "descChars": 139,
+   "paramBytes": 146
+  },
+  "soundcraft_commands": {
+   "bytes": 613,
+   "descChars": 158,
+   "paramBytes": 394
+  },
+  "soundcraft_convert": {
+   "bytes": 523,
+   "descChars": 120,
+   "paramBytes": 343
+  },
+  "soundcraft_describe": {
+   "bytes": 403,
+   "descChars": 222,
+   "paramBytes": 120
+  },
+  "soundcraft_inspect": {
+   "bytes": 410,
+   "descChars": 112,
+   "paramBytes": 238
+  },
+  "soundcraft_job": {
+   "bytes": 789,
+   "descChars": 269,
+   "paramBytes": 464
+  },
+  "soundcraft_mcp_call": {
+   "bytes": 794,
+   "descChars": 318,
+   "paramBytes": 415
+  },
+  "soundcraft_mcp_status": {
+   "bytes": 187,
+   "descChars": 91,
+   "paramBytes": 33
+  },
+  "soundcraft_mcp_tools": {
+   "bytes": 956,
+   "descChars": 416,
+   "paramBytes": 478
+  },
+  "soundcraft_run": {
+   "bytes": 1776,
+   "descChars": 543,
+   "paramBytes": 1161
+  },
+  "spawn_teammate": {
+   "bytes": 625,
+   "descChars": 74,
+   "paramBytes": 495
+  },
+  "subagent": {
+   "bytes": 1598,
+   "descChars": 767,
+   "paramBytes": 781
+  },
+  "subagent_fork": {
+   "bytes": 1268,
+   "descChars": 661,
+   "paramBytes": 552
+  },
+  "team_task_create": {
+   "bytes": 613,
+   "descChars": 62,
+   "paramBytes": 493
+  },
+  "team_task_get": {
+   "bytes": 252,
+   "descChars": 82,
+   "paramBytes": 115
+  },
+  "team_task_list": {
+   "bytes": 704,
+   "descChars": 92,
+   "paramBytes": 556
+  },
+  "team_task_update": {
+   "bytes": 1088,
+   "descChars": 100,
+   "paramBytes": 930
+  },
+  "texturecraft_commands": {
+   "bytes": 619,
+   "descChars": 162,
+   "paramBytes": 394
+  },
+  "texturecraft_convert": {
+   "bytes": 527,
+   "descChars": 122,
+   "paramBytes": 343
+  },
+  "texturecraft_describe": {
+   "bytes": 409,
+   "descChars": 226,
+   "paramBytes": 120
+  },
+  "texturecraft_inspect": {
+   "bytes": 461,
+   "descChars": 161,
+   "paramBytes": 238
+  },
+  "texturecraft_job": {
+   "bytes": 793,
+   "descChars": 271,
+   "paramBytes": 464
+  },
+  "texturecraft_mcp_call": {
+   "bytes": 804,
+   "descChars": 324,
+   "paramBytes": 417
+  },
+  "texturecraft_mcp_status": {
+   "bytes": 191,
+   "descChars": 93,
+   "paramBytes": 33
+  },
+  "texturecraft_mcp_tools": {
+   "bytes": 966,
+   "descChars": 422,
+   "paramBytes": 480
+  },
+  "texturecraft_run": {
+   "bytes": 1489,
+   "descChars": 524,
+   "paramBytes": 891
+  },
+  "todo_write": {
+   "bytes": 856,
+   "descChars": 317,
+   "paramBytes": 487
+  },
+  "update_goal": {
+   "bytes": 984,
+   "descChars": 24,
+   "paramBytes": 907
+  },
+  "vectorcraft_commands": {
+   "bytes": 616,
+   "descChars": 160,
+   "paramBytes": 394
+  },
+  "vectorcraft_convert": {
+   "bytes": 525,
+   "descChars": 121,
+   "paramBytes": 343
+  },
+  "vectorcraft_describe": {
+   "bytes": 406,
+   "descChars": 224,
+   "paramBytes": 120
+  },
+  "vectorcraft_job": {
+   "bytes": 791,
+   "descChars": 270,
+   "paramBytes": 464
+  },
+  "vectorcraft_mcp_call": {
+   "bytes": 799,
+   "descChars": 321,
+   "paramBytes": 416
+  },
+  "vectorcraft_mcp_status": {
+   "bytes": 189,
+   "descChars": 92,
+   "paramBytes": 33
+  },
+  "vectorcraft_mcp_tools": {
+   "bytes": 961,
+   "descChars": 419,
+   "paramBytes": 479
+  },
+  "vectorcraft_run": {
+   "bytes": 1647,
+   "descChars": 536,
+   "paramBytes": 1038
+  },
+  "wait_agent": {
+   "bytes": 469,
+   "descChars": 259,
+   "paramBytes": 158
+  },
+  "web_fetch": {
+   "bytes": 242,
+   "descChars": 74,
+   "paramBytes": 117
+  },
+  "web_search": {
+   "bytes": 323,
+   "descChars": 101,
+   "paramBytes": 170
+  },
+  "wordcraft_commands": {
+   "bytes": 610,
+   "descChars": 156,
+   "paramBytes": 394
+  },
+  "wordcraft_convert": {
+   "bytes": 521,
+   "descChars": 119,
+   "paramBytes": 343
+  },
+  "wordcraft_describe": {
+   "bytes": 400,
+   "descChars": 220,
+   "paramBytes": 120
+  },
+  "wordcraft_inspect": {
+   "bytes": 432,
+   "descChars": 135,
+   "paramBytes": 238
+  },
+  "wordcraft_job": {
+   "bytes": 787,
+   "descChars": 268,
+   "paramBytes": 464
+  },
+  "wordcraft_mcp_call": {
+   "bytes": 789,
+   "descChars": 315,
+   "paramBytes": 414
+  },
+  "wordcraft_mcp_status": {
+   "bytes": 185,
+   "descChars": 90,
+   "paramBytes": 33
+  },
+  "wordcraft_mcp_tools": {
+   "bytes": 951,
+   "descChars": 413,
+   "paramBytes": 477
+  },
+  "wordcraft_run": {
+   "bytes": 1668,
+   "descChars": 555,
+   "paramBytes": 1042
+  },
+  "workflow": {
+   "bytes": 3389,
+   "descChars": 1667,
+   "paramBytes": 1664
+  },
+  "working_directory": {
+   "bytes": 360,
+   "descChars": 165,
+   "paramBytes": 136
+  },
+  "write": {
+   "bytes": 854,
+   "descChars": 42,
+   "paramBytes": 765
+  }
+ }
+}

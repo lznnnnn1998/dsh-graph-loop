@@ -1,0 +1,7 @@
+node_modules/
+dist/
+lib/
+.dsh-home/
+*.log
+.DS_Store
+tmp/
