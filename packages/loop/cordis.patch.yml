@@ -31,9 +31,15 @@
     - id: graph-chat
       name: '@dsh/explore-loop/graph-chat'
       config:
-        # The page inherits the route of a live root agent; set provider/model here
-        # to allow a fresh profile to start a graph chat without one.
+        # The page inherits the route of a live root agent; these defaults let a
+        # fresh profile start a graph chat without one.
         preset: standard
+        provider: deepseek-official
+        model: deepseek-flash
+
+
+    - id: graph-ui
+      name: '@dsh/explore-graph-ui'
 
     - id: graph-tools
       name: '@dsh/explore-loop/tools'

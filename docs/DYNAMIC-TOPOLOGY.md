@@ -89,7 +89,17 @@ instruction 长度有上限、预算达标。**模型画图，harness 校验，d
 - e2e：`scripts/e2e-replan.sh` —— 第 4 步 `bash false` 失败，driver 重规划，会话里出现
   `r_diagnose`/`r_retry`，最终完成（6 步）。
 
-## 7. graph-chat：随对话动态的界面（已实现）
+## 7. Graph tab：复用现有 chat 界面的正确形态（已实现）
+
+- **不再另开页面**：Graph 是现有会话视图的第三个 tab（`conversation.view` slot，order 5，
+  位于 Chat 和 Trajectory 之间）。输入框、模型选择、语音、mode 标识、agent team/subagent 列表、
+  trajectory、侧边栏全部原样复用；只新增一个 tab 的内容。
+- client 半边单独成包 `@dsh/explore-graph-ui`：client-modules 要求一个 client package 只有一个
+  活跃 Loader entry，放在 driver 包里会和它的多条 subpath row 冲突。
+- e2e 用 Puppeteer 驱动真实 UI：关闭 Preview Notice → 输入消息 → 断言
+  `Chat,Trajectory,Graph` 三个 tab → 点 Graph → 截图 `preview/graph-tab-live.png`。
+
+## 7b. 独立 graph-chat 页面（保留给 API/headless）
 
 - 独立页面 `GET /graph-chat`（由 `graph-chat` host 插件通过 `ctx.webServer` 提供），左侧是对话，
   右侧是当前 turn 的拓扑；每 1.2s 轮询 `/graph-chat/api/state` 与 `/api/messages`，所以是**随对话动态**的。

@@ -27,7 +27,18 @@ Local working repo. Nothing here edits the DSH checkout; the driver is loaded th
 - [x] Composition evidence: `--dump-config` shows stock row disabled + graph rows inserted
       (installed profile), and `preset-explore` present with bundle A
 
-## Just landed (graph-chat)
+## Just landed (Graph tab in the existing Web chat)
+- [x] **Graph is now a conversation-view tab** registered through `ctx.slots` `conversation.view`
+      (order 5, between Chat and Trajectory). The whole existing chat shell is reused: composer,
+      model selector, voice input, mode chip, agent-team/subagent list, trajectory, sidebar.
+- [x] Client half lives in its own package `@dsh/explore-graph-ui` (client-modules requires one
+      active Loader entry per client package; putting it in the driver package collided with the
+      driver's subpath rows).
+- [x] E2E drives the real UI with Puppeteer: dismisses the preview notice, types a message,
+      verifies `Chat,Trajectory,Graph`, clicks Graph, screenshots `preview/graph-tab-live.png`.
+- [x] Standalone `/graph-chat` page remains for API/headless/dev use.
+
+## Previously landed (graph-chat page)
 - [x] Live `graph-chat` page at `/graph-chat` served by a host plugin: chat on the left, the current
       turn's topology on the right, polling the graph runtime every 1.2s. New chat + send message APIs.
 - [x] `POST /api/new` binds the `standard` preset so preset-scoped tools are visible (the host view

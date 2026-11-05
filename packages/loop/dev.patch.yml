@@ -28,5 +28,9 @@
         model: deepseek-flash
         preset: standard
 
+
+    - id: graph-ui
+      name: /Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/packages/graph-ui/src/index.ts
+
     - id: graph-tools
       name: /Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/packages/loop/src/tools.ts
