@@ -13,23 +13,23 @@
  * touches a DSH session (C3) and never evaluates plan `Condition`s.
  */
 
-import { END, KernelError } from '@dsh/explore-core/kernel'
+import { END, KernelError } from 'dsh-graph-loop-core/kernel'
 import type {
   DeterminismHooks,
   JsonUpdate,
   JsonValue,
   NodeContext,
   NodeId,
-} from '@dsh/explore-core/kernel'
-import type { GraphState, Json, PlanNode, TaskPlan } from '@dsh/explore-core/graph-schema'
-import { GRAPH_STATE_LIMITS } from '@dsh/explore-core/graph-schema'
+} from 'dsh-graph-loop-core/kernel'
+import type { GraphState, Json, PlanNode, TaskPlan } from 'dsh-graph-loop-core/graph-schema'
+import { GRAPH_STATE_LIMITS } from 'dsh-graph-loop-core/graph-schema'
 import type {
   KernelRunHandle,
   KernelResult,
   NodeFailure,
   NodeBoundaryRef,
   PauseReason,
-} from '@dsh/explore-core/runtime'
+} from 'dsh-graph-loop-core/runtime'
 
 import {
   assertJson,

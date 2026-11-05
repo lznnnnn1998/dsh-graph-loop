@@ -1,7 +1,7 @@
 /**
  * Graph registry plugin row: builds and keeps the live capability graph.
  *
- * The snapshot builder itself lives in `@dsh/explore-core/registry`; this file is
+ * The snapshot builder itself lives in `dsh-graph-loop-core/registry`; this file is
  * only the DSH adapter: read `ctx.tools`, rebuild on `tools/change` and
  * `system-prompt/change`, expose `ctx.graphRegistry`.
  *
@@ -10,7 +10,7 @@
  * excluded from strong matching by the router.
  */
 import { Service, type Context } from '@deepseek-ai/cordis'
-import { buildRegistrySnapshot, type RegistrySnapshot, type ToolSource } from '@dsh/explore-core/registry'
+import { buildRegistrySnapshot, type RegistrySnapshot, type ToolSource } from 'dsh-graph-loop-core/registry'
 
 /** Config for the registry row. */
 export interface Config {

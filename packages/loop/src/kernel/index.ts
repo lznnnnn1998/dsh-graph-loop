@@ -1,5 +1,5 @@
 /**
- * `@dsh/explore-loop/kernel` — graph kernels for the `explore` loop.
+ * `dsh-graph-loop/kernel` — graph kernels for the `explore` loop.
  *
  * Two interchangeable implementations:
  *   - `minimal`   (default) — vendored stepwise engine, no third-party runtime;
@@ -18,10 +18,10 @@
  *   }
  */
 
-import { END } from '@dsh/explore-core/kernel'
-import type { RunResult } from '@dsh/explore-core/kernel'
-import type { GraphState, TaskPlan } from '@dsh/explore-core/graph-schema'
-import type { KernelPort, KernelResult, NodeFailure } from '@dsh/explore-core/runtime'
+import { END } from 'dsh-graph-loop-core/kernel'
+import type { RunResult } from 'dsh-graph-loop-core/kernel'
+import type { GraphState, TaskPlan } from 'dsh-graph-loop-core/graph-schema'
+import type { KernelPort, KernelResult, NodeFailure } from 'dsh-graph-loop-core/runtime'
 
 import { createMinimalKernel } from './minimal.ts'
 import { createLangGraphKernel } from './langgraph.ts'
@@ -37,7 +37,7 @@ export {
   KernelError,
   createDeterministicHooks,
   createSystemHooks,
-} from '@dsh/explore-core/kernel'
+} from 'dsh-graph-loop-core/kernel'
 
 /** Which engine a run uses. `langgraph` degrades to `minimal` when absent. */
 export type KernelKind = 'minimal' | 'langgraph'

@@ -26,9 +26,9 @@ import {
   planInitialState,
   runPlan,
 } from '../../packages/loop/src/kernel/index.ts'
-import type { GraphBuilder, JsonUpdate, SuperstepBoundary } from '@dsh/explore-core/kernel'
-import { assertJsonSafe } from '@dsh/explore-core/graph-schema'
-import type { PlanNode, TaskPlan } from '@dsh/explore-core/graph-schema'
+import type { GraphBuilder, JsonUpdate, SuperstepBoundary } from 'dsh-graph-loop-core/kernel'
+import { assertJsonSafe } from 'dsh-graph-loop-core/graph-schema'
+import type { PlanNode, TaskPlan } from 'dsh-graph-loop-core/graph-schema'
 import type { PlanExecutorPort } from '../../packages/loop/src/kernel/index.ts'
 
 interface State {

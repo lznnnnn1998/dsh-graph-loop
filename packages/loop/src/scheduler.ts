@@ -10,7 +10,7 @@
  * In every mode the driver exposes `current()/instruction()/advance()/done()`.
  * A model-authored proposal may replace the live topology between steps.
  */
-import type { PlanNode, PlanStatus, RegistryGraph, TaskPlan } from '@dsh/explore-core/graph-schema'
+import type { PlanNode, PlanStatus, RegistryGraph, TaskPlan } from 'dsh-graph-loop-core/graph-schema'
 import {
   DEFAULT_WEIGHTS,
   extractFingerprint,
@@ -21,9 +21,9 @@ import {
   type RouteWeights,
   type TaskFingerprint,
   type TemplateLibrary,
-} from '@dsh/explore-core/matching'
-import { FrontierTopology, bootstrapTopology, recoveryTopology, synthesizeTopology, type TopologyMode } from '@dsh/explore-core/topology'
-import { fallbackPlan } from '@dsh/explore-core/step-graph'
+} from 'dsh-graph-loop-core/matching'
+import { FrontierTopology, bootstrapTopology, recoveryTopology, synthesizeTopology, type TopologyMode } from 'dsh-graph-loop-core/topology'
+import { fallbackPlan } from 'dsh-graph-loop-core/step-graph'
 
 export type { TopologyMode }
 

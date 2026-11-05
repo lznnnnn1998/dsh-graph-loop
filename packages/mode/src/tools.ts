@@ -9,7 +9,7 @@
  * The guard is deliberately narrow and fail-open: it only inspects one tool, only when
  * the Agent Teams service is mounted, only when the call carries an Agent, and any
  * error falls through to `next()`. It never throws and never denies an unrelated tool.
- * @module @dsh/explore-mode/tools
+ * @module dsh-graph-loop-mode/tools
  */
 
 import type { Context } from '@deepseek-ai/cordis'

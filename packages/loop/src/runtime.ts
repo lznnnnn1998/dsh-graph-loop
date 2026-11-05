@@ -8,8 +8,8 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Service, type Context } from '@deepseek-ai/cordis'
-import type { TaskPlan } from '@dsh/explore-core/graph-schema'
-import type { TopologyMode } from '@dsh/explore-core/topology'
+import type { TaskPlan } from 'dsh-graph-loop-core/graph-schema'
+import type { TopologyMode } from 'dsh-graph-loop-core/topology'
 
 export interface GraphRunRecord {
   readonly mode: TopologyMode | 'unknown'

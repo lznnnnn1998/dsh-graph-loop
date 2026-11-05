@@ -4,7 +4,7 @@
  *
  * The module deliberately has **no DSH imports** and no ambient state, so the
  * ranking and the guard decision can be unit-tested without a Cordis context.
- * @module @dsh/explore-mode/reuse
+ * @module dsh-graph-loop-mode/reuse
  */
 
 /** Lifecycle states a roster row may report. */

@@ -1,4 +1,4 @@
-# @dsh/explore-core
+# dsh-graph-loop-core
 
 Pure TypeScript library behind the graph loop: no Cordis service, no host I/O. It owns the typed
 registry/plan model, task fingerprinting and template matching, topology synthesis, the frontier

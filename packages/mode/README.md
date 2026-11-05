@@ -1,4 +1,4 @@
-# @dsh/explore-mode
+# dsh-graph-loop-mode
 
 Bundle A: an `explore` agent preset over the stock loop, plus the small pieces that make graph-style
 collaboration cheaper without replacing the driver.
@@ -17,7 +17,7 @@ rather than editing the plugin.
 
 ## Extension points
 
-- Add the bundle with `dsh plugin --profile web add <path-to-packages/mode>`.
+- Add the bundle with `dsh plugin --profile web add dsh-graph-loop-mode`.
 - The guard is a tool wrapper; remove the row to restore unguarded delegation.
 
 ## Model Experience

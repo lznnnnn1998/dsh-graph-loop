@@ -5,7 +5,7 @@
  * deployment that never composed it, so this module resolves the service by name at
  * call time and validates its shape instead of importing the package. That also keeps
  * the preset free of a dependency the host may not satisfy.
- * @module @dsh/explore-mode/teams
+ * @module dsh-graph-loop-mode/teams
  */
 
 /** The subset of a Team roster row this mode reads. */

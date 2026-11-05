@@ -1,4 +1,4 @@
-# @dsh/explore-loop — the graph driver replacing the stock agent loop.
+# dsh-graph-loop — the graph driver replacing the stock agent loop.
 #
 # INSTALL IN A DEDICATED PROFILE. `ctx.agents.setFactory()` is exclusive
 # (packages/core/agent/src/index.ts:383-392), so exactly one loop may register.
@@ -10,19 +10,19 @@
 
 - insert:
     - id: graph-registry
-      name: '@dsh/explore-loop/registry'
+      name: 'dsh-graph-loop/registry'
       config:
         snapshotTtlMs: 25
 
     - id: graph-router
-      name: '@dsh/explore-loop/router'
+      name: 'dsh-graph-loop/router'
 
     - id: graph-runtime
-      name: '@dsh/explore-loop/runtime'
+      name: 'dsh-graph-loop/runtime'
       # Optional: set traceDir to enable the preview panel (see docs/DYNAMIC-TOPOLOGY.md).
 
     - id: graph-loop
-      name: '@dsh/explore-loop'
+      name: 'dsh-graph-loop'
       config:
         maxParallelToolCalls: 10
         agents: []
@@ -32,4 +32,4 @@
 
 
     - id: graph-tools
-      name: '@dsh/explore-loop/tools'
+      name: 'dsh-graph-loop/tools'

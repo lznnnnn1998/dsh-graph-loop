@@ -22,7 +22,7 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import type { TaskPlan } from '@dsh/explore-core/graph-schema'
+import type { TaskPlan } from 'dsh-graph-loop-core/graph-schema'
 
 export interface Config {
   /** Exact page path. Default `/graph-chat`. */

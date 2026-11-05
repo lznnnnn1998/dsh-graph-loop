@@ -1,5 +1,5 @@
 /**
- * `@dsh/explore-loop` — the graph-native agent driver.
+ * `dsh-graph-loop` — the graph-native agent driver.
  *
  * This is a fork of `@deepseek-ai/dsh-agent-loop` (MIT) with one added seam:
  * every step's node comes from a compiled `TaskPlan`, and the turn ends when the

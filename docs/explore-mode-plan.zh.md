@@ -185,7 +185,7 @@ out-of-tree 的 `dsh.client` 卡片（约 350 行 + 构建脚本）。
 ### 3.3 NEW：新增 8 个逻辑模块（可落成 2–3 个 npm 包）
 
 > 说明：模块划分按职责，不强制一模块一包。`bundle/` 里的可运行骨架用**单包 + subpath exports**
-> （`@dsh/explore-loop/registry`、`/router`、`/runtime`、`/tools`），这样 profile 里只装一个包，
+> （`dsh-graph-loop/registry`、`/router`、`/runtime`、`/tools`），这样 profile 里只装一个包，
 > 但每行仍是独立的 Cordis 插件、可单独禁用。下面的 LOC 是逻辑规模。
 
 | 模块 | 职责 | 预估 LOC |
@@ -251,10 +251,10 @@ out-of-tree 的 `dsh.client` 卡片（约 350 行 + 构建脚本）。
 
 ```
                         ┌──────────────────────────── profile: explore ───────────────────────────┐
-                        │  bundle: @dsh/explore-loop                                               │
+                        │  bundle: dsh-graph-loop                                               │
                         │   - id: agent-loop          disabled: true                               │
-                        │   - id: graph-loop          name: @dsh/explore-loop                      │
-                        │   - id: graph-registry/router/runtime/kernel/tools (@dsh/explore-loop/*) │
+                        │   - id: graph-loop          name: dsh-graph-loop                      │
+                        │   - id: graph-registry/router/runtime/kernel/tools (dsh-graph-loop/*) │
                         └──────────────────────────────────────────────────────────────────────────┘
                                                 │
         user turn ──► GraphAgent (implements Agent) ──► turn/start
@@ -273,7 +273,7 @@ out-of-tree 的 `dsh.client` 卡片（约 350 行 + 构建脚本）。
                                           turn/end
 ```
 
-### 4.2 能力图 registry（`@dsh/explore-loop/registry`）
+### 4.2 能力图 registry（`dsh-graph-loop/registry`）
 
 **节点类型**：`tool`、`skill`、`agent`（preset/subagent provider）、`prompt-section`、`graph`（模板）、
 `fact`（工作区事实，如 git/tests/语言）、`gate`（审批/人工）。
@@ -295,7 +295,7 @@ out-of-tree 的 `dsh.client` 卡片（约 350 行 + 构建脚本）。
 `(fingerprint, digest, weightsVersion, presetId)` 为 key。MCP 动态工具在 `tools/change` 后加入，
 标注 `dynamic: true`，不参与首轮强匹配、只作候选。
 
-### 4.3 匹配器（`@dsh/explore-loop/router`）
+### 4.3 匹配器（`dsh-graph-loop/router`）
 
 **为什么不是「embedding 余弦」**：工具描述向量无法区分 `bash` 和 `str_replace_editor` 在「改一行代码」
 上的适用性，也无法表达「先读后写」这种前后置条件；它只能做同义改写检索。正确做法是分层：
@@ -319,7 +319,7 @@ out-of-tree 的 `dsh.client` 卡片（约 350 行 + 构建脚本）。
 **校准**：离线用历史 session 的「实际工具序列 vs 模板」做标注，网格/坐标上升学权重；
 上线后按模板记录成功率，`setTemplateSuccessRate` 滚动更新（带阻尼）。
 
-### 4.4 LangGraph 内核（`@dsh/explore-loop/kernel`）
+### 4.4 LangGraph 内核（`dsh-graph-loop/kernel`）
 
 选型结论：**用 `@langchain/langgraph@1.7.0`，精确锁版本，MIT，Node 26 ESM 可用**。
 它只做调度，不做消息/记忆/持久化。实测（`spikes/langgraph/output.txt`）：
@@ -353,7 +353,7 @@ out-of-tree 的 `dsh.client` 卡片（约 350 行 + 构建脚本）。
   （`session/src/repair.ts:209`），所以图运行天然是**每轮一次**；saver 用 in-turn 内存实现即可。
   真要持久化，用 `ctx.storageDomain` 侧车表，绝不新增 session 事件类型。
 
-### 4.5 节点执行器（`@dsh/explore-loop/runtime`）
+### 4.5 节点执行器（`dsh-graph-loop/runtime`）
 
 | 执行器 | 适用 | 机制 | 成本 |
 |---|---|---|---|
@@ -605,7 +605,7 @@ node.policy → tools.resolve → systemPrompt.assemble → agent/pre-step → s
 
 `bundle/` 里已有可运行的骨架（`a-preset` / `b-loop` / `dev` / `verify`）。要点：
 
-- **一个包、多个 subpath 插件**：`@dsh/explore-loop` 通过 exports 暴露
+- **一个包、多个 subpath 插件**：`dsh-graph-loop` 通过 exports 暴露
   `./registry`、`./router`、`./runtime`、`./tools`，profile 里只装一个包，但每行可单独禁用。
 - **两个 bundle 必须分开装**：`explore-mode`（preset，保留 stock loop）与
   `explore-loop`（替换 driver）都会插入 `graph-registry/router/runtime` 行；装在同一 profile 会
@@ -629,22 +629,22 @@ node.policy → tools.resolve → systemPrompt.assemble → agent/pre-step → s
 
 - insert:
     - id: graph-registry
-      name: '@dsh/explore-loop/registry'
+      name: 'dsh-graph-loop/registry'
       config: { document: !!js dshHomePath('graph/explore.graph.yaml'), snapshotTtlMs: 5000 }
     - id: graph-router
-      name: '@dsh/explore-loop/router'
+      name: 'dsh-graph-loop/router'
       config: { confidenceThreshold: 0.55, fallbackOnLowConfidence: true }
     - id: graph-runtime
-      name: '@dsh/explore-loop/runtime'
+      name: 'dsh-graph-loop/runtime'
       config: { mode: observe, nodeExecutor: subagent, maxReplans: 2, budget: { maxNodes: 12, maxSteps: 40 } }
     - id: graph-loop
-      name: '@dsh/explore-loop'
+      name: 'dsh-graph-loop'
       config:
         maxParallelToolCalls: 10   # 注意：行 id 变了，stock 设置卡不会读它（namespace = 行 id）
         agents: []
         mode: observe
     - id: graph-tools
-      name: '@dsh/explore-loop/tools'
+      name: 'dsh-graph-loop/tools'
 ```
 
 ### 5.3 安装流程（一条脚本，零源码改动）
@@ -709,7 +709,7 @@ dsh --profile explore
 
 | 项 | 内容 |
 |---|---|
-| 交付 | `@dsh/explore-loop/registry`：从 `ctx.tools`/`systemPrompt`/`skills`/presets 构图；快照/增量；`graph_status` 只读工具 |
+| 交付 | `dsh-graph-loop/registry`：从 `ctx.tools`/`systemPrompt`/`skills`/presets 构图；快照/增量；`graph_status` 只读工具 |
 | 文件 | `registry/{collector,snapshot,digest,events}.ts`、`tools/status.ts` |
 | 测试 | 单测：注册/注销/`tools/change` 后 digest 变化；MCP 动态工具；preset 切换 |
 | 验收 | 覆盖率 ≥95% 的已注册工具；快照重建 <50ms；**零行为变化**（`mode: observe`） |
@@ -729,7 +729,7 @@ dsh --profile explore
 
 | 项 | 内容 |
 |---|---|
-| 交付 | fork 2,122 行 → `@dsh/explore-loop`（driver）；LangGraph 内核适配（`/kernel`）；`step node` 执行器；P2 只发 4 个模板（`t_stock`/investigate/edit-test/research；完整库见 §4.3） |
+| 交付 | fork 2,122 行 → `dsh-graph-loop`（driver）；LangGraph 内核适配（`/kernel`）；`step node` 执行器；P2 只发 4 个模板（`t_stock`/investigate/edit-test/research；完整库见 §4.3） |
 | 文件 | `agent-loop/{factory,turn,inbox,prompt,stream}.ts`、`kernel/langgraph.ts`、`runtime/{state,step-node}.ts` |
 | 测试 | 先做 vertical slice（createAgent → 一轮 → 一步 → step/end → turn/end，mock LLM，断言 C01/C02/C04/C07），再跑 fork 的 stock 测试套件（15,108 行）；补 3 条守护测试：`DEFAULT_GRAPH_CONFIG.mode === 'observe'`、LangGraph 单副本断言（`isCommand(new Command({}))`）、`inbox`+`modelSelection` 投影重注册后的 resume/fork 一致性 |
 | 验收 | Web/headless/ACP/SDK 四种 profile 都能建 agent、跑通一轮、resume；`ui-chat`/`session-query`/`compaction` 回归全绿；组合门禁（`verify.sh`）断言 stock 行禁用 + graph 行启用 |

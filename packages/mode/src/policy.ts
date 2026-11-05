@@ -10,7 +10,7 @@
  * must never provide one: preset activation auditing rejects globally leaked services
  * (packages/preset/agent-preset-registry/README.md:56-60). Every registration therefore
  * hangs off the Agent scope created for the session.
- * @module @dsh/explore-mode/policy
+ * @module dsh-graph-loop-mode/policy
  */
 
 import type { Context } from '@deepseek-ai/cordis'

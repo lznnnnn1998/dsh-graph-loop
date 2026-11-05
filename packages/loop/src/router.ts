@@ -1,12 +1,12 @@
 /**
  * Graph router plugin row: owns the template library and the deterministic match.
  *
- * The templates live in `@dsh/explore-core/templates`; this row only exposes them
+ * The templates live in `dsh-graph-loop-core/templates`; this row only exposes them
  * to the driver and the `graph_status` tool.
  */
 import { Service, type Context } from '@deepseek-ai/cordis'
-import { TEMPLATE_LIBRARY, templateById, FALLBACK_TEMPLATE_ID } from '@dsh/explore-core/templates'
-import type { TemplateLibrary } from '@dsh/explore-core/matching'
+import { TEMPLATE_LIBRARY, templateById, FALLBACK_TEMPLATE_ID } from 'dsh-graph-loop-core/templates'
+import type { TemplateLibrary } from 'dsh-graph-loop-core/matching'
 
 export { TEMPLATE_LIBRARY, templateById, FALLBACK_TEMPLATE_ID }
 

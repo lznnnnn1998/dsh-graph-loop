@@ -1,7 +1,7 @@
 # dsh-graph-loop
 
 A graph-native agent loop for DeepSeek Harness, shipped as an out-of-tree plugin +
-bundle. The stock `agent-loop` row is disabled and replaced by `@dsh/explore-loop`,
+bundle. The stock `agent-loop` row is disabled and replaced by `dsh-graph-loop`,
 which runs one compiled graph node per DSH step. No DSH source is modified.
 
 - Evaluation and full implementation plan: [`docs/explore-mode-plan.zh.md`](docs/explore-mode-plan.zh.md)
@@ -24,7 +24,10 @@ bash scripts/e2e-graph-tab.sh       # Graph tab inside the real Web chat UI
 bash scripts/e2e-conformance.sh     # stock vs graph event invariants
 bash scripts/e2e-cross-loop.sh      # resume stock->graph and graph->stock
 bash scripts/ab-structural.sh       # structural A/B (mock; AB_REAL=1 for the real route)
-bash scripts/install-explore.sh     # one command: install driver + Graph tab into the web profile
+# published packages
+dsh plugin --profile web add dsh-graph-loop-ui
+dsh plugin --profile web add dsh-graph-loop
+# or from a checkout: bash scripts/install-explore.sh
 node scripts/preview.mjs /tmp/dsh-graph-traces preview   # offline topology preview
 # Web UI: install packages/loop + packages/graph-ui, then open any session and click the Graph tab
 node scripts/build-bundles.mjs      # rebuild packages/*/lib
