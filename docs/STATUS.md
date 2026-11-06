@@ -19,21 +19,21 @@ graph driver plus a LangGraph kernel runs the turn, the Graph tab shows the topo
 | Live driver | `KernelTopology` pauses the kernel before a node, DSH runs the step, the kernel resumes with the outcome. Linear plans with safe node ids use it; subagent/conditional plans fall back to `FrontierTopology` |
 | Composition core | envelope / role resolution, capability-driven synthesis, annotation layer, checkpoint contract — pure core, 25 focused tests |
 | UI | Graph tab + `/graph-chat`; installed e2e passes |
-| Tests | **112 unit tests**, typecheck clean, installed e2e passes |
+| Packaging | tarball install + packed-loop runtime e2e passes (`scripts/e2e-tarball.sh`) |
+| Benchmark | local 20-task stock-vs-graph suite (2 reps) + validated fixtures; official preflights are NOT READY here |
+| Tests | **115 unit tests**, typecheck clean, installed e2e + tarball e2e pass |
 
 ## Evidence (real model, `deepseek-flash`, `reasoningEffort: high`)
 
 | Run | success | prompt tokens mean / median | steps mean / median | wall mean / median |
 |---|---|---|---|---|
-| stock, 2 reps × 6 tasks | 12/12 | 23,723 / 23,466 | 4.0 / 4 | 16.3 s / 14.9 s |
-| graph, 2 reps × 6 tasks | 12/12 | **9,352 / 9,237** | 4.0 / 4 | 21.8 s / 14.8 s |
-| stock, installed, 6 tasks | 6/6 | 26,986 / 26,733 | 4.5 / 4.5 | 19.2 s / 15.6 s |
-| graph, installed, 6 tasks | 6/6 | **9,349 / 9,267** | **4.0 / 4.0** | 24.1 s / 17.9 s |
-| stock, kernel-live, 6 tasks | 6/6 | 25,865 / 23,516 | 4.3 / 4.0 | 5.8 s / 5.6 s |
-| graph, kernel-live, 6 tasks | 6/6 | **9,265 / 9,128** | **4.0 / 4.0** | 47.3 s / 46.0 s |
+| stock, 20 tasks × 2 reps | 40/40 | 24,454 / 23,556 | 4.1 / 4 | 11.3 s / 9.87 s |
+| graph, 20 tasks × 2 reps | 40/40 | **9,612 / 9,538** | **4.0 / 4** | 12.0 s / 9.14 s |
+| delta | parity | **−60.7% / −59.5%** | −3.0% / 0 | +5.9% / −7.4% |
 
-The token and step wins hold for mean and median. **Wall time is not a win**: the means are inflated
-by 82–92 s single-call API stalls; do not cite kernel-live wall time as a result.
+The token and step wins hold for mean and median. **Wall time is not a win**: the mean is +5.9% and
+the median −7.4%; one graph run took 49 s. Earlier 6-task runs (installed and kernel-live) are in
+[`bench/agent-eval/RESULTS.md`](../bench/agent-eval/RESULTS.md).
 
 ## Known gaps
 
@@ -41,28 +41,35 @@ by 82–92 s single-call API stalls; do not cite kernel-live wall time as a resu
    LangGraph-reserved node ids still use `FrontierTopology`.
 2. **Checkpoints are in-memory** (`MemoryCheckpointer`); `storageDomain` persistence and
    `getStateHistory` are not wired.
-3. **Accuracy is parity**, not better. The 6 local tasks are too easy; the OfficeBench 5-task probe
-   is prepared but not run (needs Docker/office machine).
-4. **Fork duplication** remains: `packages/loop` is a source copy of DSH's loop. Version tracking is
+3. **Accuracy is parity**, not better on the easy suite. The local suite is now **20 tasks**; the
+   official Terminal-Bench 4.0 / NL2Repo-Bench runs are gated on Docker plus DSH agent adapters.
+4. **No official benchmark score is measured**; the preflights in `bench/official/` exit NOT READY
+   on this machine (no Docker/Modal).
+5. **Fork duplication** remains: `packages/loop` is a source copy of DSH's loop. Version tracking is
    automated today; it is still maintenance debt.
-5. **No commit/push** for the current working tree at the time of this snapshot.
-6. **OfficeBench probe is not executed**; only the task manifest, setup notes and preflight exist.
+6. **OfficeBench probe is not executed**; it is now a secondary benchmark.
+7. **No push** unless asked; the tree is committed locally after this snapshot.
 
 ## Next, in order
 
 1. Review and commit the current tree (local commit; no push unless asked).
-2. OfficeBench 5-task probe on a Docker/office machine; publish the head-to-head report.
+2. Build the DSH agent adapters and run Terminal-Bench 4.0 + NL2Repo-Bench on a Docker/Modal
+   machine; publish the head-to-head report.
 3. M3e: kernel routing for conditional/subagent plans; `storageDomain` checkpoint saver.
-4. Optional: control-plane path to remove the fork duplication.
+4. Optional: OfficeBench office-app probe; control-plane path to remove the fork duplication.
 
 ## Commands
 
 ```sh
 bash scripts/install-explore.sh          # install into the web profile
-npm test                                 # 112 unit tests
+npm test                                 # 115 unit tests
 npm run typecheck
 bash scripts/e2e-installed.sh            # installed bundle e2e (mock LLM)
+bash scripts/e2e-tarball.sh              # packed-tarball install path
+bash scripts/verify-all.sh               # typecheck + tests + both e2e + links
 bash bench/agent-eval/run-real.sh --arm both --reps 2
 node bench/agent-eval/summarize.mjs bench/agent-eval/results/2026-11-07-local-2x.json --per-task
-scripts/officebench-preflight.sh         # probe environment check
+bash bench/official/terminal-bench/preflight.sh  # official; NOT READY without Docker/Modal
+bash bench/official/nl2repo/preflight.sh         # official; NOT READY without Docker
+scripts/officebench-preflight.sh                 # secondary office probe
 ```

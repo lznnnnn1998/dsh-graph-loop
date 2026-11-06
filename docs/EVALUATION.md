@@ -1,99 +1,109 @@
-# Evaluation — OfficeBench probe and public head-to-head
+# Evaluation — official benchmarks + local pre-signal
 
-Status: **protocol defined; probe not started.** Related: [`docs/COMPOSITION.md`](COMPOSITION.md)
-§0 and §5 (D14/D15).
+Status: **protocol defined; local pre-signal runnable; official benchmarks gated on container
+runtime and agent adapters.** Related: [`docs/COMPOSITION.md`](COMPOSITION.md) §0/§5 and
+[`docs/MERGE-LANGGRAPH.md`](MERGE-LANGGRAPH.md).
 
 ## 1. What we are testing
 
-**Hypothesis (accuracy first).** The composition layer — per-turn capability envelope plus a
-capability-driven graph — produces better task outcomes than the DSH default experience, with no
-speed or cost regression that would make it unattractive.
+**Hypothesis.** The graph/plugin path — graph planning, per-plan tool admission and the LangGraph
+kernel — produces equal or better task outcomes than the stock DSH loop, with lower prompt tokens
+and no unacceptable latency regression.
 
-Accuracy is the headline. Speed and experience are secondary and are recorded in the same runs, not
-optimized separately.
+Accuracy is the headline. Tokens, steps and wall time are recorded in the same runs; both **mean and
+median** are reported because API stalls create a heavy tail.
 
-## 2. Arms
+## 2. Benchmarks
+
+| Tier | Benchmark | Status |
+|---|---|---|
+| Primary | **Terminal-Bench 4.0** | Harness public; needs Docker/Modal + a DSH Harbor agent |
+| Primary | **NL2Repo-Bench** | Harness public; OpenHands-only + Docker, so a DSH adapter is required |
+| Pre-signal | [local 20-task suite](../bench/agent-eval/tasks.json) | **Runnable now**; stock vs graph, real model |
+| Secondary | [OfficeBench 5-task probe](../bench/officebench/probe-tasks.json) | Prepared; needs Docker/OfficeBench |
+
+The model is `deepseek-flash`, which is the **DeepSeek V4.1-Flash-1017** snapshot. Model-card scores
+(Terminal-Bench 4.0: 42.3, NL2Repo-Bench: 68.2) are references, not baselines, unless the harness,
+prompt, tools, max steps and timeouts match the card exactly.
+
+## 3. Arms
 
 | Arm | What runs | Purpose |
 |---|---|---|
-| `official` | DSH default profile as shipped | The user-facing claim: “better than the official experience.” |
-| `stock` | Stock `agent-loop` + the same model, tools and `max_iter` as `composition` | Attribution: isolates orchestration from preset/tool differences. |
-| `composition` | This bundle (control plane + envelope + graph) | The candidate. |
+| `official` | DSH default profile as shipped | User-facing claim |
+| `stock` | Stock `agent-loop` + same model/tools/budget | Attribution |
+| `composition` | This bundle (graph driver + kernel) | Candidate |
 
-All arms use the same model, the same OfficeBench tasks, the same `max_iter`, and the same container
-image. Record the DSH commit, bundle version, model id and container digest for every run.
+All arms use the same model, tasks, `max_iter`, container image and harness version.
 
-## 3. Probe (M4)
+For benchmark runs the graph arm must set **`toolPolicy: preset`** on the `agent-loop` row. The
+default `plan` policy narrows tools to the plan universe; a benchmark harness may register tools the
+synthesized plan does not name, and silently hiding them would invalidate the comparison. See
+[`packages/loop/README.md`](../packages/loop/README.md).
 
-- **Five single-app tasks**, one or two from each of Word, Excel and PDF. OfficeBench has no
-  PowerPoint app, so PowerPoint is explicitly out of the probe. Fixed task ids live in
-  [`bench/officebench/probe-tasks.json`](../bench/officebench/probe-tasks.json) and are pinned with
-  the OfficeBench commit `b978b808667c32b52ce19a67ce1def1de9ae02b7`.
-- **Why single-app:** the probe validates the infrastructure (container, action mapping, evaluator)
-  before adding cross-app workflows.
-- **Run all three arms on all five tasks** (15 task-runs).
-- **Pass criteria:**
-  1. all three arms complete all five tasks;
-  2. the OfficeBench evaluator returns a score for every one of the 15 runs;
-  3. no harness crash that requires a manual restart.
-- **The probe does not require composition to win.** It only proves the loop is measurable.
-- **Gate:** after the probe, decide **continue / change benchmark / stop**. This is the first hard
-  decision point in the project.
+## 4. Primary: Terminal-Bench 4.0
 
-## 4. Full head-to-head (M5)
+- Harness: [`harbor-framework/terminal-bench`](https://github.com/harbor-framework/terminal-bench),
+  run through [Harbor](https://harborframework.com/docs).
+- Preflight: `bash bench/official/terminal-bench/preflight.sh` (READY only with `uv`, Harbor and a
+  container backend).
+- Exact command and adapter requirement: [`bench/official/README.md`](../bench/official/README.md).
+- Target: model-card 42.3. Run a fixed 10–20-task subset first; full set only after the probe.
+- Gate: a DSH Harbor agent adapter must exist and pass the oracle on the same image before this
+  benchmark is considered measured.
 
-- **Fixed subset, registered before running.** Suggested stratification: 10 single-app, 10 two-app
-  and 10 three-app tasks (30 total). The exact task ids and seed are committed before the first run.
-- All three arms on the same subset.
-- **Primary metric:** OfficeBench evaluator score per task and aggregate success rate.
-- **Secondary metrics:** steps, tool calls, billed input, `cacheReadRatio`, p50/p95 latency, wall
-  time, crash count. Report **both the mean and the median** for every metric; long-tail latency
-  makes the mean alone misleading, and a single median can hide a heavy tail.
-- **Report:** per-task table plus aggregate, with the exact command, config, commit and model.
-  Raw results in `bench/results/officebench-<date>/`.
-- **Pre-register the acceptance before the full run** (after the probe calibrates variance):
-  `composition` must not be worse than `official` on the primary score, must beat `stock` on the
-  primary score, and must not regress latency or billed input beyond the agreed band.
-- **Publish the report whether it wins or loses.** A negative result is a valid outcome and feeds
-  the hedge decision.
+## 5. Primary: NL2Repo-Bench
 
-## 5. Task and environment mapping
+- Harness: [`multimodal-art-projection/NL2RepoBench`](https://github.com/multimodal-art-projection/NL2RepoBench),
+  104 tasks, OpenHands headless, Docker images `openhands:0.56` and `runtime:0.56-nikolaik`.
+- Preflight: `bash bench/official/nl2repo/preflight.sh`.
+- Target: model-card 68.2.
+- Gate: the harness must be adapted from OpenHands to DSH (or DSH must be wrapped as an OpenHands
+  agent). Until then the score is not measured.
 
-- OfficeBench runs in its Docker image with its own action API (`read_file`, `send_email`, …).
-- The adapter path is chosen by the probe:
-  - **Docker bridge:** expose OfficeBench actions as DSH tools/MCP and run DSH as the agent; or
-  - **file-level reimplementation:** use DSH document/spreadsheet/presentation tools on the task
-    files and reuse the evaluator where possible.
-- Record the action mapping and every unsupported action as a known limitation.
-- Same container image, same task files, same seed for all three arms.
-- Setup and pinned version: [`bench/officebench/README.md`](../bench/officebench/README.md).
+## 6. Pre-signal: local 20-task suite
 
-## 6. Confounds and threats
+- Tasks: [`bench/agent-eval/tasks.json`](../bench/agent-eval/tasks.json), fixtures under
+  `bench/agent-eval/tasks/<id>/`. Each check fails on the initial fixture and passes on a verified
+  solution.
+- Run: `bash bench/agent-eval/run-real.sh --arm both --reps 2`.
+- Metrics: success, steps, tool calls, billed input, output, cache read, prompt tokens, wall time.
+- Report both mean and median; save `results.json` under `bench/agent-eval/results/` and summarize
+  with `node bench/agent-eval/summarize.mjs <file> --per-task`.
+- Latest: **40/40 both arms**, prompt **24,454 → 9,612 (−60.7% mean; −59.5% median)**, steps
+  4.1 → 4.0; wall mixed (+5.9% mean / −7.4% median). Full rows in
+  [`bench/agent-eval/RESULTS.md`](../bench/agent-eval/RESULTS.md).
+- This suite is **not** Terminal-Bench/NL2Repo; it is the cheap signal for the plugin seam.
 
-| Threat | Handling |
-|---|---|
-| Default profile has different tools/presets | The `stock` arm isolates orchestration. |
-| OfficeBench actions do not map 1:1 to DSH tools | The probe is exactly this check; unsupported actions are recorded. |
-| Small probe sample | The probe is an infrastructure check, not a statistical claim. |
-| Warm/cold cache and run order | Randomize arm order per task; record cache metrics. |
-| Retries and partial failures | Log every attempt; a crash is a failure, not a silent retry. |
-| Evaluator version drift | Pin the OfficeBench commit and evaluator version. |
+## 7. Secondary: OfficeBench
 
-## 7. Decision gates
+The original 5-task single-app probe is still valid for office-app fidelity, but it is not in the
+primary benchmark set. It needs Docker/OfficeBench; see
+[`bench/officebench/README.md`](../bench/officebench/README.md). OfficeBench has no PowerPoint app.
 
-1. **Probe gate (M4):** pass = three arms × five tasks completed and scored. Fail = change
-   benchmark or stop; do not scale.
-2. **Report gate (M5):** if `composition` does not beat `official` on accuracy after the full
-   subset, pivot to the hedge (Graph tab + composition contract) instead of extending the benchmark
-   indefinitely.
-3. **No 1.0 gate.** The project is milestone-driven; a pivot is a legitimate outcome.
+## 8. Metrics and reporting
 
-## 8. Artifacts
+- **Primary:** task score / success per benchmark, aggregate.
+- **Secondary:** steps, tool calls, billed input, `cacheReadRatio`, output tokens, p50/p95 latency,
+  wall time, crash count.
+- Report **mean and median** for every metric; identify outliers and do not cite a mean-dominated
+  wall time as a win.
+- Per-task table + aggregate + exact command/config/commit/model/harness digest.
+- Raw rows in `bench/agent-eval/results/` (local) or `bench/official/results/` (official).
 
-- [`bench/officebench/probe-tasks.json`](../bench/officebench/probe-tasks.json) — the fixed 5-task
-  probe, pinned to the OfficeBench commit.
-- `scripts/officebench-preflight.sh` — environment/commit/task check before the probe.
-- `bench/results/officebench-<date>/` — raw scores, logs, config, container digest.
-- A public report (README link or `docs/reports/`) with the task list, commands, results and
-  limitations.
-- This document is updated with the actual commands once the probe runs.
+## 9. Decision gates
+
+1. **Local pre-signal:** 20 tasks × 2 arms; graph must not lose success, must keep the token
+   reduction, and must not show an unexplained wall regression.
+2. **Official probe:** Terminal-Bench 4.0 fixed subset, three arms. All arms must complete and be
+   scored; then decide continue / change benchmark / stop.
+3. **Full head-to-head:** only after the probe; pre-register the subset and acceptance before the
+   first full run.
+4. Publish the report whether it wins or loses.
+
+## 10. Artifacts
+
+- `bench/agent-eval/` — local harness, tasks, results, mean/median summarizer.
+- `bench/official/` — official preflights and runbooks.
+- `bench/officebench/` — OfficeBench probe manifest and preflight.
+- `docs/STATUS.md` — current snapshot and gaps.

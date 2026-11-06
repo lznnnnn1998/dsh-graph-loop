@@ -1,0 +1,14 @@
+[
+  {
+    "name": "ada",
+    "active": true
+  },
+  {
+    "name": "bob",
+    "active": false
+  },
+  {
+    "name": "cy",
+    "active": true
+  }
+]

@@ -269,6 +269,12 @@ export interface Config {
   trivialChars: number
   /** Upper bound on nodes in one synthesized topology. Defaults to 24. */
   maxSteps: number
+  /**
+   * Tool admission. `plan` (default) narrows to the plan universe; `preset`
+   * keeps the full preset tool set for benchmark harnesses whose tools are not
+   * in the synthesized plan.
+   */
+  toolPolicy: 'plan' | 'preset'
   /** Agents created or resumed at plugin startup; a resumed agent records its configured route as the Session's model selection. */
   agents: (AgentOptions & {
     /** Stable config label used in logs and as the fresh combined-id prefix. */
@@ -311,11 +317,13 @@ export class AgentLoop extends Service implements AgentFactory {
     topology?: Config['topology']
     trivialChars?: number
     maxSteps?: number
+    toolPolicy?: Config['toolPolicy']
   }, Config> = z.object({
     maxParallelToolCalls: z.number().step(1).min(1).default(DEFAULT_MAX_PARALLEL_TOOL_CALLS).volatile(),
     topology: z.union([z.const('template'), z.const('dynamic'), z.const('propose')]).default('dynamic'),
     trivialChars: z.number().step(1).min(1).default(32),
     maxSteps: z.number().step(1).min(1).default(24),
+    toolPolicy: z.union([z.const('plan'), z.const('preset')]).default('plan'),
     agents: z.array(z.object({
       id: z.string().required(),
       sessionId: z.string().min(1),
@@ -351,6 +359,7 @@ export class AgentLoop extends Service implements AgentFactory {
       topology: config.topology ?? 'dynamic',
       trivialChars: config.trivialChars ?? 32,
       maxSteps: config.maxSteps ?? 24,
+      toolPolicy: config.toolPolicy ?? 'plan',
     }
     validateConfiguredAgents(this.config.agents)
     this.ownership = new FactoryOwnership(ctx.fiber)
@@ -649,6 +658,7 @@ export class AgentLoop extends Service implements AgentFactory {
           mode: topologyMode,
           maxSteps: loopConfig.maxSteps,
           trivialChars: loopConfig.trivialChars,
+          toolPolicy: loopConfig.toolPolicy,
           allowSubagents: delegationDepth === 0,
           forceFallback: delegationDepth > 0,
           depth: delegationDepth,

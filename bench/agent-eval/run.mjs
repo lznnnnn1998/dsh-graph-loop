@@ -24,13 +24,14 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(HERE, '../..')
 const DSH_ROOT = process.env.DSH_ROOT ?? '/Users/zhinan/deepseek-harness'
 const PATCH = join(ROOT, 'packages/loop', 'dev-headless.patch.yml')
+const PATCH_PRESET = join(ROOT, 'packages/loop', 'dev-headless-preset.patch.yml')
 const TSX_LOADER = process.env.TSX_LOADER ?? join(DSH_ROOT, 'node_modules', 'tsx', 'dist', 'loader.mjs')
 const WRAPPER = join(HERE, 'cli-wrapper.mjs')
 const TASKS = JSON.parse(readFileSync(join(HERE, 'tasks.json'), 'utf8'))
 const DEFAULT_TIMEOUT_MS = 180_000
 
 function parseArgs(argv) {
-  const options = { arm: 'both', tasks: TASKS.map(task => task.id), reps: 1, out: undefined, keep: false, installed: false, home: undefined, stockProfile: 'headless', graphProfile: 'headless' }
+  const options = { arm: 'both', tasks: TASKS.map(task => task.id), reps: 1, out: undefined, keep: false, installed: false, home: undefined, stockProfile: 'headless', graphProfile: 'headless', toolPolicy: 'plan' }
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     if (arg === '--arm') options.arm = argv[++index]
@@ -42,9 +43,11 @@ function parseArgs(argv) {
     else if (arg === '--home') options.home = argv[++index]
     else if (arg === '--stock-profile') options.stockProfile = argv[++index]
     else if (arg === '--graph-profile') options.graphProfile = argv[++index]
+    else if (arg === '--tool-policy') options.toolPolicy = argv[++index]
     else throw new Error(`unknown argument: ${arg}`)
   }
   if (!['stock', 'graph', 'both'].includes(options.arm)) throw new Error(`bad arm: ${options.arm}`)
+  if (!['plan', 'preset'].includes(options.toolPolicy)) throw new Error(`bad tool policy: ${options.toolPolicy}`)
   return options
 }
 
@@ -114,7 +117,7 @@ function runOne(arm, task, outDir) {
 
   const profile = arm === 'graph' ? options.graphProfile : options.stockProfile
   const args = ['--import', TSX_LOADER, WRAPPER, '--profile', profile]
-  if (arm === 'graph' && !options.installed) args.push('--patch', PATCH)
+  if (arm === 'graph' && !options.installed) args.push('--patch', options.toolPolicy === 'preset' ? PATCH_PRESET : PATCH)
   args.push(task.prompt)
   const env = { ...process.env, DSH_HOME: home, DSH_EVAL_WORKSPACE: workspace }
   delete env.DEEPSEEK_BASE_URL
@@ -147,6 +150,11 @@ function runOne(arm, task, outDir) {
   return row
 }
 
+function gitHead(cwd) {
+  const result = spawnSync('git', ['-C', cwd, 'rev-parse', 'HEAD'], { encoding: 'utf8' })
+  return result.status === 0 ? (result.stdout ?? '').trim() : undefined
+}
+
 const options = parseArgs(process.argv.slice(2))
 const stamp = new Date().toISOString().replace(/[:.]/g, '-')
 const outDir = resolve(options.out ?? join(tmpdir(), 'dsh-agent-eval', stamp))
@@ -154,6 +162,23 @@ mkdirSync(outDir, { recursive: true })
 const arms = options.arm === 'both' ? ['stock', 'graph'] : [options.arm]
 const selected = TASKS.filter(task => options.tasks.includes(task.id))
 if (selected.length === 0) throw new Error(`no matching tasks: ${options.tasks.join(', ')}`)
+writeFileSync(join(outDir, 'manifest.json'), JSON.stringify({
+  startedAt: new Date().toISOString(),
+  model: process.env.DSH_EVAL_MODEL ?? 'deepseek-flash',
+  modelSnapshot: 'DeepSeek V4.1-Flash-1017',
+  arms,
+  tasks: selected.map(task => task.id),
+  reps: options.reps,
+  installed: options.installed,
+  stockProfile: options.stockProfile,
+  graphProfile: options.graphProfile,
+  toolPolicy: options.toolPolicy,
+  dshRoot: DSH_ROOT,
+  dshCommit: gitHead(DSH_ROOT),
+  pluginCommit: gitHead(ROOT),
+  node: process.version,
+  platform: process.platform,
+}, null, 2))
 
 const rows = []
 for (let rep = 0; rep < options.reps; rep += 1) {

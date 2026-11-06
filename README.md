@@ -15,6 +15,7 @@ community contribution — not a business, a general agent framework or a resear
 > active loop, with the LangGraph kernel as the default; the fork duplication is tracked as debt.
 > The **Explore mode** is installed as the default for new sessions. Start with
 > [`docs/STATUS.md`](docs/STATUS.md) and [`docs/COMPOSITION.md`](docs/COMPOSITION.md).
+> Changelog: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## What 0.2 builds
 
@@ -40,9 +41,9 @@ community contribution — not a business, a general agent framework or a resear
 - **Graph tab** — live topology, node → tool-call inspector, envelope and checkpoint history.
 - **Template packages** — npm packages binding abstract roles + concrete implementations, with
   schema validation, dry-run preview and a curated index.
-- **Evaluation** — an OfficeBench 5-task single-app probe across three arms (default profile,
-  controlled stock, composition), then a fixed subset and a public head-to-head report. The probe
-  is the first hard decision gate; there is no 1.0 gate. Protocol:
+- **Evaluation** — a local 20-task stock-vs-graph pre-signal, then **Terminal-Bench 4.0** and
+  **NL2Repo-Bench** (the 1017 model-card references) with three arms. Official runs are gated on a
+  container runtime + DSH agent adapters; the preflights say so explicitly. Protocol:
   [`docs/EVALUATION.md`](docs/EVALUATION.md).
 
 ## Non-goals
@@ -92,17 +93,21 @@ The installer adds the Graph-tab, driver and Explore-mode bundles to the profile
 bundle depends on it; disabling the row is DSH's supported replacement mechanism. DSH has no global
 default-profile setting, so “default” means the profile you actually boot (`web` by default).
 
-## Quick start (0.1.x experiments)
-
-Development commands:
+## Quick start
 
 ```sh
 bash scripts/link-dsh.sh            # link the read-only DSH checkout packages
-npm test                            # unit tests
-npm run e2e                         # dev overlay + mock LLM
-bash scripts/e2e-installed.sh       # install the driver bundle into a throwaway profile
-bash scripts/e2e-graph-tab.sh       # Graph tab in the real Web chat UI
+bash scripts/verify-all.sh          # typecheck + tests + installed e2e + tarball e2e + links
 bash scripts/install-explore.sh     # install into the default web profile (stock row disabled)
+```
+
+Benchmark:
+
+```sh
+bash bench/agent-eval/run-real.sh --arm both --reps 2
+node bench/agent-eval/summarize.mjs bench/agent-eval/results/<file>.json --per-task
+bash bench/official/terminal-bench/preflight.sh   # NOT READY without Docker/Modal
+bash bench/official/nl2repo/preflight.sh          # NOT READY without Docker
 ```
 
 Composition-layer commands are documented as they land; the contract is in

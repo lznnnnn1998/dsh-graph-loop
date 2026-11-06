@@ -1,8 +1,9 @@
 # bench/ — token & cache A/B harness for the DSH graph loop
 
-> **0.2 evaluation uses OfficeBench**, not this harness: see
-> [`officebench/`](officebench/) and [`../docs/EVALUATION.md`](../docs/EVALUATION.md). This file
-> documents the 0.1.x token/cache harness and remains useful for cost accounting.
+> **0.2 evaluation** uses the local 20-task suite ([`agent-eval/`](agent-eval/)) as the pre-signal
+> and Terminal-Bench 4.0 + NL2Repo-Bench as the official targets ([`official/`](official/)). See
+> [`../docs/EVALUATION.md`](../docs/EVALUATION.md). This file documents the 0.1.x token/cache
+> harness and remains useful for cost accounting.
 
 Status: **partially runnable**. The baseline arm runs end to end today; the two graph arms
 are specified but deliberately refuse to run until the plugin exists. Everything here prices
@@ -15,7 +16,9 @@ README is the operator manual.
 
 ```
 bench/
-  officebench/               # 0.2 probe manifest + setup (external benchmark, pinned commit)
+  agent-eval/                # 0.2 local 20-task stock-vs-graph harness + results
+  official/                  # Terminal-Bench 4.0 / NL2Repo preflights + adapter contract
+  officebench/               # secondary 5-task probe manifest (pinned commit)
   tasks/tasks.jsonl          # 8 tasks: single-tool, multi-tool edit, research, doc gen, bug fix,
                              # long refactor, multi-agent, no-tool
   schema/results.schema.json # one row per (arm, task, repetition)

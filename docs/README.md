@@ -16,8 +16,9 @@ Start with **Status**; the rest are contracts, plans, and history.
 
 ## Evidence and research
 
-- [`bench/agent-eval/`](../bench/agent-eval/) — local real-model harness and results
-- [`bench/officebench/`](../bench/officebench/) — pinned 5-task probe manifest
+- [`bench/agent-eval/`](../bench/agent-eval/) — local 20-task real-model harness and results
+- [`bench/official/`](../bench/official/) — Terminal-Bench 4.0 / NL2Repo-Bench runbooks and preflights
+- [`bench/officebench/`](../bench/officebench/) — pinned 5-task OfficeBench probe (secondary)
 - [`research/`](../research/) — original evidence base (token/cache, seams, LangGraph, bundle)
 - [`design/`](../design/) — original design contracts; historical but useful
 

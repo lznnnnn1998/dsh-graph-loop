@@ -40,6 +40,21 @@ test('a code question routes to t_investigate and walks its nodes', async () => 
   assert.deepEqual(driver.snapshot().visited, ['n_discover', 'n_inspect', 'n_done'])
 })
 
+test('preset tool policy exposes the full tool set for benchmark harnesses', async () => {
+  const driver = createGraphTurnDriver({
+    graphProvider: () => registry.graph,
+    toolPolicy: 'preset',
+  })
+  await driver.beginTurn({ text: 'explain how the config loader works' })
+  assert.equal(driver.toolUniverse?.(), undefined)
+})
+
+test('plan tool policy narrows to the plan universe', async () => {
+  const driver = createGraphTurnDriver({ graphProvider: () => registry.graph })
+  await driver.beginTurn({ text: 'explain how the config loader works' })
+  assert.ok(Array.isArray(driver.toolUniverse?.()))
+})
+
 test('without a registry the driver falls back to a single stock node', async () => {
   const driver = createGraphTurnDriver({ fallbackInstruction: 'answer' })
   const started = await driver.beginTurn({ text: 'hello' })

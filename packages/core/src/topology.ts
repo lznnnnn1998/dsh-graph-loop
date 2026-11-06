@@ -119,7 +119,7 @@ function toolInstruction(name: string, slot: string): string {
   }
 }
 
-function node(id: string, tool: string, instruction: string, model?: PlanNode['model'], extraTools: readonly string[] = []): PlanNode {
+function node(id: string, tool: string, instruction: string, model?: PlanNode['model'], extraTools: readonly string[] = [], optional = false): PlanNode {
   return {
     id,
     kind: 'tool-call',
@@ -127,6 +127,7 @@ function node(id: string, tool: string, instruction: string, model?: PlanNode['m
     capabilityId: `tool:${tool}`,
     instruction,
     toolAllow: [...new Set([tool, ...extraTools])],
+    ...(optional ? { optional: true } : {}),
     ...(model === undefined ? {} : { model }),
   }
 }
@@ -180,7 +181,7 @@ export function synthesizeTopology(input: SynthesizeInput): SynthesizedTopology 
     const reader = firstAvailable(graph, presetTools, ['read'])
     if (reader !== undefined) {
       const id = 'd_read'
-      nodes.push(node(id, reader, toolInstruction(reader, 'inspect')))
+      nodes.push(node(id, reader, toolInstruction(reader, 'inspect'), undefined, [], true))
       connect(id)
       rationale.push('inspect before mutating (read-before-write)')
     }
@@ -188,9 +189,12 @@ export function synthesizeTopology(input: SynthesizeInput): SynthesizedTopology 
     const editor = firstAvailable(graph, presetTools, ['edit', 'write', 'str_replace_editor'])
     if (editor !== undefined) {
       const id = 'd_edit'
+      const shellHint = presetTools.includes('bash')
+        ? ' For rename, move or delete, use bash (`mv`, `rm`, `mkdir`).'
+        : ''
       const instruction = mutationTools.length > 1
-        ? 'apply: create a new artifact with `write`, or modify an existing one with `edit`/`str_replace_editor`; keep the change minimal and explain it.'
-        : toolInstruction(editor, 'apply')
+        ? `apply: produce the requested mutation. For new content use \`write\`; for in-place content edits use \`edit\`/\`str_replace_editor\`.${shellHint} Keep the change minimal and explain it.`
+        : `${toolInstruction(editor, 'apply')}${shellHint}`
       nodes.push(node(id, editor, instruction, undefined, mutationTools))
       connect(id)
       rationale.push(`mutation via ${editor}`)
@@ -252,7 +256,7 @@ export function synthesizeTopology(input: SynthesizeInput): SynthesizedTopology 
     const reader = firstAvailable(graph, presetTools, ['read', 'read_image'])
     if (reader !== undefined) {
       const id = 'd_read'
-      nodes.push(node(id, reader, toolInstruction(reader, 'inspect')))
+      nodes.push(node(id, reader, toolInstruction(reader, 'inspect'), undefined, [], true))
       connect(id)
       rationale.push(`inspection via ${reader}`)
     }

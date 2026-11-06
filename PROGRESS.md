@@ -69,7 +69,7 @@ The 0.1.x build history is archived in [`docs/archive/PROGRESS-0.1.md`](docs/arc
 - [x] **M3d — kernel round-trip (kernel-drivable plans)**: the scheduler now uses `KernelTopology`
       (LangGraph `KernelPort`, pause-before-node bridge, one superstep per DSH step) for linear plans
       with safe node ids and no subagent/conditional edges; other plans keep `FrontierTopology`.
-      Async driver interface; 3 new unit tests; 111 total tests. Live eval: **6/6 both arms**, median
+      Async driver interface; 3 new unit tests; 115 total tests. Live eval: **6/6 both arms**, median
       prompt **23,516 → 9,128 (−61%)**, steps 4 = 4; wall time was noise-dominated (86–92 s stalls on
       three graph runs). Kernel checkpoints are still in-memory.
 - [ ] **M3e — kernel coverage + durable checkpoint**: route conditional/failure edges and subagent
@@ -77,10 +77,13 @@ The 0.1.x build history is archived in [`docs/archive/PROGRESS-0.1.md`](docs/arc
 - [ ] **M3 — control plane over the stock loop** (product path; the measured graph above is the
       graph driver installed as a bundle): step nodes, late prompt section, node boundaries,
       checkpoint writes, annotation/preset feed, conformance for ordinary chat.
-- [ ] **M4 — OfficeBench 5-task single-app probe** (three arms: default profile, controlled stock,
-      composition) + Graph tab data path. Tasks pinned in
-      [`bench/officebench/probe-tasks.json`](bench/officebench/probe-tasks.json); preflight
-      [`scripts/officebench-preflight.sh`](scripts/officebench-preflight.sh). Pass = all arms
-      complete and the evaluator scores all 5.
-- [ ] **M5 — full OfficeBench subset + public head-to-head report** + 0.2.0.
-- [ ] **Gate at M4:** continue / change benchmark / stop. No 1.0.
+- [x] **M4a — local 20-task pre-signal**: 20 tasks × 2 arms × 2 reps on the 1017 model; **40/40
+      both**, prompt **24,454 → 9,612 (−60.7% mean; −59.5% median)**, steps 4.1 → 4.0; wall mixed
+      (+5.9% mean / −7.4% median). Checks validated negative/positive; results and manifest in
+      [`bench/agent-eval/RESULTS.md`](bench/agent-eval/RESULTS.md). Also added `toolPolicy: preset`,
+      optional read nodes, DSML formatting retry, and mutation detection for merge/rename tasks.
+- [ ] **M4b — official adapters**: Terminal-Bench 4.0 (Harbor) and NL2Repo-Bench (OpenHands) runbooks,
+      preflights and adapter contract are in [`bench/official/`](bench/official/). Official scores are
+      **not measured**: this machine has no Docker/Modal, and neither harness ships a DSH agent.
+- [ ] **M5 — official head-to-head** (Terminal-Bench + NL2Repo) + public report + 0.2.0.
+- [ ] **Gate at M4b:** continue / change benchmark / stop. No 1.0.

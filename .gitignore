@@ -8,3 +8,6 @@ tmp/
 .secrets/
 *.tgz
 .npmrc.local
+
+# Benchmark fixtures intentionally contain .log files
+!bench/agent-eval/tasks/**/*.log

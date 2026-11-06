@@ -157,7 +157,7 @@ this plugin (composition bundle)
 
 | Step | Work | Status |
 |---|---|---|
-| M1 | Kernel round-trip: scheduler uses `KernelPort`; LangGraph default, Minimal fallback | **Done for kernel-drivable plans**; 6-task eval 6/6, prompt −61%; 112 unit tests |
+| M1 | Kernel round-trip: scheduler uses `KernelPort`; LangGraph default, Minimal fallback | **Done for kernel-drivable plans**; 6-task eval 6/6, prompt −61%; 115 unit tests |
 | M2 | Channel schema + reducers; order-insensitive parallel writes | Pending |
 | M3 | `storageDomain` checkpointer; node-boundary writes; `getState`/history | Pending (`MemoryCheckpointer` today) |
 | M4 | `Command`/`Send`/subgraph support | Pending (frontier fallback) |

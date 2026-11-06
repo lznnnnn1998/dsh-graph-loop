@@ -6,29 +6,40 @@ before paying for a public benchmark.
 
 - Protocol and public evaluation: [`docs/EVALUATION.md`](../../docs/EVALUATION.md)
 - Latest result: [`RESULTS.md`](RESULTS.md)
-- Raw rows: [`results/`](results/)
+- Raw rows: [`results/`](results/) (what each file is: [`results/README.md`](results/README.md))
 
 ## What it runs
 
-Six small file/coding tasks (`tasks.json`, fixtures under `tasks/`), each with a shell check:
+Twenty small file/coding tasks (`tasks.json`, fixtures under `tasks/`), each with a shell check.
+Every check was validated twice: it fails on the initial fixture and passes on a verified solution.
 
-| task | what it verifies |
+| category | examples |
 |---|---|
-| read-summary | read a note, write the KEY sentence to a file |
-| edit-config | change one JSON field, keep the rest |
-| fix-test | repair `math.js` so `node test.js` passes |
-| search-file | find the file containing a word, write its name |
-| write-answer | arithmetic, write the number |
-| multi-step | sum a CSV column, write the total |
+| read / write / search | `read-summary`, `search-file`, `grep-count` |
+| edit / repair | `edit-config`, `validate-json`, `replace-all` |
+| multi-file | `multi-file`, `long-chain`, `rename-file` |
+| data processing | `json-filter`, `csv-max`, `sort-unique` |
+| script authoring | `calc-script`, `bug-hunt` |
+| environment / paths | `env-config`, `mkdir-nested` |
+| multi-step | `multi-step`, `append-log` |
+| arithmetic | `write-answer` |
 
 Each run measures: task success, steps, tool calls, input/output/cache/prompt tokens (from
 `assistant/message` usage in the session log), and end-to-end wall time.
+
+Before running, check the negative case:
+
+```sh
+node bench/agent-eval/validate-tasks.mjs
+```
 
 ## Run with the real model
 
 ```sh
 # Reads DEEPSEEK_API_KEY from the DSH credential store; never prints it.
 bash bench/agent-eval/run-real.sh --arm both --reps 2
+# benchmark compatibility: keep the full preset tool set
+bash bench/agent-eval/run-real.sh --arm graph --tool-policy preset --task write-answer
 ```
 
 Results land in `/tmp/dsh-agent-eval/<stamp>/results.json`.

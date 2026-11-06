@@ -1,0 +1,5 @@
+INFO boot
+ERROR db down
+WARN retry
+ERROR timeout
+ERROR cannot start

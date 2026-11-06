@@ -211,7 +211,7 @@ export function extractFingerprint(input: FingerprintInput): TaskFingerprint {
   const mediumRisk = countTerms(text, RISK_TERMS.medium) > 0
   const risk: RiskBand = highRisk ? 'high' : mediumRisk ? 'medium' : 'low'
   const mutating = risk !== 'low'
-    || /\b(edit|write|apply|create|change|save|append|update|modify|add|fix|remove|delete|rename|move)\b/u.test(text)
+    || /\b(edit|write|apply|create|change|save|append|update|modify|add|fix|remove|delete|rename|move|merge|combine|concatenate|dedupe|split|convert|export|generate|copy)\b/u.test(text)
 
   const contextTokens = Math.max(0, input.contextTokens)
   const contextBucket: ContextBucket =

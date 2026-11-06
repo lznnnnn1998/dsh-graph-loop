@@ -28,5 +28,75 @@
     "id": "multi-step",
     "prompt": "Read data.csv, sum the numbers in the value column, and write the total to sum.txt.",
     "check": "test -f sum.txt && [ \"$(tr -d '[:space:]' < sum.txt)\" = '150' ]"
+  },
+  {
+    "id": "rename-file",
+    "prompt": "Rename old_name.txt to new_name.txt. Keep its content unchanged.",
+    "check": "test -f new_name.txt && grep -q \"rename me\" new_name.txt && [ ! -f old_name.txt ]"
+  },
+  {
+    "id": "append-log",
+    "prompt": "Append exactly one line `status=ok` to app.log. Do not change the existing line.",
+    "check": "[ \"$(grep -c '^status=ok$' app.log)\" = \"1\" ] && grep -q '^boot$' app.log"
+  },
+  {
+    "id": "json-filter",
+    "prompt": "Read users.json. Write the names of users with active=true to active.txt, one per line, in file order.",
+    "check": "test -f active.txt && [ \"$(cat active.txt)\" = \"$(printf 'ada\\ncy')\" ]"
+  },
+  {
+    "id": "csv-max",
+    "prompt": "Read sales.csv and write the largest amount to max.txt. Write only the number.",
+    "check": "test -f max.txt && [ \"$(tr -d '[:space:]' < max.txt)\" = \"42\" ]"
+  },
+  {
+    "id": "multi-file",
+    "prompt": "Update the version from 1.0.0 to 1.1.0 in package.json and README.md. Do not change any other value.",
+    "check": "python3 -c \"import json; d=json.load(open('package.json')); assert d['version']=='1.1.0'; assert d['name']=='demo'\" && grep -q \"Version: 1.1.0\" README.md && ! grep -q \"1.0.0\" README.md"
+  },
+  {
+    "id": "bug-hunt",
+    "prompt": "Run `node test.js`. It fails because utils.js has a bug. Fix utils.js so the test passes.",
+    "check": "node test.js"
+  },
+  {
+    "id": "grep-count",
+    "prompt": "Count the lines in server.log that contain ERROR and write only the count to count.txt.",
+    "check": "test -f count.txt && [ \"$(tr -d '[:space:]' < count.txt)\" = \"3\" ]"
+  },
+  {
+    "id": "sort-unique",
+    "prompt": "Read words.txt, remove duplicates, sort the remaining lines alphabetically, and write the result to sorted.txt.",
+    "check": "test -f sorted.txt && [ \"$(cat sorted.txt)\" = \"$(printf 'apple\\nbanana\\npear')\" ]"
+  },
+  {
+    "id": "env-config",
+    "prompt": "Create a file named .env containing exactly two lines: `PORT=3000` and `MODE=prod`.",
+    "check": "test -f .env && [ \"$(grep -c '^PORT=3000$' .env)\" = \"1\" ] && [ \"$(grep -c '^MODE=prod$' .env)\" = \"1\" ]"
+  },
+  {
+    "id": "mkdir-nested",
+    "prompt": "Create src/lib/helpers.js containing exactly `export const ok = true` followed by a newline.",
+    "check": "test -f src/lib/helpers.js && [ \"$(cat src/lib/helpers.js)\" = \"export const ok = true\" ]"
+  },
+  {
+    "id": "calc-script",
+    "prompt": "Write calc.js that reads numbers.txt (one integer per line) and prints their sum. Run it to verify.",
+    "check": "test -f calc.js && [ \"$(node calc.js | tr -d '[:space:]')\" = \"6\" ]"
+  },
+  {
+    "id": "replace-all",
+    "prompt": "Replace every occurrence of TODO with DONE in notes.md. Do not change anything else.",
+    "check": "! grep -q TODO notes.md && [ \"$(grep -c DONE notes.md)\" = \"3\" ]"
+  },
+  {
+    "id": "validate-json",
+    "prompt": "The file config.json is malformed and cannot be parsed. Fix the syntax so it parses as JSON, keeping all existing values.",
+    "check": "python3 -c \"import json; d=json.load(open('config.json')); assert d['port']==8080; assert d['host']=='localhost'\""
+  },
+  {
+    "id": "long-chain",
+    "prompt": "Read a.txt, b.txt, and c.txt. Merge all lines into merged.txt, sorted alphabetically, with duplicates removed.",
+    "check": "test -f merged.txt && [ \"$(cat merged.txt)\" = \"$(printf 'a\\nb\\nc\\nd')\" ]"
   }
 ]

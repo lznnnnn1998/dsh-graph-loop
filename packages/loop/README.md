@@ -29,6 +29,7 @@ The installer also adds the Explore mode and verifies the composed profile.
 | `kernel` | `langgraph` | `langgraph` (default, falls back to Minimal when absent) or `minimal` |
 | `trivialChars` | `32` | Text length below which a trivial task stays a single node |
 | `maxSteps` | `24` | Upper bound on nodes in one synthesized plan |
+| `toolPolicy` | `plan` | `plan` narrows each step to the plan universe (token win); `preset` keeps the full preset tool set for benchmark harnesses |
 | `maxParallelToolCalls` | inherited | Stock loop parallel tool-call bound |
 | `agents` | `[]` | Declarative startup agents |
 

@@ -407,7 +407,7 @@ export class ReactLoopAgent implements Agent {
     const node = this.turnGraph?.current()
     const directive = node === undefined
       ? undefined
-      : this.turnGraph?.instruction() ?? `Execute graph node \`${node.id}\` and advance the task.`
+      : `${this.turnGraph?.instruction() ?? `Execute graph node \`${node.id}\` and advance the task.`}\nTool calls must use the tool-call interface; never print tool-call, DSML or XML syntax as text.`
     const admitted = directive === undefined
       ? claimed
       : [...claimed, createUserMessage({
@@ -491,6 +491,7 @@ export class ReactLoopAgent implements Agent {
       }
     }
     let turnEnds: TurnEndReason | null = null
+    let formatRetries = 0
     let target: InboxTarget = 'next-turn'
     try {
       while (true) {
@@ -523,6 +524,7 @@ export class ReactLoopAgent implements Agent {
           return false
         }
         let stepFailedTool: string | undefined
+        let stepDsml = false
         const stepTools: { name: string; callId: string; isError: boolean }[] = []
         try {
           if (turnEnds && decision.messages.length === 0) break
@@ -540,7 +542,10 @@ export class ReactLoopAgent implements Agent {
           const stopRecovery = this.ctx.on('session/event', (session, event) => {
             if (session !== this.session) return
             toolRecovery.observe(event)
-            if (event.type === 'tool/call') {
+            if (event.type === 'assistant/message') {
+              const content = event.data.message.content
+              if (JSON.stringify(content).includes('DSML')) stepDsml = true
+            } else if (event.type === 'tool/call') {
               toolNames.set(event.data.callId, event.data.name)
               stepTools.push({ name: event.data.name, callId: event.data.callId, isError: false })
             } else if (event.type === 'tool/result') {
@@ -577,6 +582,22 @@ export class ReactLoopAgent implements Agent {
           // Admission closes once the step's tool batch settles or no step opens.
           decision.toolSet.dispose()
         }
+        // Tool-call markup printed as text is a formatting failure, not a
+        // completed node. Retry the same node once or twice with a correction;
+        // the graph must not advance without the file the node was asked to write.
+        const retryNode = this.turnGraph?.current()
+        if (this.turnGraph !== undefined
+          && stepDsml
+          && stepTools.length === 0
+          && formatRetries < 2
+          && (retryNode?.toolAllow?.length ?? 1) > 0) {
+          formatRetries += 1
+          this.inject(createUserMessage({
+            content: [{ type: 'text', text: 'Your previous response printed a tool call as text. Re-issue the same tool call through the actual tool-call interface; do not print tool-call, DSML or XML syntax.' }],
+            source: { kind: 'user' },
+          }))
+          continue
+        }
         signal.throwIfAborted()
         if (this.turnGraph !== undefined) {
           // A step is a graph node, but a node is not failed by every tool error:
@@ -586,7 +607,10 @@ export class ReactLoopAgent implements Agent {
           const stepCompleted = turnEnds === null || turnEnds.kind === 'completed' || turnEnds.kind === 'max-tokens'
           const allToolsFailed = stepTools.length > 0 && stepTools.every(tool => tool.isError)
           const noToolAfterFailure = stepTools.length === 0 && stepFailedTool !== undefined
-          const ok = stepCompleted && !allToolsFailed && !noToolAfterFailure
+          // A read-before-write node is advisory: a missing input file must not
+          // fail the turn and trigger a recovery plan; the mutation node follows.
+          const optional = this.turnGraph.current()?.optional === true
+          const ok = optional ? stepCompleted : stepCompleted && !allToolsFailed && !noToolAfterFailure
           await this.turnGraph.advance({
             ok,
             ...(stepFailedTool === undefined ? {} : { failedTool: stepFailedTool }),

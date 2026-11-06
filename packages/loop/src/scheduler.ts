@@ -103,6 +103,12 @@ export interface GraphTurnDriverOptions {
   readonly adoptPolicy?: AdoptPolicy
   /** Kernel engine for plans the kernel can route; `off` keeps the frontier. */
   readonly kernel?: 'langgraph' | 'minimal' | 'off'
+  /**
+   * Tool admission for a step. `plan` (default) narrows to the plan universe and
+   * the safe floor; `preset` keeps the full preset tool set, which benchmark
+   * harnesses need when their tools are not named in the synthesized plan.
+   */
+  readonly toolPolicy?: 'plan' | 'preset'
   readonly graph?: RegistryGraph
   readonly templates?: TemplateLibrary
   readonly graphProvider?: () => RegistryGraph | undefined | Promise<RegistryGraph | undefined>
@@ -319,6 +325,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       return topology?.current()?.instruction
     },
     toolUniverse(): readonly string[] | undefined {
+      if ((options.toolPolicy ?? 'plan') === 'preset') return undefined
       return topology?.snapshot().toolUniverse ?? plan?.toolUniverse
     },
     async advance(outcome: {

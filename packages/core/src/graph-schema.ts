@@ -345,6 +345,8 @@ export interface PlanNode {
   readonly instruction?: string
   /** Soft allowlist enforced by a tools guard; hardGate=true also removes schemas. */
   readonly toolAllow?: readonly string[]
+  /** Advisory node: a failed tool does not fail the step (e.g. read-before-write). */
+  readonly optional?: boolean
   /** Hard gating removes schemas from the request: see design/replan.ts gate policy. */
   readonly hardGate?: boolean
   /**
@@ -1040,6 +1042,7 @@ export const TASK_PLAN_JSON_SCHEMA = {
           capabilityId: { type: 'string' },
           instruction: { type: 'string' },
           toolAllow: { type: 'array', items: { type: 'string' } },
+          optional: { type: 'boolean' },
           hardGate: { type: 'boolean' },
           validate: { type: 'string' },
           idempotency: { enum: ['idempotent', 'verify-before-retry', 'manual'] },

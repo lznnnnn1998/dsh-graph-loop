@@ -38,11 +38,20 @@ test('dynamic synthesis builds an arbitrary DAG for an investigation', () => {
   assert.ok(plan.edges.length >= plan.nodes.length - 1)
 })
 
+test('merge-into tasks are mutating and get a mutation node', () => {
+  const fp = fingerprint('Read a.txt, b.txt, and c.txt. Merge all lines into merged.txt, sorted alphabetically, with duplicates removed.')
+  assert.equal(fp.mutating, true)
+  assert.ok(fp.artifactsOut.includes('file.patch'))
+  const { plan } = synthesizeTopology({ taskHash: fp.hash, fingerprint: fp, graph: snapshot.graph, presetTools })
+  assert.ok(plan.nodes.some(node => node.id === 'd_edit'))
+})
+
 test('mutating tasks synthesize inspect → edit → verify', () => {
   const fp = fingerprint('fix the failing test in the loader')
   const { plan } = synthesizeTopology({ taskHash: fp.hash, fingerprint: fp, graph: snapshot.graph, presetTools })
   const ids = plan.nodes.map(node => node.id)
   assert.ok(ids.includes('d_read'))
+  assert.equal(plan.nodes.find(node => node.id === 'd_read')?.optional, true)
   assert.ok(ids.includes('d_edit'))
   assert.ok(ids.includes('d_verify'))
 })
