@@ -1,4 +1,8 @@
 /**
+ * @deprecated 0.1.x legacy. The 0.2 composition layer synthesizes plans from
+ * capability facts in `compose.ts`; these tool-name templates are kept only for
+ * the frozen graph driver.
+ *
  * templates.ts — the shipped template library for the `explore` preset.
  *
  * A template is the routing menu entry: it declares which task classes it

@@ -1,4 +1,8 @@
 /**
+ * @deprecated 0.1.x legacy. The 0.2 composition layer synthesizes plans from
+ * capability facts in `compose.ts`; this module hardcodes DSH tool names and is
+ * kept only for the frozen graph driver.
+ *
  * Dynamic topology: the run graph is *discovered*, not selected from a fixed
  * template library.
  *
@@ -62,6 +66,14 @@ const DEFAULT_BUDGET: TopologyBudget = {
   maxReplans: 2,
 }
 
+/**
+ * Tools kept in every synthesized plan even when no node names them. Models
+ * routinely reach for a list/inspect/create/verify tool before the stage's tool;
+ * hiding it turns an ordinary first attempt into a failed node. The floor is
+ * small and only contains tools available in the preset.
+ */
+const SAFE_TOOL_FLOOR = ['read', 'glob', 'grep', 'write', 'edit', 'bash', 'present'] as const
+
 function budgetOf(partial: Partial<TopologyBudget> | undefined): TopologyBudget {
   return { ...DEFAULT_BUDGET, ...partial }
 }
@@ -107,14 +119,14 @@ function toolInstruction(name: string, slot: string): string {
   }
 }
 
-function node(id: string, tool: string, instruction: string, model?: PlanNode['model']): PlanNode {
+function node(id: string, tool: string, instruction: string, model?: PlanNode['model'], extraTools: readonly string[] = []): PlanNode {
   return {
     id,
     kind: 'tool-call',
     executor: 'step',
     capabilityId: `tool:${tool}`,
     instruction,
-    toolAllow: [tool],
+    toolAllow: [...new Set([tool, ...extraTools])],
     ...(model === undefined ? {} : { model }),
   }
 }
@@ -137,22 +149,30 @@ export function synthesizeTopology(input: SynthesizeInput): SynthesizedTopology 
   const wantsWeb = fingerprint.intent === 'research' || fingerprint.intent === 'wide-research' || fingerprint.intent === 'fact-finding'
   const mutating = fingerprint.mutating || fingerprint.intent === 'bug-fix' || fingerprint.intent === 'code-change' || fingerprint.intent === 'test-failure'
 
-  // Front: entry node (the only synthetic node besides the answer).
+  // Research fan-out keeps a planning entry; file/coding tasks start with work
+  // so the graph does not pay one full model step just to restate the task.
+  const needsEntry = wantsWeb
   const entry: PlanNode = {
     id: 'd_entry',
     kind: 'agent-step',
     executor: 'step',
     instruction: 'Restate the task in one sentence and name the artifact you will deliver. Then continue.',
   }
-  nodes.push(entry)
-  let cursor = entry.id
+  let cursor: string | undefined
+  if (needsEntry) {
+    nodes.push(entry)
+    cursor = entry.id
+  }
+  const connect = (to: string): void => {
+    if (cursor !== undefined) link(cursor, to)
+    cursor = to
+  }
 
   const discoveryTool = firstAvailable(graph, presetTools, ['grep', 'glob'])
   if (!mutating && !wantsWeb && discoveryTool !== undefined) {
     const id = `d_${discoveryTool}`
     nodes.push(node(id, discoveryTool, toolInstruction(discoveryTool, 'discover')))
-    link(cursor, id)
-    cursor = id
+    connect(id)
     rationale.push(`discovery via ${discoveryTool} (intent ${fingerprint.intent})`)
   }
 
@@ -161,24 +181,25 @@ export function synthesizeTopology(input: SynthesizeInput): SynthesizedTopology 
     if (reader !== undefined) {
       const id = 'd_read'
       nodes.push(node(id, reader, toolInstruction(reader, 'inspect')))
-      link(cursor, id)
-      cursor = id
+      connect(id)
       rationale.push('inspect before mutating (read-before-write)')
     }
+    const mutationTools = ['write', 'edit', 'str_replace_editor'].filter(name => presetTools.includes(name))
     const editor = firstAvailable(graph, presetTools, ['edit', 'write', 'str_replace_editor'])
     if (editor !== undefined) {
       const id = 'd_edit'
-      nodes.push(node(id, editor, toolInstruction(editor, 'act')))
-      link(cursor, id)
-      cursor = id
+      const instruction = mutationTools.length > 1
+        ? 'apply: create a new artifact with `write`, or modify an existing one with `edit`/`str_replace_editor`; keep the change minimal and explain it.'
+        : toolInstruction(editor, 'apply')
+      nodes.push(node(id, editor, instruction, undefined, mutationTools))
+      connect(id)
       rationale.push(`mutation via ${editor}`)
     }
     const verifier = firstAvailable(graph, presetTools, ['bash', 'pwsh'])
     if (verifier !== undefined) {
       const id = 'd_verify'
       nodes.push(node(id, verifier, toolInstruction(verifier, 'verify')))
-      link(cursor, id)
-      cursor = id
+      connect(id)
       rationale.push(`verification via ${verifier}`)
     }
   } else if (wantsWeb) {
@@ -190,19 +211,19 @@ export function synthesizeTopology(input: SynthesizeInput): SynthesizedTopology 
     if (!allowSubagents) {
       const searchId = 'd_search'
       nodes.push(node(searchId, search ?? firstAvailable(graph, presetTools, ['read']) ?? 'read', toolInstruction(search ?? 'read', 'research')))
-      link(cursor, searchId)
+      link(nodes[0]!.id, searchId)
       link(searchId, answerId)
       rationale.push('research in one context (child agent: no nested fan-out)')
       nodes.push({ id: answerId, kind: 'terminal', executor: 'step', instruction: 'Answer with the evidence gathered above.', toolAllow: [] })
-      return finish(input, nodes, edges, entry.id, [answerId], budget, rationale, 'dynamic')
+      return finish(input, nodes, edges, nodes[0]!.id, [answerId], budget, rationale, 'dynamic')
     }
     if (search !== undefined && fetch !== undefined) {
       const searchId = 'd_search'
       const fetchId = 'd_fetch'
       nodes.push({ ...node(searchId, search, toolInstruction(search, 'research')), executor: 'subagent' })
       nodes.push({ ...node(fetchId, fetch, toolInstruction(fetch, 'research')), executor: 'subagent' })
-      link(cursor, searchId)
-      link(cursor, fetchId)
+      link(nodes[0]!.id, searchId)
+      link(nodes[0]!.id, fetchId)
       rationale.push('parallel research fan-out (search + fetch subagents)')
       link(searchId, answerId)
       link(fetchId, answerId)
@@ -213,8 +234,8 @@ export function synthesizeTopology(input: SynthesizeInput): SynthesizedTopology 
       const bId = 'd_research_b'
       nodes.push({ id: aId, kind: 'agent-step', executor: 'subagent', instruction: 'Investigate the first half of the research question. Report evidence with sources and uncertainty.' })
       nodes.push({ id: bId, kind: 'agent-step', executor: 'subagent', instruction: 'Investigate the second half of the research question. Report evidence with sources and uncertainty.' })
-      link(cursor, aId)
-      link(cursor, bId)
+      link(nodes[0]!.id, aId)
+      link(nodes[0]!.id, bId)
       rationale.push('parallel research fan-out (two investigator subagents)')
       link(aId, answerId)
       link(bId, answerId)
@@ -226,14 +247,13 @@ export function synthesizeTopology(input: SynthesizeInput): SynthesizedTopology 
       instruction: 'Synthesize the findings into the requested answer with citations; state uncertainty explicitly.',
       toolAllow: [],
     })
-    return finish(input, nodes, edges, entry.id, [answerId], budget, rationale, 'dynamic')
+    return finish(input, nodes, edges, nodes[0]!.id, [answerId], budget, rationale, 'dynamic')
   } else {
     const reader = firstAvailable(graph, presetTools, ['read', 'read_image'])
     if (reader !== undefined) {
       const id = 'd_read'
       nodes.push(node(id, reader, toolInstruction(reader, 'inspect')))
-      link(cursor, id)
-      cursor = id
+      connect(id)
       rationale.push(`inspection via ${reader}`)
     }
   }
@@ -246,9 +266,9 @@ export function synthesizeTopology(input: SynthesizeInput): SynthesizedTopology 
     instruction: 'Answer the task using the artifacts produced above. Cite evidence and state what was not verified.',
     toolAllow: [],
   })
-  link(cursor, answerId)
+  if (cursor !== undefined) link(cursor, answerId)
   rationale.push(`terminal answer after ${nodes.length - 1} capability nodes`)
-  return finish(input, nodes, edges, entry.id, [answerId], budget, rationale, 'dynamic')
+  return finish(input, nodes, edges, nodes[0]!.id, [answerId], budget, rationale, 'dynamic')
 }
 
 function finish(
@@ -270,7 +290,10 @@ function finish(
     nodes,
     edges,
     budget,
-    toolUniverse: [...new Set(nodes.flatMap(node => node.toolAllow ?? []))],
+    toolUniverse: [...new Set([
+      ...nodes.flatMap(node => node.toolAllow ?? []),
+      ...SAFE_TOOL_FLOOR.filter(name => input.presetTools.includes(name)),
+    ])],
     gatePolicy: 'cold',
     fallback: false,
     confidence: 0.5,

@@ -31,11 +31,11 @@ test('a code question routes to t_investigate and walks its nodes', async () => 
   const started = await driver.beginTurn({ text: 'explain how the config loader works' })
   assert.equal(started.templateId, 't_investigate')
   assert.equal(driver.current()?.id, 'n_discover')
-  driver.advance({ ok: true })
+  await driver.advance({ ok: true })
   assert.equal(driver.current()?.id, 'n_inspect')
-  driver.advance({ ok: true })
+  await driver.advance({ ok: true })
   assert.equal(driver.current()?.id, 'n_done')
-  driver.advance({ ok: true })
+  await driver.advance({ ok: true })
   assert.equal(driver.done(), true)
   assert.deepEqual(driver.snapshot().visited, ['n_discover', 'n_inspect', 'n_done'])
 })
@@ -45,7 +45,7 @@ test('without a registry the driver falls back to a single stock node', async ()
   const started = await driver.beginTurn({ text: 'hello' })
   assert.equal(started.fallback, true)
   assert.equal(driver.current()?.id, 'node:respond')
-  driver.advance({ ok: true })
+  await driver.advance({ ok: true })
   assert.equal(driver.done(), true)
 })
 
@@ -60,7 +60,7 @@ test('dynamic mode synthesizes a topology from the capability graph', async () =
   let steps = 0
   while (!driver.done() && steps < 10) {
     driver.current()
-    driver.advance({ ok: true })
+    await driver.advance({ ok: true })
     steps += 1
   }
   assert.ok(steps >= 2)
@@ -93,7 +93,7 @@ test('propose mode starts from a frame and adopts a model-authored topology at t
     edges: [{ from: 'p1', to: 'p2', kind: 'control' }],
     compiledDigest: 'proposed:test',
   }
-  driver.advance({ ok: true })
+  await driver.advance({ ok: true })
   assert.equal(driver.current()?.id, 'p1')
   assert.ok(driver.snapshot().rationale.some(line => line.includes('adopted')))
 })
@@ -105,10 +105,10 @@ test('a failed work node triggers a boundary recovery plan', async () => {
   })
   const started = await driver.beginTurn({ text: 'fix the failing test in the loader' })
   assert.equal(started.templateId, 'dynamic')
-  assert.equal(driver.current()?.id, 'd_entry')
-  driver.advance({ ok: true })
+  assert.equal(driver.current()?.id, 'd_read')
+  await driver.advance({ ok: true })
   // Fail the next work node; the scheduler must install a recovery topology.
-  driver.advance({ ok: false, failedTool: 'bash' })
+  await driver.advance({ ok: false, failedTool: 'bash' })
   const snapshot = driver.snapshot()
   assert.equal(snapshot.replans, 1)
   assert.equal(driver.current()?.id, 'r_diagnose')

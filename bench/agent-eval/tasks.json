@@ -1,0 +1,32 @@
+[
+  {
+    "id": "read-summary",
+    "prompt": "Read notes.md. Write the sentence that starts with KEY: into summary.txt, exactly as it appears.",
+    "check": "test -f summary.txt && grep -q 'KEY: the parser handles empty input.' summary.txt"
+  },
+  {
+    "id": "edit-config",
+    "prompt": "In config.json, change the port from 8080 to 9090. Keep the rest of the file unchanged.",
+    "check": "python3 -c \"import json; d=json.load(open('config.json')); assert d['port']==9090; assert d['host']=='localhost'\""
+  },
+  {
+    "id": "fix-test",
+    "prompt": "Run `node test.js`. It fails because math.js is wrong. Fix math.js so the test passes.",
+    "check": "node test.js"
+  },
+  {
+    "id": "search-file",
+    "prompt": "One of the .txt files contains the word 'needle'. Write the name of that file to answer.txt.",
+    "check": "test -f answer.txt && grep -q 'b.txt' answer.txt"
+  },
+  {
+    "id": "write-answer",
+    "prompt": "What is 17 * 23? Write only the number to answer.txt.",
+    "check": "test -f answer.txt && [ \"$(tr -d '[:space:]' < answer.txt)\" = '391' ]"
+  },
+  {
+    "id": "multi-step",
+    "prompt": "Read data.csv, sum the numbers in the value column, and write the total to sum.txt.",
+    "check": "test -f sum.txt && [ \"$(tr -d '[:space:]' < sum.txt)\" = '150' ]"
+  }
+]

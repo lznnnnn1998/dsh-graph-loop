@@ -37,7 +37,7 @@ import { canonicalHeader, headerEquals, ToolCallRecovery } from '@deepseek-ai/ds
 import { joinContextSections, renderContextSections, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import { ToolActivationError, ToolBatchExecutionError } from '@deepseek-ai/dsh-tools'
-import type { ResolvedToolSet } from '@deepseek-ai/dsh-tools'
+import type { ResolvedToolSet, ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { Context } from '@deepseek-ai/cordis'
 import { ReactLoopInbox } from './inbox.ts'
 import { RuntimeContextProjection } from './runtime-context.ts'
@@ -61,6 +61,8 @@ interface PlanNodeLike {
   readonly id: string
   readonly executor?: 'step' | 'subagent'
   readonly instruction?: string
+  /** Explicit per-node tools; `[]` means answer-only (no tools). */
+  readonly toolAllow?: readonly string[]
 }
 
 /** Minimal structural view of `ctx.subagents` used by parallel graph nodes. */
@@ -107,6 +109,32 @@ type PreparedStep =
     /** Admission shared by the step's declarations and dispatch; the turn disposes it after the step. */
     toolSet: ResolvedToolSet
   }
+
+/**
+ * Narrow the step's admitted tool set to the active node's tools.
+ *
+ * The plan already decided which capabilities are relevant; keeping the full
+ * schema surface in every request would charge the graph for tools it cannot
+ * use and would defeat the per-turn token win. A terminal node with an
+ * explicit empty `toolAllow` is answer-only: the empty map is intentional, not
+ * a resolution failure. If a non-empty universe resolves to no visible tool
+ * (a stale plan, a missing plugin), fall back to the full set rather than
+ * starting a turn with no tools at all.
+ */
+function restrictToolSet(base: ResolvedToolSet, allowed: ReadonlySet<string>, allowEmpty = false): ResolvedToolSet {
+  return {
+    dispose: () => base.dispose(),
+    view: (scope) => {
+      const visible = base.view(scope)
+      const filtered = new Map<string, ToolDefinition>()
+      for (const [name, definition] of visible) {
+        if (allowed.has(name)) filtered.set(name, definition)
+      }
+      if (filtered.size > 0) return filtered
+      return allowEmpty ? filtered : visible
+    },
+  }
+}
 
 /** Remove adapter-derived values before plugins propose the next request config. */
 function requestProposal(header: EpochHeader): LlmCallConfig {
@@ -230,9 +258,9 @@ export class ReactLoopAgent implements Agent {
           content: [{ type: 'text', text: `[subagent ${node.id}] (${String(result.stopReason)}) ${text === '' ? '(no output)' : text}` }],
           source: { kind: 'user' },
         }))
-        this.turnGraph?.completeNode(node.id, result.stopReason === undefined || result.stopReason === 'completed')
+        await this.turnGraph?.completeNode(node.id, result.stopReason === undefined || result.stopReason === 'completed')
       } catch {
-        this.turnGraph?.completeNode(node.id, false)
+        await this.turnGraph?.completeNode(node.id, false)
       } finally {
         await activation?.dispose().catch(() => undefined)
       }
@@ -391,8 +419,23 @@ export class ReactLoopAgent implements Agent {
       throw new Error(`agent "${this.id}" has no provider/model: set AgentOptions.provider and AgentOptions.model or record a model selection`)
     }
     const toolSet = await this.loopCtx.tools.resolve({ agent: this, modelSelection: selection, signal })
+    const nodeToolAllow = node?.toolAllow
+    const universe = this.turnGraph?.toolUniverse?.()
+    // Per-node tools matter for one case: a terminal `toolAllow: []` is an
+    // answer-only node. Every other node uses the plan universe, which already
+    // contains the safe tool floor — narrowing a step to only `edit`/`write`
+    // can leave nothing but deferred tools, which the provider rejects.
+    const answerOnly = nodeToolAllow !== undefined && nodeToolAllow.length === 0
+    const allowed = answerOnly
+      ? new Set<string>()
+      : universe !== undefined && universe.length > 0
+        ? new Set(universe)
+        : undefined
+    const admittedToolSet = allowed !== undefined
+      ? restrictToolSet(toolSet, allowed, answerOnly)
+      : toolSet
     try {
-      const assembly = await this.loopCtx.systemPrompt.assemble({ ...assembleContextFor(this, signal), modelSelection: selection, toolSet })
+      const assembly = await this.loopCtx.systemPrompt.assemble({ ...assembleContextFor(this, signal), modelSelection: selection, toolSet: admittedToolSet })
       signal.throwIfAborted()
       const decision = await this.dispatch.waterfall(
         'agent/pre-step', { messages: admitted, ...position, signal, modelSelection: selection },
@@ -407,12 +450,12 @@ export class ReactLoopAgent implements Agent {
       )
       signal.throwIfAborted()
       if (decision.kind === 'reject') {
-        toolSet.dispose()
+        admittedToolSet.dispose()
         return decision
       }
-      return { ...decision, assembly, selection, toolSet }
+      return { ...decision, assembly, selection, toolSet: admittedToolSet }
     } catch (error: unknown) {
-      toolSet.dispose()
+      admittedToolSet.dispose()
       throw error
     }
   }
@@ -536,9 +579,15 @@ export class ReactLoopAgent implements Agent {
         }
         signal.throwIfAborted()
         if (this.turnGraph !== undefined) {
-          const ok = (turnEnds === null || turnEnds.kind === 'completed' || turnEnds.kind === 'max-tokens')
-            && stepFailedTool === undefined
-          this.turnGraph.advance({
+          // A step is a graph node, but a node is not failed by every tool error:
+          // the model routinely tries an unavailable tool and then succeeds with
+          // another one in the same step. Fail the node only when the step did not
+          // complete, or when every tool it called failed.
+          const stepCompleted = turnEnds === null || turnEnds.kind === 'completed' || turnEnds.kind === 'max-tokens'
+          const allToolsFailed = stepTools.length > 0 && stepTools.every(tool => tool.isError)
+          const noToolAfterFailure = stepTools.length === 0 && stepFailedTool !== undefined
+          const ok = stepCompleted && !allToolsFailed && !noToolAfterFailure
+          await this.turnGraph.advance({
             ok,
             ...(stepFailedTool === undefined ? {} : { failedTool: stepFailedTool }),
             tools: stepTools,
@@ -546,6 +595,10 @@ export class ReactLoopAgent implements Agent {
         }
         if (this.turnGraph !== undefined) {
           if (this.turnGraph.done()) {
+            // A finished graph owns the turn end. If its terminal node ended on a
+            // tool call rather than free text, the step result is null; the turn
+            // still completed successfully, so do not log a null reason.
+            if (turnEnds === null) turnEnds = { kind: 'completed' }
             await this.dispatch.serial('agent/turn-stopping', { turn, signal })
             signal.throwIfAborted()
             break

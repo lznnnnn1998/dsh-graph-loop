@@ -1,4 +1,7 @@
 export * from './graph-schema.ts'
+export * from './checkpoint.ts'
+export * from './compose.ts'
+export * from './envelope.ts'
 export * from './matching.ts'
 export * from './replan.ts'
 export * from './runtime.ts'

@@ -45,11 +45,16 @@ export type KernelKind = 'minimal' | 'langgraph'
 /**
  * Create a kernel by kind.
  *
- * `deps` may be omitted: the minimal kernel then walks the plan topology with
- * no-op node bodies (useful for tests and the `graph_status` tool). Pass
- * `executors` (or `nodes`) to make nodes do work.
+ * LangGraph is the **default**: it supplies Pregel supersteps, typed channels,
+ * checkpoints, Send/Command and subgraph primitives. `createLangGraphKernel`
+ * degrades transparently to the minimal kernel when the optional dependency is
+ * absent, so the plugin still boots in a lean install.
+ *
+ * `deps` may be omitted: the kernel then walks the plan topology with no-op node
+ * bodies (useful for tests and the `graph_status` tool). Pass `executors` (or
+ * `nodes`) to make nodes do work.
  */
-export function createKernel(kind: KernelKind = 'minimal', deps?: KernelDeps): KernelPort {
+export function createKernel(kind: KernelKind = 'langgraph', deps?: KernelDeps): KernelPort {
   if (kind === 'langgraph') return createLangGraphKernel(deps)
   return createMinimalKernel(deps)
 }
@@ -82,7 +87,7 @@ export async function runPlan(
   options?: RunPlanOptions,
 ): Promise<PlanRunResult> {
   const { state, taskHash, kind, executors: explicitExecutors, ...deps } = options ?? {}
-  const kernel = createKernel(kind ?? 'minimal', {
+  const kernel = createKernel(kind ?? 'langgraph', {
     ...deps,
     executors: explicitExecutors ?? executors,
   })

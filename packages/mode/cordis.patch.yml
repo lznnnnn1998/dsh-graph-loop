@@ -123,3 +123,12 @@
             name: 'dsh-graph-loop-mode/policy'
           - id: explore-tools
             name: 'dsh-graph-loop-mode/tools'
+
+# Make Explore the profile's default MODE for new sessions. This is the preset
+# registry row from the Web bundle; replacing its config sets `default` to the
+# mode id. A user's explicit mode selection (`selectedDefault`, volatile) still
+# wins, so an existing user choice is not overwritten.
+- id: agent-preset-registry
+  name: '@deepseek-ai/dsh-agent-preset-registry'
+  config:
+    default: explore

@@ -1,164 +1,86 @@
-# Build progress — DSH `explore` graph loop
+# Build progress — DSH composition layer
 
-Local working repo. Nothing here edits the DSH checkout; the driver is loaded through
-`--patch` (dev) or installed as a bundle (release).
+Local working repo. Nothing here edits the DSH checkout.
 
-## Working today (verified by running)
+## Direction reset (2026-11-06)
 
-- [x] npm workspace + TS toolchain + DSH package symlinks (`scripts/link-dsh.sh`)
-- [x] Core: graph schema / matcher / replan / kernel interface / conformance contracts
-- [x] Core: deterministic registry builder (`packages/core/src/registry.ts`, impl-core)
-- [x] Core: 6-template library incl. `t_stock` fallback (`packages/core/src/templates.ts`)
-- [x] Core: step-graph executor + tests (`packages/core/src/step-graph.ts`)
-- [x] Forked `agent-loop` (2,122 LOC) with a graph turn-driver seam
-- [x] Registry row: live capability graph from `ctx.tools`, rebuild on `tools/change`
-- [x] Router row: wires the template library into the driver
-- [x] Driver row: per-turn match → plan → one graph node per DSH step
-- [x] `graph_status` tool row
-- [x] Bundle A (`packages/mode`): `explore` preset + policy section + roster context +
-      `suggest_executor` + `spawn_teammate` duplicate guard (13 tests)
-- [x] Bundle B (`packages/loop`): disables `agent-loop`, inserts the graph driver
-- [x] Release build: esbuild → `packages/*/lib/*.js` (core bundled, DSH packages external)
-- [x] **E2E dev overlay**: headless profile + mock LLM → 3 graph nodes
-      (`n_discover → n_inspect → n_done`), `turn/end completed`
-- [x] **E2E installed bundle**: profile created from the headless template, `dsh plugin add
-      packages/loop`, same task → 3 graph steps, exit 0
-- [x] 62 pure unit tests green
-- [x] Composition evidence: `--dump-config` shows stock row disabled + graph rows inserted
-      (installed profile), and `preset-explore` present with bundle A
+0.2 is the **composition layer**, not a fork-first graph loop. The decision record and v0.2 contract
+are in [`docs/COMPOSITION.md`](docs/COMPOSITION.md). Summary:
 
-## Just landed (packaging + cross-loop + structural A/B)
-- [x] **One-command install**: `scripts/install-explore.sh` installs the driver bundle + the Graph-tab
-      bundle and verifies the composed rows. `graph-ui` is now its own bundle layer.
-- [x] **Cross-loop resume e2e**: stock→graph and graph→stock both pass; event invariants hold on the
-      resulting logs (`scripts/e2e-cross-loop.sh`).
-- [x] **Stronger conformance**: turn/step numbering must be contiguous, in addition to pairing and
-      tool-call/result checks.
-- [x] **Structural A/B harness**: `scripts/ab-structural.sh` + `docs/AB-STRUCTURAL.md`. Mock route now;
-      `AB_REAL=1` runs the same tasks against the real model. First data: graph adds steps/bytes on
-      non-trivial tasks, wins on trivial ones (triage).
-- [x] Split dev patches: `dev-headless.patch.yml` (no Web rows) vs `dev.patch.yml` (Web rows), so
-      headless runs no longer warn about the pending `webServer` row.
+- one graph per turn; harness-owned executors (`step` / `tool-batch` / `subagent` / `context`);
+- per-turn capability envelope; tools stable inside the turn, prompt/memory vary per node;
+- authoritative checkpoints in `storageDomain`; the session log stays the conversation record;
+- control plane over the stock loop first; fork only if 2+ triggers fire;
+- evaluation: OfficeBench 5-task single-app probe across three arms, then a public head-to-head
+  report; no 1.0 gate; the probe is the first hard decision point;
+- craft-first demo removed as the proof of value; crafts remain genericity fixtures;
+- `packages/loop` is the **active graph driver** (a source fork, tracked as maintenance debt); `packages/mode` (Explore) is the active mode and installed by default for new sessions.
 
-## Previously landed (usability + reliability pass)
-- [x] **Graph tab node inspector**: click a node → instruction + its tool calls (name, ok/error) +
-      `open in trajectory` buttons using the conversation view's `openView('trajectory', callId)`.
-- [x] **Conformance invariants**: `scripts/e2e-conformance.sh` runs the same task through stock and
-      graph loops and checks turn/step pairing, tool call→result pairing, assistant-without-header,
-      and open-turn/step leftovers on both logs (`scripts/conformance-diff.mjs`). Both pass.
-- [x] Synthesis no longer adds a spurious write node for "summarize a document" tasks.
-- [x] Graph tab e2e drives a node click and asserts the tool-call inspector; screenshot refreshed.
+The 0.1.x build history is archived in [`docs/archive/PROGRESS-0.1.md`](docs/archive/PROGRESS-0.1.md).
 
-## Previously landed (reflection + live Graph tab)
-- [x] `docs/RETROSPECTIVE.md`: honest list of regressions, keepers, and potentially disruptive ideas.
-- [x] Graph tab now uses **SSE** (`/graph-chat/api/events`) with polling fallback; live snapshots carry
-      plan + trail + replans, so a running turn renders before it closes.
-- [x] **Triage**: trivial tasks (<32 chars, no artifacts) stay a single step instead of paying for a graph.
-- [x] **Child agents** force the single-node fallback, so subagent children no longer recurse into
-      dynamic topology (previous failure mode).
-- [x] 73 unit tests; Graph-tab e2e still passes.
+## Value and end state (2026-11-06)
 
-## Previously landed (Graph tab in the existing Web chat)
-- [x] **Graph is now a conversation-view tab** registered through `ctx.slots` `conversation.view`
-      (order 5, between Chat and Trajectory). The whole existing chat shell is reused: composer,
-      model selector, voice input, mode chip, agent-team/subagent list, trajectory, sidebar.
-- [x] Client half lives in its own package `dsh-graph-loop-ui` (client-modules requires one
-      active Loader entry per client package; putting it in the driver package collided with the
-      driver's subpath rows).
-- [x] E2E drives the real UI with Puppeteer: dismisses the preview notice, types a message,
-      verifies `Chat,Trajectory,Graph`, clicks Graph, screenshots `preview/graph-tab-live.png`.
-- [x] Standalone `/graph-chat` page remains for API/headless/dev use.
+- **Value:** a DSH-native, tool-agnostic plugin that is measurably better than the official default
+  experience on a public benchmark, and that external users install, use and extend.
+- **Personal value:** community contribution; not a business, résumé piece or general framework.
+- **End state:** product + evidence, third-party template ecosystem, sustainable OSS. No 1.0 gate.
+- **Hedge if the claim fails:** Graph tab (observability) + reusable composition contract.
+- **Non-goals:** general agent framework, craft/domain toolset, fork-first loop, research project.
+- Full protocol: [`docs/EVALUATION.md`](docs/EVALUATION.md).
 
-## Previously landed (graph-chat page)
-- [x] Live `graph-chat` page at `/graph-chat` served by a host plugin: chat on the left, the current
-      turn's topology on the right, polling the graph runtime every 1.2s. New chat + send message APIs.
-- [x] `POST /api/new` binds the `standard` preset so preset-scoped tools are visible (the host view
-      only had 3 globals; the fix uses `ctx.agentPresets.select` + agent-scoped tool resolution).
-- [x] `POST /api/send` goes through `agent.followup()`, the same path as the Web input.
-- [x] E2E: `scripts/e2e-graph-chat.sh` starts a real Web host + mock LLM, sends a message over HTTP,
-      asserts a 4-node dynamic topology, and captures `preview/graph-chat-live.png` with headless Chrome.
-- [x] Offline preview remains for arbitrary trace dirs (`scripts/preview.mjs`).
+## 0.2 milestones
 
-## Previously landed (parallel subagents, boundary replan, preview)
-- [x] Graph nodes can be `subagent` executions: a batch of ready subagent nodes runs concurrently via
-      `ctx.subagents.startActivation({delivery:'caller'})`, results are injected as `[subagent <node>]`
-      context for the join node. Children do not fan out again (`delegationDepth > 0` disables nested
-      subagent synthesis). E2E: `scripts/e2e-subagents.sh` (2 parent steps, 2 children).
-- [x] Boundary replan: a failing verify tool (`bash`/`pwsh` `tool/result` `isError`) marks the node failed;
-      a pre-declared `callFailed` edge is taken, otherwise a recovery subgraph
-      `r_diagnose → r_retry → r_answer` is installed (bounded by `maxReplans`).
-      E2E: `scripts/e2e-replan.sh` (6 steps, recovery nodes ran).
-- [x] Preview panel: `graph-runtime.traceDir` writes per-turn `{plan, trail, rationale, depth, replans}`;
-      `scripts/preview.mjs` renders `preview/index.html` (SVG topology + information flow + node inspector,
-      roots first, child turns labelled). Open the generated file directly.
-- [x] 73 unit tests + 10 e2e suites green
-- [x] `/tmp/dsh-compat` Vitest harness: 73/73 pass; official per-file 100% coverage gate **fails**
-      (global lines 47.47%, `loop/src/loop/*` 0%); reasons and next steps in `docs/DSH-COMPAT.md`.
-- [x] Published 0.1: `dsh-graph-loop@0.1.2`, `dsh-graph-loop-ui@0.1.1`, `dsh-graph-loop-mode@0.1.1`;
-      registry install verified for headless and Web (Graph tab via Puppeteer).
-- [x] `publint` on all four packages (one stale export fixed); DSH built-in vitest harness sampled (44/44).
-- [x] Compliance audit (`docs/COMPLIANCE.md`): package READMEs, license, single-row Web surface,
-      locale-owned client copy, built `lib/client.js`, config fields for triage/max steps/trace limit,
-      fail-loud asset/body handling, plugin-level unknown casts removed.
-- [x] `docs/TOPOLOGY-OPTIMALITY.md`: explicit statement that the per-turn graph is heuristic, not
-      guaranteed optimal; lists what a real optimizer would need.
-
-## Previously landed (dynamic topology)
-- [x] `synthesizeTopology`: arbitrary DAG from the capability graph (no template): discovery,
-      inspect→edit→verify, parallel research fan-out, terminal answer (`packages/core/src/topology.ts`)
-- [x] `FrontierTopology`: frontier executor with runtime `addNode/removeNode/addEdge`, bounded cycles,
-      conditional/failure edges
-- [x] `graph_plan` tool + proposal validator: the model authors any node/edge topology; the harness
-      validates against the registry/budget and the driver adopts it (`proposal.ts`, `tools.ts`)
-- [x] Three topology modes `template | dynamic | propose` + `adoptPolicy` (default `start-only`,
-      i.e. topology is fixed once real work starts)
-- [x] E2E: dynamic synthesis (4 nodes) and **model-authored topology** (model called `graph_plan`,
-      harness adopted `p1→p2`, both nodes ran)
-- [x] Design rationale: `docs/DYNAMIC-TOPOLOGY.md`
-
-## Previously landed
-
-- [x] Kernel: minimal stepwise + LangGraph 1.7 adapter behind `KernelPort`
-      (`packages/loop/src/kernel/`), 26 tests incl. one-node-per-`next()` semantics,
-      JSON checkpoint guard, budget mapping, fallback when LangGraph is absent
-- [x] `lib/kernel.js` built and exported
-
-## Not wired yet
-
-- [ ] `graph_run` tool using `runPlan` (kernel is implemented and tested, the tool is not)
-- [ ] Subagent-node plans + replan execution
-
-## Not implemented yet (known gaps)
-
-- Node `toolAllow` is soft (instruction only); the tool schemas are not gated per node.
-  This is deliberate for v1 because per-step hard gating loses on KV-cache (research/04).
-- Node instructions are injected as a logged user message (one per step). A later
-  iteration should use a scoped prompt section to avoid history growth.
-- Subagent nodes + replan are designed but not wired into the driver.
-- No conformance replay-diff suite yet (16 obligations are documented in
-  `packages/core/src/conformance.ts`; tests for them are pending).
-- Cross-loop session resume (stock → graph) is not tested.
-- The `graph_run` tool (run a full plan inside one tool call) is not implemented.
-
-## Commands
-
-```sh
-bash scripts/link-dsh.sh                    # after any npm install
-npm run typecheck                           # NODE_OPTIONS=8GB + tsc
-npm test                                    # 62 unit tests
-npm run e2e                                 # dev overlay + mock LLM
-bash scripts/e2e-installed.sh               # installed bundle + mock LLM
-node scripts/build-bundles.mjs              # rebuild lib/
-```
-
-## Reproduce the composition
-
-```sh
-cd /path/to/deepseek-harness
-DSH_HOME=/tmp/dsh-explore node --import tsx/esm apps/cli/src/bin.ts \
-  --profile explore --from-default-profile headless --dump-config
-DSH_HOME=/tmp/dsh-explore node --import tsx/esm apps/cli/src/bin.ts \
-  plugin --profile explore add /path/to/dsh-graph-loop/packages/loop
-DSH_HOME=/tmp/dsh-explore node --import tsx/esm apps/cli/src/bin.ts \
-  --profile explore --dump-config | grep -A3 'graph-loop'
-```
+- [x] **M0 — direction reset**: decision record + contract (`docs/COMPOSITION.md`); README/PROGRESS
+      updated; the driver kept as the active graph loop; `packages/mode` kept as the active Explore mode.
+- [x] **M1 — capability envelope**: role vocabulary + deterministic resolution + task-driven
+      selection (`packages/core/src/envelope.ts`), 20 unit tests. Conditional/dynamic tools are
+      excluded by default; template roles bind by explicit `implementations`.
+- [x] **M1b — tool-agnostic participation**: the default role vocabulary contains no product or
+      craft name. Any tool becomes routable through data annotations (`applyAnnotations`), artifact
+      roles (`produces:<type>`), template implementations, task hints, or the preset baseline;
+      unannotated tools are never silently dropped when one of those paths applies.
+- [x] **M1c — capability-driven synthesis**: `packages/core/src/compose.ts` builds plans from stages
+      (`discover → inspect → mutate → author → verify → deliver`) and artifact contracts only, never
+      tool names. Craft-like, MCP-only and annotation-only registries compose; an empty envelope
+      degrades to a single generic step instead of dropping the task. 5 unit tests; 0.1.x
+      `topology.ts` / `templates.ts` marked legacy.
+- [x] **M2 — checkpoint contract**: `GraphCheckpoint` / `CheckpointStore` / `TableCheckpointStore`
+      (storageDomain-shaped) / `InMemoryCheckpointStore` (`packages/core/src/checkpoint.ts`),
+      10 unit tests. JSON guard, 64 KiB cap, stable keys, deterministic latest, prune by turn.
+- [x] **Verification**: 108 unit tests green; `npm run typecheck` clean.
+- [x] **M3a — measurable graph runtime (installable bundle)**: per-plan/per-node tool admission,
+      mutation detection, answer-only terminal nodes, safe tool floor, and a non-null turn end when
+      the graph finishes. Local real-model evaluation, 2 repetitions × 6 tasks: **12/12 success for
+      both arms**, median prompt **23,466 → 9,237 (−61%)**, median steps **4 = 4**, median wall
+      **14.9 s → 14.8 s** (parity). See [`bench/agent-eval/RESULTS.md`](bench/agent-eval/RESULTS.md).
+      The bundle builds and `scripts/e2e-installed.sh` passes; no DSH source is modified.
+- [x] **M3b — installed-profile real-model run**: `bench/agent-eval/prepare-installed.sh` creates a
+      throwaway stock `headless` profile and an `explore` profile with `dsh plugin add packages/loop`
+      (no `--patch`, no DSH source changes). 6/6 both arms; median steps **5 → 4**, median prompt
+      **26,733 → 9,267 (−65%)**, median wall 15.6 s → 17.9 s (noise-dominated). Raw rows:
+      [`bench/agent-eval/results/2026-11-07-installed.json`](bench/agent-eval/results/2026-11-07-installed.json).
+- [x] **M3c — default install + default mode + kernel default**: `scripts/install-explore.sh` now
+      defaults to the `web` profile, installs Graph-tab + driver + the **Explore mode**, creates a
+      custom profile from the web template when needed, and fails unless `graph-loop`/`graph-ui`/
+      `preset-explore` are present, the stock `agent-loop` row is `disabled: true`, and
+      `agent-preset-registry.default = explore`. The stock package stays installed because the base bundle depends on it.
+      `createKernel()`/`runPlan()` now default to `langgraph` with a transparent `MinimalKernel`
+      fallback.
+- [x] **M3d — kernel round-trip (kernel-drivable plans)**: the scheduler now uses `KernelTopology`
+      (LangGraph `KernelPort`, pause-before-node bridge, one superstep per DSH step) for linear plans
+      with safe node ids and no subagent/conditional edges; other plans keep `FrontierTopology`.
+      Async driver interface; 3 new unit tests; 111 total tests. Live eval: **6/6 both arms**, median
+      prompt **23,516 → 9,128 (−61%)**, steps 4 = 4; wall time was noise-dominated (86–92 s stalls on
+      three graph runs). Kernel checkpoints are still in-memory.
+- [ ] **M3e — kernel coverage + durable checkpoint**: route conditional/failure edges and subagent
+      batches through the kernel, then replace `MemoryCheckpointer` with the `storageDomain` saver.
+- [ ] **M3 — control plane over the stock loop** (product path; the measured graph above is the
+      graph driver installed as a bundle): step nodes, late prompt section, node boundaries,
+      checkpoint writes, annotation/preset feed, conformance for ordinary chat.
+- [ ] **M4 — OfficeBench 5-task single-app probe** (three arms: default profile, controlled stock,
+      composition) + Graph tab data path. Tasks pinned in
+      [`bench/officebench/probe-tasks.json`](bench/officebench/probe-tasks.json); preflight
+      [`scripts/officebench-preflight.sh`](scripts/officebench-preflight.sh). Pass = all arms
+      complete and the evaluator scores all 5.
+- [ ] **M5 — full OfficeBench subset + public head-to-head report** + 0.2.0.
+- [ ] **Gate at M4:** continue / change benchmark / stop. No 1.0.

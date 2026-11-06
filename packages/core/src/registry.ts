@@ -97,6 +97,33 @@ export interface ToolSource {
   readonly tags?: readonly string[]
 }
 
+/**
+ * A data-only annotation for an arbitrary tool. This is how the composition
+ * layer stays generic: a third-party tool becomes routable by supplying tags,
+ * artifact contracts and permission facts here, without changing its code or
+ * the default role library. An annotation with neither `tool` nor `package`
+ * matches nothing and is reported as unmatched.
+ */
+export interface CapabilityAnnotation {
+  /** Exact model-facing tool name. */
+  readonly tool?: string
+  /** Exact package name (e.g. `@acme/widgets`). */
+  readonly package?: string
+  readonly tags?: readonly string[]
+  readonly accepts?: readonly ArtifactSpec[]
+  readonly produces?: readonly ArtifactSpec[]
+  readonly permission?: PermissionClass
+  readonly idempotent?: boolean
+  readonly description?: string
+  readonly schemaTokens?: number
+}
+
+export interface AnnotationResult {
+  readonly tools: readonly ToolSource[]
+  /** Annotations that matched no tool; the loader should report these loudly. */
+  readonly unmatched: readonly CapabilityAnnotation[]
+}
+
 /** One system-prompt section, modelled as a `surface` node. */
 export interface SectionSource {
   readonly id: string
@@ -1376,4 +1403,65 @@ export function buildRegistrySnapshot(
     throw new Error(`registry snapshot invariant violated: ${first ? `${first.code} ${first.path}: ${first.message}` : 'unknown error'}`)
   }
   return { version, digest, graph, warnings }
+}
+
+// ---------------------------------------------------------------------------
+// Data-only annotations for arbitrary tools
+// ---------------------------------------------------------------------------
+
+function annotationMatches(annotation: CapabilityAnnotation, tool: ToolSource): boolean {
+  if (annotation.tool === undefined && annotation.package === undefined) return false
+  if (annotation.tool !== undefined && annotation.tool !== tool.name) return false
+  if (annotation.package !== undefined && annotation.package !== tool.packageName) return false
+  return true
+}
+
+function mergeArtifacts(left: readonly ArtifactSpec[], right: readonly ArtifactSpec[]): ArtifactSpec[] {
+  const merged = new Map<string, ArtifactSpec>()
+  for (const spec of [...left, ...right]) {
+    merged.set(`${spec.type}|${spec.required}|${spec.contract ?? ''}`, spec)
+  }
+  return [...merged.values()]
+}
+
+/**
+ * Merge data-only annotations into the tool sources before a snapshot is built.
+ *
+ * The order is deterministic: every tool keeps its position, matching
+ * annotations are applied in input order (later scalar fields win), tags and
+ * artifact specs are unioned. Annotations are the generic extension point for
+ * tools the curated table does not know about — including MCP and third-party
+ * plugins — so the envelope vocabulary never needs a per-product branch.
+ */
+export function applyAnnotations(
+  tools: readonly ToolSource[],
+  annotations: readonly CapabilityAnnotation[],
+): AnnotationResult {
+  const resolved = tools.map((tool) => {
+    let merged = tool
+    for (const annotation of annotations) {
+      if (!annotationMatches(annotation, tool)) continue
+      merged = {
+        ...merged,
+        ...(annotation.description === undefined ? {} : { description: annotation.description }),
+        ...(annotation.permission === undefined ? {} : { permission: annotation.permission }),
+        ...(annotation.idempotent === undefined ? {} : { idempotent: annotation.idempotent }),
+        ...(annotation.schemaTokens === undefined ? {} : { schemaTokens: annotation.schemaTokens }),
+        ...(annotation.tags === undefined
+          ? {}
+          : { tags: [...new Set([...(merged.tags ?? []), ...annotation.tags])] }),
+        ...(annotation.accepts === undefined
+          ? {}
+          : { accepts: mergeArtifacts(merged.accepts ?? [], annotation.accepts) }),
+        ...(annotation.produces === undefined
+          ? {}
+          : { produces: mergeArtifacts(merged.produces ?? [], annotation.produces) }),
+      }
+    }
+    return merged
+  })
+  const unmatched = annotations.filter(
+    annotation => !tools.some(tool => annotationMatches(annotation, tool)),
+  )
+  return { tools: resolved, unmatched }
 }

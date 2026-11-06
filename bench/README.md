@@ -1,5 +1,9 @@
 # bench/ — token & cache A/B harness for the DSH graph loop
 
+> **0.2 evaluation uses OfficeBench**, not this harness: see
+> [`officebench/`](officebench/) and [`../docs/EVALUATION.md`](../docs/EVALUATION.md). This file
+> documents the 0.1.x token/cache harness and remains useful for cost accounting.
+
 Status: **partially runnable**. The baseline arm runs end to end today; the two graph arms
 are specified but deliberately refuse to run until the plugin exists. Everything here prices
 *logged sessions*, so the same script works unchanged once graph mode exists.
@@ -11,6 +15,7 @@ README is the operator manual.
 
 ```
 bench/
+  officebench/               # 0.2 probe manifest + setup (external benchmark, pinned commit)
   tasks/tasks.jsonl          # 8 tasks: single-tool, multi-tool edit, research, doc gen, bug fix,
                              # long refactor, multi-agent, no-tool
   schema/results.schema.json # one row per (arm, task, repetition)

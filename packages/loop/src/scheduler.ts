@@ -23,6 +23,7 @@ import {
   type TemplateLibrary,
 } from 'dsh-graph-loop-core/matching'
 import { FrontierTopology, bootstrapTopology, recoveryTopology, synthesizeTopology, type TopologyMode } from 'dsh-graph-loop-core/topology'
+import { KernelTopology, canKernelDrive } from './kernel/topology.ts'
 import { fallbackPlan } from 'dsh-graph-loop-core/step-graph'
 
 export type { TopologyMode }
@@ -67,16 +68,22 @@ export interface GraphTurnDriver {
   beginTurn(task: TurnTask): Promise<GraphTurnSnapshot>
   current(): PlanNode | undefined
   instruction(): string | undefined
+  /**
+   * Tools compiled into the active plan. The agent narrows each step's admitted
+   * tool set to this list, so the graph does not pay for tools its plan cannot
+   * use. Optional for test doubles and drivers that expose no universe.
+   */
+  toolUniverse?(): readonly string[] | undefined
   advance(outcome: {
     readonly ok: boolean
     readonly failedTool?: string
     readonly tools?: readonly { readonly name: string; readonly callId: string; readonly isError: boolean }[]
-  }): GraphTurnSnapshot
+  }): Promise<GraphTurnSnapshot>
   adopt(plan: TaskPlan): void
   /** Detach and return all queued subagent nodes (parallel batch). */
   takeSubagentBatch(): PlanNode[]
   /** Complete one node from a batch, with its outcome. */
-  completeNode(id: string, ok: boolean): void
+  completeNode(id: string, ok: boolean): Promise<void>
   done(): boolean
   /** Called once by the driver after `turn/end`; flushes the trace. */
   endTurn(): void
@@ -94,6 +101,8 @@ export interface GraphTurnDriverOptions {
    * Mid-run re-planning is opt-in and still bounded by the step budget.
    */
   readonly adoptPolicy?: AdoptPolicy
+  /** Kernel engine for plans the kernel can route; `off` keeps the frontier. */
+  readonly kernel?: 'langgraph' | 'minimal' | 'off'
   readonly graph?: RegistryGraph
   readonly templates?: TemplateLibrary
   readonly graphProvider?: () => RegistryGraph | undefined | Promise<RegistryGraph | undefined>
@@ -122,6 +131,19 @@ function emptyWorkspace(): TaskFingerprint['workspace'] {
 
 function toCooccurrenceTable(entries: Iterable<[string, CooccurrenceEntry]> | undefined): CooccurrenceTable {
   return new Map(entries ?? [])
+}
+
+interface TurnTopology {
+  current(): PlanNode | undefined
+  pendingNodes(): readonly PlanNode[]
+  detach(id: string): PlanNode | undefined
+  select(id: string): PlanNode | undefined
+  advance(outcome: { readonly ok: boolean; readonly failedTool?: string }): PlanNode | undefined | Promise<PlanNode | undefined>
+  done(): boolean
+  status(): 'running' | 'done' | 'failed'
+  steps(): number
+  snapshot(): TaskPlan
+  dispose?(): Promise<void> | void
 }
 
 /**
@@ -153,7 +175,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
 
   let plan: TaskPlan | undefined
   let decision: RouteDecision | undefined
-  let topology: FrontierTopology | undefined
+  let topology: TurnTopology | undefined
   let lastNode: string | undefined
   let rationale: readonly string[] = []
 
@@ -192,7 +214,14 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
   function install(next: TaskPlan): void {
     adoptedAtStep = undefined
     plan = next
-    topology = new FrontierTopology(next)
+    const kernelMode = options.kernel ?? 'langgraph'
+    try {
+      topology = kernelMode !== 'off' && canKernelDrive(next)
+        ? new KernelTopology(next, { kind: kernelMode, taskHash: next.id, maxSteps: next.budget.maxSteps })
+        : new FrontierTopology(next)
+    } catch {
+      topology = new FrontierTopology(next)
+    }
     lastNode = topology.current()?.id
   }
 
@@ -289,11 +318,14 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     instruction(): string | undefined {
       return topology?.current()?.instruction
     },
-    advance(outcome: {
+    toolUniverse(): readonly string[] | undefined {
+      return topology?.snapshot().toolUniverse ?? plan?.toolUniverse
+    },
+    async advance(outcome: {
     readonly ok: boolean
     readonly failedTool?: string
     readonly tools?: readonly { readonly name: string; readonly callId: string; readonly isError: boolean }[]
-  }): GraphTurnSnapshot {
+  }): Promise<GraphTurnSnapshot> {
       if (topology === undefined) return snapshot()
       const node = topology.current()
       lastNode = node?.id ?? lastNode
@@ -306,7 +338,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
           ...(outcome.tools === undefined || outcome.tools.length === 0 ? {} : { tools: outcome.tools }),
         })
       }
-      topology.advance({ ok: outcome.ok, ...(outcome.failedTool === undefined ? {} : { failedTool: outcome.failedTool }) })
+      await Promise.resolve(topology.advance({ ok: outcome.ok, ...(outcome.failedTool === undefined ? {} : { failedTool: outcome.failedTool }) }))
       // Boundary replan: a failed work node gets a small diagnosis/retry graph.
       if (!outcome.ok && topology.status() === 'failed') {
         const maxReplans = plan?.budget.maxReplans ?? 0
@@ -360,13 +392,13 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       }
       return detached
     },
-    completeNode(id: string, ok: boolean): void {
+    async completeNode(id: string, ok: boolean): Promise<void> {
       if (topology === undefined) return
       const node = topology.select(id)
       if (node !== undefined) {
         trail.push({ id, step: topology.steps() + 1, executor: node.executor ?? 'step', status: ok ? 'ok' : 'failed' })
       }
-      topology.advance({ ok })
+      await Promise.resolve(topology.advance({ ok }))
       lastNode = id
       options.onSnapshot?.(snapshot())
     },
@@ -374,7 +406,11 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       return topology === undefined || topology.done()
     },
     endTurn(): void {
-      options.onTurnEnd?.(snapshot())
+      const finishing = topology
+      const finalSnapshot = snapshot()
+      topology = undefined
+      void finishing?.dispose?.()
+      options.onTurnEnd?.(finalSnapshot)
     },
     snapshot,
   }

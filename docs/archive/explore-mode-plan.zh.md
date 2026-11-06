@@ -392,7 +392,7 @@ approval 的工具，否则 P3 会在审批类任务上直接失败。
 
 ### 4.7bis 实现后的修正：按轮发现，轮内冻结
 
-实际实现（见 [`docs/DYNAMIC-TOPOLOGY.md`](DYNAMIC-TOPOLOGY.md)）把「动态发现」收敛为：
+实际实现（见 [`docs/reference/DYNAMIC-TOPOLOGY.md`](../reference/DYNAMIC-TOPOLOGY.md)）把「动态发现」收敛为：
 
 - **每轮对话开始时**发现一次拓扑（`template` / `dynamic` / 模型 `graph_plan` 提案），轮内冻结；
 - 轮内只保留**预声明**的条件分支/有界循环；模型迟到的提案默认忽略（`adoptPolicy: 'start-only'`）；

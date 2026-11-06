@@ -1,7 +1,12 @@
 # dsh-graph-loop-mode
 
-Bundle A: an `explore` agent preset over the stock loop, plus the small pieces that make graph-style
-collaboration cheaper without replacing the driver.
+> **Active mode in 0.2.** This bundle registers the **Explore** agent preset and sets
+> `agent-preset-registry.default = explore`, so new sessions use it after
+> `scripts/install-explore.sh`. It is a preset (tool/persona composition), not a loop replacement;
+> the graph driver comes from `dsh-graph-loop`. The reuse guard remains advisory.
+
+The Explore mode: an agent preset plus the small pieces that make graph-style collaboration cheaper
+without owning the loop. The driver comes from `dsh-graph-loop`.
 
 ## Contents
 
