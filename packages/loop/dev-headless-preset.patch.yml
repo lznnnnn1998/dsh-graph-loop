@@ -22,6 +22,8 @@
         agents: []
         topology: dynamic
         toolPolicy: preset
+        # Benchmark arms opt back into the harness-specific retry guards.
+        benchGuards: true
 
 
 

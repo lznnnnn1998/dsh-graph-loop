@@ -2,6 +2,32 @@
 
 ## 0.2.0 (unreleased)
 
+### 0.2 audit cleanup (2026-11-08)
+
+- **One architecture voice**: README/STATUS/docus state **B** (the fork replaces the stock loop).
+  `docs/COMPOSITION.md` and `docs/PRODUCT-LINE.md` moved to `docs/archive/` with superseded banners;
+  `PROGRESS.md` is marked historical and its control-plane item is retired.
+- **LangGraph coverage, truthfully extended**: `canKernelDrive()` now accepts one real branch shape —
+  a success edge plus a `callFailed` recovery edge. The kernel routes it as a LangGraph conditional
+  edge; both arms are tested with the LangGraph engine. Parallel fan-out/join, subagent batches and
+  `artifact`/`fact`/`budget` conditions remain frontier features and are listed as such.
+- **Dead core surface removed**: `checkpoint.ts`, `conformance.ts`, `replan.ts`, `step-graph.ts`
+  (walker) and the unused `core/index.ts` barrel are deleted, with their module-only tests.
+  `fallbackPlan` moved to `packages/core/src/fallback.ts`; live JSON-safety coverage kept.
+- **Stale design/bundle copies archived**: `design/` → `docs/archive/design/`, `bundle/` →
+  `docs/archive/bundle/`. Ignored `dist/`, `jobs/`, `tmp/`, `bench/.dsh-home/` and the spike's
+  `node_modules` were deleted locally (never tracked).
+- **Release gate**: `scripts/ci-local.sh` runs typecheck + unit tests + build + `build:check` with no
+  external services; `npm run build && npm run build:check` is green.
+- **Fork-sync guard**: `scripts/diff-upstream.sh` diffs `packages/loop/src/loop` against the DSH
+  checkout and documents the expected patch surface (`--check` fails on unexpected divergence).
+- **Benchmark heuristics gated**: DSML-printed-tool detection and the forced mutation retry now need
+  `benchGuards: true` (default `false`). Benchmark overlays opt in explicitly; normal loop behavior
+  no longer carries them.
+- **Product claim retired**: the non-reproducible −50% prompt figure is no longer headlined; docs
+  state product evidence is absent until the Terminal-Bench product20 suite runs. Archived evidence
+  and its provenance note are kept.
+
 ### Reliability and security hardening (2026-11-07 audit)
 
 - **`/graph-chat` cannot kill the Web host**: route handlers return their promise to the web

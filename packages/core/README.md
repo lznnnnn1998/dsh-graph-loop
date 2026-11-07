@@ -11,7 +11,8 @@ executor, proposal validation, and the kernel port.
 - `registry.ts` — deterministic capability graph from tool definitions, digest, warnings.
 - `topology.ts` — `synthesizeTopology`, `bootstrapTopology`, `recoveryTopology`, `FrontierTopology`.
 - `proposal.ts` — `graph_plan` JSON schema, validation, materialization.
-- `replan.ts`, `step-graph.ts`, `runtime.ts`, `kernel.ts` — recovery, fallback plan, kernel port.
+- `fallback.ts` — the trivial single-node plan (`fallbackPlan`) used when no template matched.
+- `runtime.ts`, `kernel.ts` — kernel ports and the superstep→DSH event contract.
 
 ## Configuration
 

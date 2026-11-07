@@ -26,7 +26,7 @@ import { FrontierTopology, bootstrapTopology, recoveryTopology, repairTopology, 
 import { synthesizeComposition } from 'dsh-graph-loop-core/compose'
 import { selectEnvelopeForTask } from 'dsh-graph-loop-core/envelope'
 import { KernelTopology, canKernelDrive } from './kernel/topology.ts'
-import { fallbackPlan } from 'dsh-graph-loop-core/step-graph'
+import { fallbackPlan } from 'dsh-graph-loop-core/fallback'
 
 export type { TopologyMode }
 

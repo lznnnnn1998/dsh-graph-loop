@@ -1,14 +1,16 @@
 # Evaluation — product line and stress line
 
-Status: **two-track evaluation.** The product line is measured on tasks within model capability
-(10 easy + 10 medium Terminal-Bench tasks).
-Terminal-Bench is a separate stress line and is **not the default gate**.
+Status: **two-track evaluation, no product result yet.** The product line is defined on tasks
+within model capability (10 easy + 10 medium Terminal-Bench tasks) but the suite is **unrun**, so
+there is no product evidence to cite. Terminal-Bench is a separate stress line and is **not the
+default gate**.
 
 ## 1. Product line
 
-**Hypothesis.** The composition layer — per-turn envelope, capability-driven plan, live envelope/compose
-wiring — produces equal task outcomes to stock with fewer prompt tokens and steps. Accuracy is
-parity, not a win on tasks the model cannot do.
+**Hypothesis.** The graph loop — per-turn envelope, capability-driven plan, live envelope/compose
+wiring on architecture B — produces equal task outcomes to stock with fewer prompt tokens and
+steps. Accuracy is parity, not a win on tasks the model cannot do. The hypothesis is untested: do
+not quote the archived −50% local figure as evidence.
 
 | Arm | What runs |
 |---|---|

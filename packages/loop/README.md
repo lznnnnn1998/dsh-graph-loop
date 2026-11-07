@@ -3,8 +3,8 @@
 > **Active graph driver in 0.2.** Installed as a bundle: the stock `agent-loop` row is disabled and
 > this driver runs one graph node per DSH step. The LLM-facing default kernel is **LangGraph**
 > (`MinimalKernel` fallback). This package is a **source fork** of `@deepseek-ai/dsh-agent-loop`;
-> the duplication is tracked as maintenance debt, and the long-term option is a control plane over
-> the stock loop.
+> the duplication is tracked as maintenance debt and re-diffed with `scripts/diff-upstream.sh`.
+> The fork is the active loop (architecture B); there is no separate control-plane product path.
 
 ## Use this package
 
@@ -30,6 +30,7 @@ The installer also adds the Explore mode and verifies the composed profile.
 | `trivialChars` | `32` | Text length below which a trivial task stays a single node |
 | `maxSteps` | `24` | Upper bound on nodes in one synthesized plan |
 | `toolPolicy` | `plan` | `plan` narrows each step to the plan universe (token win); `preset` keeps the full preset tool set for benchmark harnesses |
+| `benchGuards` | `false` | Benchmark-only retries: detect DSML-printed tool calls and force a mutation node that did not mutate. Off for normal loop use |
 | `maxParallelToolCalls` | inherited | Stock loop parallel tool-call bound |
 | `agents` | `[]` | Declarative startup agents |
 
@@ -47,17 +48,18 @@ Runtime trace storage is configured on the `graph-runtime` row (`traceDir`, `tra
 ## Model Experience
 
 A graph node is injected as a logged user message (`[graph node <id>] …`). Node-level tool
-admission narrows each step to the plan's tool universe plus a small safe floor, which is the source
-of the measured prompt-token reduction. Because node directives enter history, a multi-node turn
-adds prompt bytes compared with a single stock step; the token win currently comes from tool-schema
-narrowing, not from fewer steps.
+admission narrows each step to the plan's tool universe plus a small safe floor. The archived
+local-20 run attributed a prompt-token reduction to that narrowing, but the run is **not
+reproducible** (dirty worktree) and is not a product claim. Because node directives enter history, a
+multi-node turn adds prompt bytes compared with a single stock step.
 
 ## Known Limitations
 
 - The driver is a fork; it is not covered by DSH's full conformance/snapshot suite. Local
   conformance/cross-loop scripts cover event invariants, not byte-identical replay.
-- Kernel coverage is partial: subagent/conditional plans and plans with LangGraph-reserved node ids
-  use `FrontierTopology`.
+- Kernel coverage is partial: linear plans and a single `callFailed` failure branch run on
+  LangGraph; parallel fan-out/join, subagent batches, non-`callFailed` conditions and plans with
+  LangGraph-reserved node ids use `FrontierTopology`.
 - Kernel checkpoints are in-memory (`MemoryCheckpointer`); `storageDomain` persistence is pending.
 - `dynamic` synthesis is heuristic, not an optimization over all graphs.
 - Mid-run topology replacement is limited by `adoptPolicy: 'start-only'` by default.

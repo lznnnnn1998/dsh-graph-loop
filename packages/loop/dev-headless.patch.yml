@@ -21,6 +21,8 @@
         maxParallelToolCalls: 10
         agents: []
         topology: dynamic
+        # Benchmark arms opt back into the harness-specific retry guards.
+        benchGuards: true
 
 
 

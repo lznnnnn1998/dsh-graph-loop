@@ -1,16 +1,25 @@
-# Build progress — DSH composition layer
+# Build progress — 0.2 cycle (historical)
 
 Local working repo. Nothing here edits the DSH checkout.
 
-## Direction reset (2026-11-06)
+> **HISTORICAL (2026-11-08).** This is the 0.2 working log, kept for history.
+> Architecture **B** is the active direction: the dedicated graph loop in
+> `packages/loop` replaces the stock `agent-loop` via `AgentFactory`
+> ([README.md](README.md), [docs/STATUS.md](docs/STATUS.md)). The
+> "direction reset" below and the M3 control-plane item are **superseded**; do
+> not treat them as the current contract. The local-20 numbers are from a dirty,
+> non-reproducible worktree and are not a product claim.
 
-0.2 is the **composition layer**, not a fork-first graph loop. The decision record and v0.2 contract
-are in [`docs/COMPOSITION.md`](docs/COMPOSITION.md). Summary:
+## Direction reset (2026-11-06) — RETIRED by architecture B
+
+> Superseded: the lead decision is architecture B. The text below is the retired 0.2
+> framing, kept verbatim as history (decision record archived at
+> [`docs/archive/COMPOSITION.md`](docs/archive/COMPOSITION.md)). Summary of the retired framing:
 
 - one graph per turn; harness-owned executors (`step` / `tool-batch` / `subagent` / `context`);
 - per-turn capability envelope; tools stable inside the turn, prompt/memory vary per node;
 - authoritative checkpoints in `storageDomain`; the session log stays the conversation record;
-- control plane over the stock loop first; fork only if 2+ triggers fire;
+- ~~control plane over the stock loop first; fork only if 2+ triggers fire~~ (retired);
 - product evaluation: 10 easy + 10 medium Terminal-Bench tasks; the local 20-task suite is archived;
   stress evaluation: Terminal-Bench smoke then a fixed subset, not the default gate;
 - craft-first demo removed as the proof of value; crafts remain genericity fixtures;
@@ -72,11 +81,11 @@ The 0.1.x build history is archived in [`docs/archive/PROGRESS-0.1.md`](docs/arc
       Async driver interface; 3 new unit tests; the full suite green. Live eval: **6/6 both arms**, median
       prompt **23,516 → 9,128 (−61%)**, steps 4 = 4; wall time was noise-dominated (86–92 s stalls on
       three graph runs). Kernel checkpoints are still in-memory.
-- [ ] **M3e — kernel coverage + durable checkpoint**: route conditional/failure edges and subagent
-      batches through the kernel, then replace `MemoryCheckpointer` with the `storageDomain` saver.
-- [ ] **M3 — control plane over the stock loop** (product path; the measured graph above is the
-      graph driver installed as a bundle): step nodes, late prompt section, node boundaries,
-      checkpoint writes, annotation/preset feed, conformance for ordinary chat.
+- [x] **M3e (partial) — kernel coverage**: one real `callFailed` failure branch now runs on the
+      LangGraph kernel (conditional edge; both arms tested). Parallel fan-out/join, subagent batches,
+      and `artifact`/`fact`/`budget` conditions remain on `FrontierTopology`. Durable checkpointing is
+      still pending: `MemoryCheckpointer` remains, `storageDomain` is not wired.
+- [ ] ~~**M3 — control plane over the stock loop**~~ **RETIRED** by architecture B; do not build it.
 - [x] **M4a — legacy local 20-task signal (archived)**: 20 tasks × 2 arms × 2 reps; **40/40 both**, prompt
       **24,454 → 9,612 (−60.7%)** legacy; live envelope/compose rerun is **25,105 → 12,561
       (−50.0% mean; −48.6% median)**, steps 4.2 → 4.0. Cost is not a win: billed input +33.8% legacy /

@@ -18,8 +18,8 @@ npm run build:check
 echo "== unit tests"
 npm test
 
-echo "== benchmark fixtures fail before work"
-node bench/archive/agent-eval/validate-tasks.mjs
+echo "== fork patch surface (skipped when no DSH checkout is available)"
+bash scripts/diff-upstream.sh
 
 echo "== installed-bundle e2e (mock LLM)"
 bash scripts/e2e-installed.sh

@@ -1,5 +1,17 @@
 # Product line — composition layer
 
+> **HISTORICAL / SUPERSEDED (2026-11-08).** This file states the original product
+> intent and its success criteria. It is kept for history. The active direction is
+> **architecture B** (the dedicated graph loop in `packages/loop`), documented in
+> [../../README.md](../../README.md) and [../STATUS.md](../STATUS.md).
+>
+> **Evidence status: absent.** The Terminal-Bench easy10 + medium10 suite was
+> defined but never run. The local 20-task numbers quoted below come from a dirty
+> worktree whose recorded commit contains no live composition code; they are not
+> reproducible and must not be cited as a product result. The −50% prompt figure
+> is historical only. See
+> [../../bench/archive/agent-eval/RESULTS.md](../../bench/archive/agent-eval/RESULTS.md).
+
 > **The original intent.** A DSH-native, installable composition layer: one graph per turn composes
 > arbitrary tools/plugins, the per-turn envelope keeps the tool surface stable, and the result is
 > **accuracy parity with fewer prompt tokens/steps** on tasks the model can do.
@@ -14,7 +26,7 @@
 - Bounded `verify → diagnose → edit → verify` repair for normal reliability.
 - Installable bundle + Explore mode; no DSH source changes.
 - Evaluation on **tasks within model capability**: 10 easy + 10 medium Terminal-Bench tasks
-  ([`bench/official/subsets/product20.json`](../bench/official/subsets/product20.json)); the old
+  ([`bench/official/subsets/product20.json`](../../bench/official/subsets/product20.json)); the old
   local 20-task suite is archived.
 
 ## Success criteria
@@ -34,12 +46,12 @@
 - Archived local 20-task live-compose run (superseded; dirty worktree, not commit-bound): 40/40
   both, prompt **25,105 → 12,561 (−50.0% mean; −48.6% median)**, steps 4.2 → 4.0; wall +9.4% /
   +4.2%. Cost is not a win: billed total +16.8% (legacy topology +44.6%), output +41.2% / +55.2%.
-  See [`bench/archive/agent-eval/RESULTS.md`](../bench/archive/agent-eval/RESULTS.md).
+  See [`bench/archive/agent-eval/RESULTS.md`](../../bench/archive/agent-eval/RESULTS.md).
 - Terminal-Bench easy/medium suite is prepared; it needs the Terminal-Bench product suite Docker environment and action
   mapping.
 
 ## Non-goals
 
-- Solving every Terminal-Bench hard task; that is the [stress line](STRESS-LINE.md).
+- Solving every Terminal-Bench hard task; that is the [stress line](../STRESS-LINE.md).
 - A general agent framework or a new model.
 - Beating the stock loop on tasks the model cannot solve.

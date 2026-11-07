@@ -281,6 +281,13 @@ export interface Config {
    * parallel-subagent topologies).
    */
   composition: boolean
+  /**
+   * Benchmark-only retry guards: detect tool calls printed as text (DSML) and
+   * retry a mutation node that did not mutate. Default `false`; these encode
+   * benchmark failure modes, not graph semantics, and stay off unless a
+   * harness explicitly opts in.
+   */
+  benchGuards: boolean
   /** Agents created or resumed at plugin startup; a resumed agent records its configured route as the Session's model selection. */
   agents: (AgentOptions & {
     /** Stable config label used in logs and as the fresh combined-id prefix. */
@@ -325,6 +332,7 @@ export class AgentLoop extends Service implements AgentFactory {
     maxSteps?: number
     toolPolicy?: Config['toolPolicy']
     composition?: boolean
+    benchGuards?: boolean
   }, Config> = z.object({
     maxParallelToolCalls: z.number().step(1).min(1).default(DEFAULT_MAX_PARALLEL_TOOL_CALLS).volatile(),
     topology: z.union([z.const('template'), z.const('dynamic'), z.const('propose')]).default('dynamic'),
@@ -332,6 +340,7 @@ export class AgentLoop extends Service implements AgentFactory {
     maxSteps: z.number().step(1).min(1).default(24),
     toolPolicy: z.union([z.const('plan'), z.const('preset')]).default('plan'),
     composition: z.boolean().default(true),
+    benchGuards: z.boolean().default(false),
     agents: z.array(z.object({
       id: z.string().required(),
       sessionId: z.string().min(1),
@@ -369,6 +378,7 @@ export class AgentLoop extends Service implements AgentFactory {
       maxSteps: config.maxSteps ?? 24,
       toolPolicy: config.toolPolicy ?? 'plan',
       composition: config.composition ?? true,
+      benchGuards: config.benchGuards ?? false,
     }
     validateConfiguredAgents(this.config.agents)
     this.ownership = new FactoryOwnership(ctx.fiber)
@@ -626,6 +636,7 @@ export class AgentLoop extends Service implements AgentFactory {
           () => inboxProjectionHandle.stateOf(session),
           lastTurn,
         )
+        created.setBenchGuards(loopConfig.benchGuards)
         const graphRegistry = loopCtx.get('graphRegistry') as
           { snapshot(): { graph: import('dsh-graph-loop-core/graph-schema').RegistryGraph } } | undefined
         const graphRouter = loopCtx.get('graphRouter') as

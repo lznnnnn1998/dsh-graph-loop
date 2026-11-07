@@ -22,8 +22,8 @@ Three owners, one rule: **do not implement a concern twice.**
 | LangGraph | StateGraph/Pregel execution, channels + reducers, checkpointer/resume/time travel, Send/Command, subgraphs, retry/cache, streaming primitives | session/event log, prompt admission, tool registry, DSH approvals, UI |
 | This repo | capability graph, task fingerprint/router, per-turn envelope, DSH node executors, model-authored topology + validator, Graph tab, conformance, template ecosystem | a second session log, a second prompt assembler, a second tool pipeline, a second approval system |
 
-The plugin still duplicates DSH's loop (the fork) and uses a frontier engine for plans the kernel
-cannot route. Both are tracked as debt, not hidden.
+The plugin still duplicates DSH's loop (the fork, architecture B) and uses a frontier engine for
+plan shapes the kernel cannot route. Both are tracked as debt, not hidden.
 
 ---
 
@@ -64,8 +64,9 @@ cannot route. Both are tracked as debt, not hidden.
   when the optional dependency is absent.
 - `KernelTopology` pauses the kernel before each node, lets DSH run the step, then resumes with the
   step outcome. One kernel superstep = one DSH step.
-- Coverage today: linear plans with safe node ids and no subagent/conditional edges. Other plans
-  fall back to `FrontierTopology` until the kernel route hook and parallel batching land.
+- Coverage today: linear plans with safe node ids, plus a single `callFailed` failure branch
+  (a real LangGraph conditional edge). Parallel fan-out/join, subagent batches, `artifact`/`fact`/
+  `budget` conditions and reserved node ids fall back to `FrontierTopology`.
 
 ### 3.2 Channels and reducers (next)
 
@@ -123,11 +124,11 @@ LangGraph writes in completion order, so reducers must be order-insensitive (mea
 | Artifact | Action |
 |---|---|
 | `FrontierTopology` as the only executor | Replaced by the kernel for kernel-drivable plans; keep as fallback until coverage is complete. |
-| `StepGraph` | Legacy for the frozen driver; not the live path. |
+| `StepGraph` | Deleted (0.2 audit); `fallbackPlan` moved to `packages/core/src/fallback.ts`. |
 | `MinimalKernel` | Fallback/tests, not the product path. |
-| Custom checkpoint contract (`checkpoint.ts`) | Keep the storageDomain schema/adapter; LangGraph owns the saver API. |
+| Custom checkpoint contract (`checkpoint.ts`) | Deleted (0.2 audit): zero importers, tests created false confidence. Durable checkpointing is future work on LangGraph's saver API + `storageDomain`. |
 | `GraphState` plain object | Replace with channel definitions + reducers. |
-| Forked DSH loop | Keep short-term; control plane would remove it. |
+| Forked DSH loop | Keep — it is architecture B, the active loop. The control-plane alternative is retired. |
 
 ---
 
@@ -157,7 +158,7 @@ this plugin (composition bundle)
 
 | Step | Work | Status |
 |---|---|---|
-| M1 | Kernel round-trip: scheduler uses `KernelPort`; LangGraph default, Minimal fallback | **Done for kernel-drivable plans**; 6-task eval 6/6, prompt −61%; unit suite green |
+| M1 | Kernel round-trip: scheduler uses `KernelPort`; LangGraph default, Minimal fallback | **Done for linear plans + one `callFailed` branch**; unit suite green. The archived eval numbers are non-reproducible and not cited |
 | M2 | Channel schema + reducers; order-insensitive parallel writes | Pending |
 | M3 | `storageDomain` checkpointer; node-boundary writes; `getState`/history | Pending (`MemoryCheckpointer` today) |
 | M4 | `Command`/`Send`/subgraph support | Pending (frontier fallback) |
@@ -169,8 +170,9 @@ this plugin (composition bundle)
 
 1. **Kernel dependency — decided: LangGraph is the default.** Factory and live scheduler default;
    `MinimalKernel` fallback. Coverage is partial (see §7).
-2. **Fork vs control plane — decided: keep the fork as the step executor for now.** Version tracking
-   is automated; removing it remains a later control-plane option.
+2. **Fork vs control plane — decided: architecture B.** The fork in `packages/loop` is the active
+   loop and replaces the stock `agent-loop`; the control-plane direction is retired (0.2 audit).
+   Upstream sync is checked with `scripts/diff-upstream.sh`.
 3. **Cross-process resume — out of scope for now.** DSH closes interrupted turns (D10).
 4. **HITL — keep DSH tool-level approvals only.**
 

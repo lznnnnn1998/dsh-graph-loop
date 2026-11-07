@@ -347,11 +347,11 @@ export interface PlanNode {
   readonly toolAllow?: readonly string[]
   /** Advisory node: a failed tool does not fail the step (e.g. read-before-write). */
   readonly optional?: boolean
-  /** Hard gating removes schemas from the request: see design/replan.ts gate policy. */
+  /** Hard gating removes schemas from the request: see docs/archive/design/replan.ts gate policy. */
   readonly hardGate?: boolean
   /**
    * In-session nodes only: the model this node's step requests. Applying a different
-   * route records `model/selection` and a new request/header (see conformance).
+   * route records `model/selection` and a new request/header (see docs/MERGE-LANGGRAPH.md).
    */
   readonly model?: { readonly provider: string; readonly model: string; readonly reasoningEffort?: string }
   /** Subagent nodes only: provider, presets, handoff sizes and schema. */

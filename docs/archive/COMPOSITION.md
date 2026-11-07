@@ -1,9 +1,19 @@
 # Composition layer — decision record and v0.2 contract
 
-Status: **active direction** (2026-11-06). This document supersedes the "replace the loop first"
-framing in [`docs/archive/explore-mode-plan.zh.md`](archive/explore-mode-plan.zh.md), which remains as historical
-research. Topology heuristics remain valid in [`docs/reference/DYNAMIC-TOPOLOGY.md`](reference/DYNAMIC-TOPOLOGY.md) and
-[`docs/reference/TOPOLOGY-OPTIMALITY.md`](reference/TOPOLOGY-OPTIMALITY.md).
+> **HISTORICAL / SUPERSEDED (2026-11-08).** This document records the retired 0.2
+> "control plane over the stock loop / composition layer" direction (D12/D13 and
+> the surrounding framing). The active architecture is **B**: the dedicated
+> graph-loop plugin in `packages/loop` replaces the stock `agent-loop` through
+> `AgentFactory`, as stated in [../../README.md](../../README.md) and
+> [../STATUS.md](../STATUS.md). Keep this file as history; do not read it as a
+> normative contract. The composition mechanics it describes (envelope,
+> capability composer, per-node tool admission) remain live in code; the
+> "control plane first, fork later" decision does not.
+
+Status: **historical, superseded** (was active 2026-11-06; retired 2026-11-08). This document supersedes the "replace the loop first"
+framing in [`docs/archive/explore-mode-plan.zh.md`](explore-mode-plan.zh.md), which remains as historical
+research. Topology heuristics remain valid in [`docs/reference/DYNAMIC-TOPOLOGY.md`](../reference/DYNAMIC-TOPOLOGY.md) and
+[`docs/reference/TOPOLOGY-OPTIMALITY.md`](../reference/TOPOLOGY-OPTIMALITY.md).
 
 > 中文摘要：0.2 的方向不是「图循环打败线性循环」，而是**组合层**——用 LangGraph 式的类型化图，
 > 把 DSH 的插件能力（工具、技能、preset、子代理、上下文）组合成**每轮一张图 + 每轮一个能力包络**。
@@ -420,7 +430,7 @@ remain useful as genericity fixtures, but they cannot prove "better than the off
 **Inner loop (per change):** unit tests with the mock LLM; structural/envelope accounting; a single
 real smoke turn only when the change touches the adapter. **No public benchmark per change.**
 
-**Benchmark protocol:** see [`docs/EVALUATION.md`](EVALUATION.md). Probe first (a fixed small subset, three arms),
+**Benchmark protocol:** see [`docs/EVALUATION.md`](../EVALUATION.md). Probe first (a fixed small subset, three arms),
 then the full subset, each recorded in `bench/results/` with command, profile, commit and model.
 Thresholds are read after the run, not tuned per change.
 

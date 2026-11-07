@@ -118,7 +118,7 @@ class DshAgent(BaseAgent):
             "set -e\n"
             f"dsh plugin --profile {PROFILE} add {PLUGIN_TARBALL} >/tmp/dsh-plugin.log 2>&1 || "
             "{ tail -100 /tmp/dsh-plugin.log; exit 1; }\n"
-            f"printf '%s\\n' '- id: graph-loop' '  config:' '    toolPolicy: preset' '- id: llm-deepseek' '  config:' '    retryPolicy:' '      mode: normal' '      maxRetries: 1' > {PATCH}\n"
+            f"printf '%s\\n' '- id: graph-loop' '  config:' '    toolPolicy: preset' '    benchGuards: true' '- id: llm-deepseek' '  config:' '    retryPolicy:' '      mode: normal' '      maxRetries: 1' > {PATCH}\n"
             f"dsh --profile {PROFILE} --patch {PATCH} --dump-config >/tmp/dsh-dump.yml\n"
             "grep -q 'id: graph-loop' /tmp/dsh-dump.yml\n"
             "grep -q 'toolPolicy: preset' /tmp/dsh-dump.yml\n",

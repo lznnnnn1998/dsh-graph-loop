@@ -189,6 +189,13 @@ export class ReactLoopAgent implements Agent {
 
   /** Optional graph turn driver: when set, every step is one graph node. */
   private turnGraph: GraphTurnDriver | undefined
+  /**
+   * Benchmark-harness guards: DSML-printed-tool-call detection and the forced
+   * mutation retry. Off by default — these encode a benchmark's failure modes
+   * and are not generic loop behavior. The `graph-loop` row opts in with
+   * `benchGuards: true`.
+   */
+  private benchGuards = false
 
   constructor(
     private loopCtx: Context,
@@ -268,6 +275,11 @@ export class ReactLoopAgent implements Agent {
   /** Attach the per-turn graph driver; the factory sets this before the first wake. */
   setTurnGraph(driver: GraphTurnDriver | undefined): void {
     this.turnGraph = driver
+  }
+
+  /** Enable benchmark-only retry guards (default off). */
+  setBenchGuards(enabled: boolean): void {
+    this.benchGuards = enabled
   }
 
   get status(): AgentStatus {
@@ -566,8 +578,10 @@ export class ReactLoopAgent implements Agent {
             if (session !== this.session) return
             toolRecovery.observe(event)
             if (event.type === 'assistant/message') {
-              const content = event.data.message.content
-              if (JSON.stringify(content).includes('DSML')) stepDsml = true
+              if (this.benchGuards) {
+                const content = event.data.message.content
+                if (JSON.stringify(content).includes('DSML')) stepDsml = true
+              }
             } else if (event.type === 'tool/call') {
               toolNames.set(event.data.callId, event.data.name)
               stepTools.push({ name: event.data.name, callId: event.data.callId, isError: false, arguments: typeof event.data.arguments === 'string' ? event.data.arguments : undefined })
@@ -609,7 +623,8 @@ export class ReactLoopAgent implements Agent {
         // completed node. Retry the same node once or twice with a correction;
         // the graph must not advance without the file the node was asked to write.
         const retryNode = this.turnGraph?.current()
-        if (this.turnGraph !== undefined
+        if (this.benchGuards
+          && this.turnGraph !== undefined
           && stepDsml
           && stepTools.length === 0
           && formatRetries < 1
@@ -626,7 +641,8 @@ export class ReactLoopAgent implements Agent {
         // writes. Retry the same node once with a direct correction instead of
         // advancing; the node's own intent decides, so the composed `n_mutate`
         // is enforced exactly like the dynamic `d_edit`.
-        if (this.turnGraph !== undefined
+        if (this.benchGuards
+          && this.turnGraph !== undefined
           && retryNode !== undefined
           && isMutatingNode(retryNode)
           && !mutationObserved(stepTools)
