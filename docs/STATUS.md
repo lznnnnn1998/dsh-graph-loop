@@ -20,7 +20,7 @@ graph driver plus a LangGraph kernel runs the turn, the Graph tab shows the topo
 | Composition core | envelope / role resolution, capability-driven synthesis, annotation layer, checkpoint contract — pure core, 25 focused tests |
 | UI | Graph tab + `/graph-chat`; installed e2e passes |
 | Packaging | tarball install + packed-loop runtime e2e passes (`scripts/e2e-tarball.sh`) |
-| Benchmark | local 20-task suite (40/40 both); Docker + Harbor + DSH Terminal-Bench adapter installed; one official task scored (0.0); no aggregate yet |
+| Benchmark | local 20-task suite (40/40 both); Docker/Harbor + DSH adapter; Terminal-Bench subset attempted, **0.0 on every clean trial**, no aggregate |
 | Tests | **115 unit tests**, typecheck clean, installed e2e + tarball e2e pass |
 
 ## Evidence (real model, `deepseek-flash`, `reasoningEffort: high`)
@@ -41,11 +41,11 @@ the median −7.4%; one graph run took 49 s. Earlier 6-task runs (installed and 
    LangGraph-reserved node ids still use `FrontierTopology`.
 2. **Checkpoints are in-memory** (`MemoryCheckpointer`); `storageDomain` persistence and
    `getStateHistory` are not wired.
-3. **Accuracy is parity**, not better on the local suite. One Terminal-Bench task is scored (0.0);
-   there is no aggregate official score yet.
-4. **Official coverage is thin**: the Terminal-Bench adapter works, but the one trial is a hard task
-   where both arms scored 0.0. NL2Repo-Bench still needs an OpenHands→DSH adapter. Apple Silicon
-   requires building native arm64 task images (qemu Node crashes).
+3. **Accuracy is parity**, not better on the local suite. The Terminal-Bench subset attempt scored 0.0
+   on every clean trial; there is no nonzero official score yet.
+4. **Official coverage is thin**: native arm64 task images work and Harbor scores the runs, but the
+   fixed subset produced 0.0 on every clean trial (bun/foodstuff both arms; interleaved/music graph;
+   medical errored). NL2Repo-Bench still needs an OpenHands→DSH adapter.
 5. **Fork duplication** remains: `packages/loop` is a source copy of DSH's loop. Version tracking is
    automated today; it is still maintenance debt.
 6. **OfficeBench probe is not executed**; it is now a secondary benchmark.
@@ -54,8 +54,8 @@ the median −7.4%; one graph run took 49 s. Earlier 6-task runs (installed and 
 ## Next, in order
 
 1. Review and commit the current tree (local commit; no push unless asked).
-2. Run a fixed Terminal-Bench 4.0 subset (native arm64 images) with stock/graph; then adapt
-   NL2Repo-Bench and publish the head-to-head report.
+2. Improve Terminal-Bench outcomes (prompt/tool/plan quality) and rerun a 10-task native subset;
+   then adapt NL2Repo-Bench and publish the head-to-head report.
 3. M3e: kernel routing for conditional/subagent plans; `storageDomain` checkpoint saver.
 4. Optional: OfficeBench office-app probe; control-plane path to remove the fork duplication.
 

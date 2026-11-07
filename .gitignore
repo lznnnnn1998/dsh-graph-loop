@@ -15,3 +15,6 @@ tmp/
 # Harbor job outputs (local benchmark runs)
 jobs/
 __pycache__/
+
+# Large Harbor job trees under results (rows/summary stay tracked)
+bench/official/results/**/jobs/

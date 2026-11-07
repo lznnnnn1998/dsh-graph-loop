@@ -94,17 +94,19 @@ class DshAgent(BaseAgent):
         )
         await self._exec(
             environment,
-            "npm config set fetch-retries 5\n"
-            "npm config set fetch-timeout 600000\n"
-            f"npm install -g @deepseek-ai/dsh@{DSH_VERSION} pnpm@11.28.5 >/tmp/dsh-install.log 2>&1 || "
+            "if ! command -v dsh >/dev/null 2>&1; then\n"
+            "  npm config set fetch-retries 5\n"
+            "  npm config set fetch-timeout 600000\n"
+            f"  npm install -g @deepseek-ai/dsh@{DSH_VERSION} pnpm@11.28.5 >/tmp/dsh-install.log 2>&1 || "
             "{ tail -100 /tmp/dsh-install.log; exit 1; }\n"
+            "fi\n"
             "dsh --version\n"
             "pnpm --version\n",
             timeout=1800,
         )
         await self._exec(
             environment,
-            f"dsh --profile {PROFILE} --from-default-profile headless --dump-config >/dev/null\n",
+            f"rm -rf /root/.dsh\ndsh --profile {PROFILE} --from-default-profile headless --dump-config >/dev/null\n",
             timeout=1800,
         )
         if self.stock:
@@ -116,7 +118,7 @@ class DshAgent(BaseAgent):
             "set -e\n"
             f"dsh plugin --profile {PROFILE} add {PLUGIN_TARBALL} >/tmp/dsh-plugin.log 2>&1 || "
             "{ tail -100 /tmp/dsh-plugin.log; exit 1; }\n"
-            f"printf '%s\\n' '- id: graph-loop' '  config:' '    toolPolicy: preset' > {PATCH}\n"
+            f"printf '%s\\n' '- id: graph-loop' '  config:' '    toolPolicy: preset' '- id: llm-deepseek' '  config:' '    retryPolicy:' '      mode: normal' '      maxRetries: 1' > {PATCH}\n"
             f"dsh --profile {PROFILE} --patch {PATCH} --dump-config >/tmp/dsh-dump.yml\n"
             "grep -q 'id: graph-loop' /tmp/dsh-dump.yml\n"
             "grep -q 'toolPolicy: preset' /tmp/dsh-dump.yml\n",
@@ -138,7 +140,9 @@ class DshAgent(BaseAgent):
             "cd /app 2>/dev/null || cd /\n"
             f"dsh --profile {PROFILE}{patch} {shlex.quote(instruction)}\n"
         )
-        result = await self._exec(environment, command, timeout=int(self.agent_timeout_sec), env=env)
+        result = await environment.exec(command=command, timeout_sec=int(self.agent_timeout_sec), env=env)
+        if result.return_code != 0:
+            self.logger.error(f"DSH exited {result.return_code}; verifier will score the workspace as-is")
         try:
             await environment.download_dir("/root/.dsh/sessions", str(self.logs_dir / "dsh-sessions"))
         except Exception as exc:  # session logs are optional for the benchmark score

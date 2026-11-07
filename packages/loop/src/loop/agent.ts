@@ -492,6 +492,7 @@ export class ReactLoopAgent implements Agent {
     }
     let turnEnds: TurnEndReason | null = null
     let formatRetries = 0
+    let mutationRetries = 0
     let target: InboxTarget = 'next-turn'
     try {
       while (true) {
@@ -525,7 +526,7 @@ export class ReactLoopAgent implements Agent {
         }
         let stepFailedTool: string | undefined
         let stepDsml = false
-        const stepTools: { name: string; callId: string; isError: boolean }[] = []
+        const stepTools: { name: string; callId: string; isError: boolean; arguments?: string }[] = []
         try {
           if (turnEnds && decision.messages.length === 0) break
           // A removed waking message or an enter decision rewritten to empty
@@ -547,7 +548,7 @@ export class ReactLoopAgent implements Agent {
               if (JSON.stringify(content).includes('DSML')) stepDsml = true
             } else if (event.type === 'tool/call') {
               toolNames.set(event.data.callId, event.data.name)
-              stepTools.push({ name: event.data.name, callId: event.data.callId, isError: false })
+              stepTools.push({ name: event.data.name, callId: event.data.callId, isError: false, arguments: typeof event.data.arguments === 'string' ? event.data.arguments : undefined })
             } else if (event.type === 'tool/result') {
               const name = toolNames.get(event.data.message.toolCallId)
               const entry = stepTools.find(tool => tool.callId === event.data.message.toolCallId)
@@ -589,11 +590,33 @@ export class ReactLoopAgent implements Agent {
         if (this.turnGraph !== undefined
           && stepDsml
           && stepTools.length === 0
-          && formatRetries < 2
+          && formatRetries < 1
           && (retryNode?.toolAllow?.length ?? 1) > 0) {
           formatRetries += 1
           this.inject(createUserMessage({
             content: [{ type: 'text', text: 'Your previous response printed a tool call as text. Re-issue the same tool call through the actual tool-call interface; do not print tool-call, DSML or XML syntax.' }],
+            source: { kind: 'user' },
+          }))
+          continue
+        }
+        // A mutation node must actually mutate. Exploration in d_edit is a
+        // common failure on long tasks: the model lists files and never writes.
+        // Retry the same node with a direct correction instead of advancing.
+        const mutationCommand = /(?:^|[\s;&|])(?:mv|rm|mkdir|cp|tee|truncate|dd)\s|sed\s+-i|perl\s+-pi|>\s*(?!\/dev\/null|&)|open\([^)]*['"]w/u
+        const mutated = stepTools.some(tool => !tool.isError && (
+          tool.name === 'write'
+          || tool.name === 'edit'
+          || tool.name === 'str_replace_editor'
+          || ((tool.name === 'bash' || tool.name === 'pwsh') && mutationCommand.test(tool.arguments ?? ''))
+        ))
+        if (this.turnGraph !== undefined
+          && retryNode?.id === 'd_edit'
+          && !mutated
+          && mutationRetries < 1
+          && !signal.aborted) {
+          mutationRetries += 1
+          this.inject(createUserMessage({
+            content: [{ type: 'text', text: 'You did not perform the mutation. Call the `write` tool (for a new artifact) or `edit` now; do not run more exploratory commands.' }],
             source: { kind: 'user' },
           }))
           continue

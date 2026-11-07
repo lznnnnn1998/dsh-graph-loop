@@ -17,6 +17,9 @@
   `copy` now mark a task as mutating, so merge-into-file tasks get an edit node.
 - **Rename guidance**: the mutation node tells the model to use `bash` (`mv`/`rm`/`mkdir`) for
   rename/move/delete, not to create a copy with `write` and leave the original.
+- **Mutation enforcement**: a `d_edit` node that explores without writing gets one corrective
+  retry; real mutating bash commands count. Formatting (DSML) retries are capped at one. The
+  Terminal-Bench profile caps provider retries at one.
 - **Benchmark**: local suite expanded to 20 tasks with mean/median reporting, fixture validation,
   run manifests, and a packed-tarball install/runtime test. Added Terminal-Bench 4.0 and
   NL2Repo-Bench preflights/runbooks. Docker + Harbor + a DSH Terminal-Bench adapter now run a real

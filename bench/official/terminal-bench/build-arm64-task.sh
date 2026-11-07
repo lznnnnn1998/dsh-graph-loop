@@ -33,13 +33,20 @@ for p in [out / 'environment' / 'Dockerfile', out / 'tests' / 'Dockerfile']:
 toml = out / 'task.toml'
 s = toml.read_text()
 # The environment image and the verifier image are the two `docker_image` keys.
-matches = list(re.finditer(r'docker_image\s*=\s*"[^"]+"', s))
-if len(matches) < 1:
-    raise SystemExit('no docker_image found in task.toml')
-# First occurrence is normally [environment], second [verifier.environment].
-s = s.replace(matches[0].group(0), f'docker_image = "{env_tag}"', 1)
-if len(matches) > 1:
-    s = s.replace(matches[1].group(0), f'docker_image = "{verifier_tag}"', 1)
+def replace_section_image(text: str, section: str, tag: str) -> str:
+    # Replace docker_image only inside the named TOML section.
+    pattern = re.compile(
+        r'(?ms)^\[' + re.escape(section) + r'\]\s*$.*?(?=^\[[^\]]+\]\s*$|\Z)'
+    )
+    match = pattern.search(text)
+    if match is None:
+        return text
+    block = match.group(0)
+    new_block = re.sub(r'docker_image\s*=\s*"[^"]+"', f'docker_image = "{tag}"', block, count=1)
+    return text[:match.start()] + new_block + text[match.end():]
+
+s = replace_section_image(s, 'environment', env_tag)
+s = replace_section_image(s, 'verifier.environment', verifier_tag)
 toml.write_text(s)
 PY
 

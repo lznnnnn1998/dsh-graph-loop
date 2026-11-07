@@ -22,9 +22,12 @@ until the exact harness version, task selection and agent adapter are pinned.
   [`dsh_agent.py`](terminal-bench/dsh_agent.py). It installs Node + DSH in the task container,
   installs the packed graph plugin, sets `toolPolicy: preset`, runs one DSH turn in `/app`, and can
   run the stock loop with `DSH_STOCK=1`.
-- **One official task has been scored**: `terminal-bench/html-js-filter`, both arms **0.0**.
-  Stock wrote a filter but failed hidden XSS vectors; graph produced no file. Details and raw
-  verifier output: [`results/2026-11-07-html-js-filter/`](results/2026-11-07-html-js-filter/).
+- **Official trials are scored**: `html-js-filter` (both 0.0) and a 5-task subset attempt
+  (0.0 on every clean trial; two arms timed out). Details:
+  [`results/2026-11-07-html-js-filter/`](results/2026-11-07-html-js-filter/) and
+  [`results/terminal-bench-subset/`](results/terminal-bench-subset/).
+- **No nonzero task and no aggregate yet**; the harness is working, the agent is not solving these
+  hard tasks. Use [`run-subset.sh`](terminal-bench/run-subset.sh) for a fixed subset.
 - **Apple Silicon caveat**: published task images are amd64 and Node crashes under qemu
   (`uv__io_poll` assertion). Build a native arm64 copy with
   [`build-arm64-task.sh`](terminal-bench/build-arm64-task.sh) before running DSH. This changes the
@@ -68,6 +71,9 @@ DSH_PLUGIN_TARBALL="$PWD/dist/dsh-graph-loop-0.1.2.tgz" \
 harbor run --path /tmp/tb-html-arm --agent dsh_agent:DshAgent \
   --model deepseek/deepseek-flash --ae DEEPSEEK_API_KEY=... \
   --env docker --n-concurrent 1 --yes
+
+# fixed subset (stock + graph, rows + summary)
+bash bench/official/terminal-bench/run-subset.sh /tmp/tb-arm-dsh
 ```
 
 The model card used 42.3; treat it as a reference, not a guarantee under a different harness,
