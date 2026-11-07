@@ -52,8 +52,10 @@ synthesized plan does not name, and silently hiding them would invalidate the co
   images crash Node under qemu.
 - Exact command and adapter requirement: [`bench/official/README.md`](../bench/official/README.md).
 - Target: model-card 42.3. Run a fixed 10–20-task subset first; full set only after the probe.
-- First trial: `html-js-filter` — stock **0.0**, graph **0.0** (hard task; stock wrote a filter that
-  failed hidden XSS vectors, graph wrote no file). This is not an aggregate score.
+- Environment smoke: `smoke/answer-42` — oracle **1.0**, graph **1.0**, stock **1.0**. Run
+  `run-smoke.sh` before any subset; it proves Docker/Harbor/verifier/adapter health.
+- Hard subset: 7 tasks, **0.0 on every clean trial** (see `bench/official/results/terminal-bench-subset/`).
+  This is an agent-quality result, not an environment failure.
 - Gate: run a pre-registered 10–20-task subset on native images before claiming a Terminal-Bench
   number.
 

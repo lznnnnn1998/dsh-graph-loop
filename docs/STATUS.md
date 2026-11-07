@@ -20,7 +20,7 @@ graph driver plus a LangGraph kernel runs the turn, the Graph tab shows the topo
 | Composition core | envelope / role resolution, capability-driven synthesis, annotation layer, checkpoint contract — pure core, 25 focused tests |
 | UI | Graph tab + `/graph-chat`; installed e2e passes |
 | Packaging | tarball install + packed-loop runtime e2e passes (`scripts/e2e-tarball.sh`) |
-| Benchmark | local 20-task suite (40/40 both); Docker/Harbor + DSH adapter; fixed Terminal-Bench 7-task subset, **0.0 on every clean trial**, no aggregate |
+| Benchmark | local 20-task suite (40/40 both); **smoke task 1.0 oracle/graph/stock**; hard Terminal-Bench subset **0.0 on clean trials** |
 | Tests | **115 unit tests**, typecheck clean, installed e2e + tarball e2e pass |
 
 ## Evidence (real model, `deepseek-flash`, `reasoningEffort: high`)
@@ -71,6 +71,7 @@ bash scripts/verify-all.sh               # typecheck + tests + both e2e + links
 bash bench/agent-eval/run-real.sh --arm both --reps 2
 node bench/agent-eval/summarize.mjs bench/agent-eval/results/2026-11-07-local-2x.json --per-task
 bash bench/official/terminal-bench/preflight.sh  # READY: Docker + Harbor + DSH adapter
+bash bench/official/terminal-bench/run-smoke.sh    # 1.0 oracle/graph/stock; run BEFORE subsets
 bash bench/official/terminal-bench/build-arm64-task.sh <task-dir> /tmp/tb-arm64
 bash bench/official/nl2repo/preflight.sh         # Docker present; DSH adapter still missing
 scripts/officebench-preflight.sh                 # secondary office probe

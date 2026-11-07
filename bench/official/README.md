@@ -36,6 +36,16 @@ until the exact harness version, task selection and agent adapter are pinned.
   (`openhands/openhands_app.py`) and needs a DSH replacement.
 - This is **not an aggregate Terminal-Bench score**; one task is not a benchmark.
 
+## Smoke first (required)
+
+```sh
+bash bench/official/terminal-bench/build-smoke.sh
+bash bench/official/terminal-bench/run-smoke.sh
+```
+
+Oracle, graph and stock must all score **1.0** on the trivial `answer-42` task before a benchmark
+subset. Latest: [`results/smoke-answer-42/`](results/smoke-answer-42/).
+
 ## Run protocol (when the gates pass)
 
 1. Pin the model: `deepseek-flash` is the 1017 snapshot; record the provider/model and

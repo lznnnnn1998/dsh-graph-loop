@@ -17,9 +17,15 @@ mkdir -p "$JOBS_DIR"
 export PATH="$HOME/.local/bin:$PATH"
 export PYTHONPATH="$ROOT/bench/official/terminal-bench${PYTHONPATH:+:$PYTHONPATH}"
 export DSH_PLUGIN_TARBALL="${DSH_PLUGIN_TARBALL:-$ROOT/dist/dsh-graph-loop-bench.tgz}"
+export DSH_AGENT_TIMEOUT_SEC="${DSH_AGENT_TIMEOUT_SEC:-900}"
 export TASKS_DIR OUT_DIR JOBS_DIR
 
 TASKS="${TASKS:-bun-sourcemap-leak foodstuff-beta-activity interleaved-vigenere medical-claims-processing music-harmony payments-pipeline-fix protein-autointerp-disulfide}"
+
+if [ "${SKIP_SMOKE:-0}" != "1" ]; then
+  echo "== smoke gate (set SKIP_SMOKE=1 to bypass)"
+  bash "$ROOT/bench/official/terminal-bench/run-smoke.sh"
+fi
 
 KEY="$(python3 - <<'PY'
 import os, yaml
