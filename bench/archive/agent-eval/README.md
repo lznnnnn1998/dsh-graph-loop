@@ -33,16 +33,16 @@ Each run measures: task success, steps, tool calls, input/output/cache/prompt to
 Before running, check the negative case:
 
 ```sh
-node bench/agent-eval/validate-tasks.mjs
+node bench/archive/agent-eval/validate-tasks.mjs
 ```
 
 ## Run with the real model
 
 ```sh
 # Reads DEEPSEEK_API_KEY from the DSH credential store; never prints it.
-bash bench/agent-eval/run-real.sh --arm both --reps 2
+bash bench/archive/agent-eval/run-real.sh --arm both --reps 2
 # benchmark compatibility: keep the full preset tool set
-bash bench/agent-eval/run-real.sh --arm graph --tool-policy preset --task write-answer
+bash bench/archive/agent-eval/run-real.sh --arm graph --tool-policy preset --task write-answer
 ```
 
 Results land in `/tmp/dsh-agent-eval/<stamp>/results.json`.
@@ -53,14 +53,16 @@ This is the installable-plugin path: a throwaway DSH home gets a stock `headless
 `explore` profile with `dsh plugin add packages/loop`; no DSH source is modified.
 
 ```sh
-bash bench/agent-eval/prepare-installed.sh /tmp/dsh-agent-eval/installed-home
-bash bench/agent-eval/run-real.sh --installed --home /tmp/dsh-agent-eval/installed-home --arm both
+bash bench/archive/agent-eval/prepare-installed.sh /tmp/dsh-agent-eval/installed-home
+bash bench/archive/agent-eval/run-real.sh --installed --home /tmp/dsh-agent-eval/installed-home --arm both
 ```
 
 `--installed` omits the dev `--patch`; the graph arm boots the profile that has the bundle installed.
 
 ## Notes
 
+- The two 20-task runs executed on **dirty worktrees**, not on their recorded commits; see
+  [`results/README.md`](results/README.md) ("Provenance") before citing them as commit-bound evidence.
 - The harness runs the DSH CLI through `cli-wrapper.mjs` so module resolution uses the DSH checkout
   while the agent's file tools use the task workspace. This is test tooling only; the plugin itself
   is loaded by the profile.

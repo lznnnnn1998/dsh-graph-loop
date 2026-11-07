@@ -47,7 +47,7 @@ The 0.1.x build history is archived in [`docs/archive/PROGRESS-0.1.md`](docs/arc
 - [x] **M2 — checkpoint contract**: `GraphCheckpoint` / `CheckpointStore` / `TableCheckpointStore`
       (storageDomain-shaped) / `InMemoryCheckpointStore` (`packages/core/src/checkpoint.ts`),
       10 unit tests. JSON guard, 64 KiB cap, stable keys, deterministic latest, prune by turn.
-- [x] **Verification**: 108 unit tests green; `npm run typecheck` clean.
+- [x] **Verification**: the unit suite green; `npm run typecheck` clean.
 - [x] **M3a — measurable graph runtime (installable bundle)**: per-plan/per-node tool admission,
       mutation detection, answer-only terminal nodes, safe tool floor, and a non-null turn end when
       the graph finishes. Local real-model evaluation, 2 repetitions × 6 tasks: **12/12 success for
@@ -69,7 +69,7 @@ The 0.1.x build history is archived in [`docs/archive/PROGRESS-0.1.md`](docs/arc
 - [x] **M3d — kernel round-trip (kernel-drivable plans)**: the scheduler now uses `KernelTopology`
       (LangGraph `KernelPort`, pause-before-node bridge, one superstep per DSH step) for linear plans
       with safe node ids and no subagent/conditional edges; other plans keep `FrontierTopology`.
-      Async driver interface; 3 new unit tests; 116 total tests. Live eval: **6/6 both arms**, median
+      Async driver interface; 3 new unit tests; the full suite green. Live eval: **6/6 both arms**, median
       prompt **23,516 → 9,128 (−61%)**, steps 4 = 4; wall time was noise-dominated (86–92 s stalls on
       three graph runs). Kernel checkpoints are still in-memory.
 - [ ] **M3e — kernel coverage + durable checkpoint**: route conditional/failure edges and subagent
@@ -79,7 +79,10 @@ The 0.1.x build history is archived in [`docs/archive/PROGRESS-0.1.md`](docs/arc
       checkpoint writes, annotation/preset feed, conformance for ordinary chat.
 - [x] **M4a — legacy local 20-task signal (archived)**: 20 tasks × 2 arms × 2 reps; **40/40 both**, prompt
       **24,454 → 9,612 (−60.7%)** legacy; live envelope/compose rerun is **25,105 → 12,561
-      (−50.0% mean; −48.6% median)**, steps 4.2 → 4.0. The active claim is now the TB product suite. Results:
+      (−50.0% mean; −48.6% median)**, steps 4.2 → 4.0. Cost is not a win: billed input +33.8% legacy /
+      −8.6% live, billed total **+44.6% / +16.8%**, output +55.2% / +41.2% (the repo's K3 abandon
+      criterion triggers in both runs). Both runs are dirty-worktree, not commit-bound. The active claim
+      is now the TB product suite. Results:
       [`bench/archive/agent-eval/RESULTS.md`](bench/archive/agent-eval/RESULTS.md).
 - [x] **M4b — Terminal-Bench stress line**: Docker/Colima + Harbor + DSH adapter; smoke 1.0 on
       oracle/graph/stock; hard subset 0.0 on clean trials. This is a stress finding, **not the

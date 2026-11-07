@@ -28,7 +28,12 @@ Harbor's `--agent <name>` resolves an agent class. A DSH adapter must:
 - expose the container workspace to DSH (shell/file tools run inside the task container);
 - return the final agent result to Harbor.
 
-This adapter is **not implemented** in this repo. The preflight marks it explicitly.
+This adapter **is implemented** in this repo: [`terminal-bench/dsh_agent.py`](terminal-bench/dsh_agent.py).
+`terminal-bench/preflight.sh` checks for it and prints READY when Docker, Harbor and the adapter are
+present. Two recorded caveats: the graph profile patch also sets
+`llm-deepseek.retryPolicy.maxRetries: 1` (the stock arm uses the default), and the dataset was fetched
+with `terminal-bench/terminal-bench@latest` (no digest pinned). Record and equalise both before a
+reportable run.
 
 ## OpenHands (NL2Repo-Bench)
 
@@ -38,7 +43,8 @@ NL2Repo's `main.py` drives `openhands/openhands_app.py`. Options:
 - run DSH behind an OpenHands-compatible adapter.
 
 The repo uses OpenHands images `openhands:0.56` and `runtime:0.56-nikolaik`; the adapter must keep
-the Docker volume/workspace layout and write the same per-task result JSON. Not implemented.
+the Docker volume/workspace layout and write the same per-task result JSON. **Not implemented** —
+`nl2repo/preflight.sh` reports the missing DSH adapter.
 
 ## Minimal acceptance before a score is reportable
 

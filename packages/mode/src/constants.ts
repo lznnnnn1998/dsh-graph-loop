@@ -7,9 +7,10 @@
  */
 
 /**
- * Default node cycle for the graph policy. The policy section names the node for
- * the current step; the mode is advisory, so the names describe intent rather than
- * enforcing a tool set.
+ * Fallback node cycle for the preset's own policy text, used only when no host
+ * graph driver is mounted. The policy section names the node for the current step;
+ * when `graphRuntime` is present the loop owns node naming and the preset omits its
+ * own cycle, so the model is never told two different current nodes.
  */
 export const DEFAULT_NODES = Object.freeze(['inspect', 'plan', 'act', 'verify'])
 

@@ -103,7 +103,8 @@ arms (D14/D15) — composition is the mechanism, the comparison is the proof.
 
 - Per-turn capability envelope: role resolution, tool universe, prompt sections, memory policy.
 - Graph composition: `step`, `tool-batch`, `subagent`, `context` executors; typed state; budgets.
-- Authoritative checkpoints in `storageDomain`; replay view; Graph tab data path.
+- Checkpoint contract (`CheckpointStore`; in-memory today) and the plan for a `storageDomain`
+  sidecar; replay view; Graph tab data path.
 - Control plane over the stock loop, preserving stock session/event conformance.
 - Template package format: manifest, role binding, validation, dry-run preview.
 - **Product evaluation**: 10 easy + 10 medium Terminal-Bench tasks.
@@ -312,10 +313,12 @@ interface CheckpointStore {
 }
 ```
 
-Implementation: `@deepseek-ai/dsh-storage-domain` with a zod-validated domain (`checkpoints` table),
-keyed by `${sessionId}/${turnId}/${seq}/${nodeId}`. Writes happen only at node boundaries — after
-`step/end` or after an injected join result, never mid-step. If `storageDomain` is not mounted, the
-composition row **fails loudly**; there is no silent in-memory fallback.
+**Implementation status (2026-11-07): contract only.** `GraphCheckpoint` / `CheckpointStore` and an
+in-memory `InMemoryCheckpointStore` (plus a `storageDomain`-shaped `TableCheckpointStore`) live in
+`packages/core/src/checkpoint.ts`; the kernel writes `MemoryCheckpointer`. The
+`@deepseek-ai/dsh-storage-domain` sidecar is **not mounted** in 0.2, so checkpoints do not survive a
+process restart. A `storageDomain`-backed store is planned (M3e), keyed by
+`${sessionId}/${turnId}/${seq}/${nodeId}` with writes only at node boundaries.
 
 Resume policy (D10): on restore, interrupted turns are closed exactly like stock. Checkpoints remain
 readable for the Graph tab and replay. A future resume feature must add the
@@ -402,7 +405,7 @@ The curated index reviews listings before they appear. Templates never execute c
 |---|---|---|
 | M0 | This decision record; README/PROGRESS update; freeze driver + preset | Repo states the new direction consistently |
 | M1 | Envelope + role resolution + capability-driven synthesis (pure core) + tests | Deterministic envelope/plan for a representative task; unknown tools still compose |
-| M2 | `CheckpointStore` over `storageDomain` + contract tests | Put/latest/list/prune; JSON guard; fail-loud when absent |
+| M2 | `CheckpointStore` contract (`InMemoryCheckpointStore`; `storageDomain` saver pending) | Put/latest/list/prune; JSON guard; 64 KiB cap |
 | M3 | Control plane: step nodes, prompt section, boundaries, checkpoints, annotation/preset feed | One composition turn runs ≥3 nodes over the stock loop; ordinary chat conformance holds; adapters ready for Terminal-Bench |
 | M4 | **Live envelope/compose + verify repair**; Terminal-Bench easy10 + medium10 product run | Accuracy parity, token/steps win |
 | M5 | Terminal-Bench product suite + product head-to-head report; 0.2.0 | Report published with config/commit/model; product claim tested |
@@ -417,7 +420,7 @@ remain useful as genericity fixtures, but they cannot prove "better than the off
 **Inner loop (per change):** unit tests with the mock LLM; structural/envelope accounting; a single
 real smoke turn only when the change touches the adapter. **No public benchmark per change.**
 
-**Benchmark protocol:** see [`docs/EVALUATION.md`](EVALUATION.md). Probe first (5 tasks, three arms),
+**Benchmark protocol:** see [`docs/EVALUATION.md`](EVALUATION.md). Probe first (a fixed small subset, three arms),
 then the full subset, each recorded in `bench/results/` with command, profile, commit and model.
 Thresholds are read after the run, not tuned per change.
 
@@ -429,15 +432,20 @@ Thresholds are read after the run, not tuned per change.
 |---|---|
 | `packages/core` registry/matching/topology/proposal | **Seed** — extended with envelope, roles, checkpoints |
 | `packages/graph-ui` | **Seed** — Graph tab, trace, preview |
-| `packages/loop` driver (fork) | **Frozen experimental** — `driver.patch.yml`, not the default bundle |
+| `packages/loop` driver (fork) | **Active** — installed as the default loop row (stock `agent-loop` disabled); the fork remains tracked maintenance debt |
 | `packages/mode` Explore preset + reuse guard | **Active mode** — installed by default; sets `agent-preset-registry.default = explore` |
-| `packages/loop/src/kernel/*` | Kept as the LangGraph/Minimal kernel reference; not the 0.2 default |
+| `packages/loop/src/kernel/*` | **Active kernel** — LangGraph is the default with `MinimalKernel` fallback; checkpoints are in-memory |
 | `docs/archive/explore-mode-plan.zh.md` | Historical research; superseded by this document |
 | `design/*` | Historical contracts; useful as design evidence |
 
-Package identity stays (D18). The 0.2 `dsh-graph-loop` bundle mounts the composition rows; the
-driver patch is shipped separately for manual experimental profiles. The UI package is unchanged in
-name.
+Package identity stays (D18). The 0.2 `dsh-graph-loop` bundle mounts the composition rows **and**
+installs the driver as the loop row (`scripts/install-explore.sh` disables stock `agent-loop`).
+`driver.patch.yml` no longer exists; the shipped patch is `packages/loop/cordis.patch.yml`. The UI
+package is unchanged in name.
+
+Status note (2026-11-07): M0 kept the existing fork as the active driver while the composition
+bundle was built; D12/D13 (composition bundle first, fork only on 2+ triggers) remain the stated
+direction, but the current install is fork-based. The contract plane (§4–§5) is the durable artifact.
 
 ---
 
@@ -499,7 +507,7 @@ metadata vs adapter overrides); template index hosting; whether GAIA is worth a 
 | Routing | `packages/core/src/matching.ts`; `packages/loop/src/router.ts` | Envelope selection; role resolution |
 | Registry | `packages/core/src/registry.ts`; `packages/loop/src/registry.ts` | Roles/implementations; snapshot digest in checkpoints |
 | Driver | `packages/loop/src/loop/*` fork; `GraphLoopDriver` | Control-plane adapter over stock loop |
-| Kernel | `packages/loop/src/kernel/*` (`MinimalKernel`, LangGraph adapter) | Reference only in 0.2 |
+| Kernel | `packages/loop/src/kernel/*` (`MinimalKernel`, LangGraph adapter) | Active default (LangGraph; Minimal fallback); in-memory checkpoints |
 | Checkpoints | `GraphLoopConfig.checkpoint` in-turn memory | `storageDomain` `CheckpointStore` |
 | UI | `packages/graph-ui` Graph tab + `/graph-chat` | Read checkpoints; render envelope/roles |
 | Synthesis | `packages/core/src/compose.ts` (capability-driven) | Extend stage set; wire into router |

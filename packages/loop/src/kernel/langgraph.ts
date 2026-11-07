@@ -543,6 +543,42 @@ function mapStreamError(error: unknown, nodeId: NodeId): KernelError {
  * ========================================================================== */
 
 /**
+ * The `GraphState` channels `LangGraphPlanRun` compiles its `Annotation.Root`
+ * from — the single source of truth for both the root and the plan node-id
+ * reserved list. LangGraph refuses a node whose name is also a channel
+ * ("next is already being used as a state attribute").
+ */
+export const LANGGRAPH_STATE_CHANNELS = [
+  'taskHash',
+  'planId',
+  'planVersion',
+  'superstep',
+  'next',
+  'status',
+  'facts',
+  'artifacts',
+  'children',
+  'journal',
+  'budget',
+  'replans',
+] as const
+
+export type LangGraphStateChannel = (typeof LANGGRAPH_STATE_CHANNELS)[number]
+
+/**
+ * Node ids the LangGraph engine reserves: the state channels above plus its own
+ * `__start__`/`__end__` markers. `canKernelDrive()` keeps a plan whose node id
+ * collides (case-sensitively, like LangGraph) on the frontier engine rather than
+ * renaming nodes behind the plan's back.
+ */
+export const LANGGRAPH_RESERVED_NODE_IDS: readonly string[] = [...LANGGRAPH_STATE_CHANNELS, START, END]
+
+/** True when LangGraph cannot use `id` as a node name. */
+export function isReservedPlanNodeId(id: string): boolean {
+  return LANGGRAPH_RESERVED_NODE_IDS.includes(id)
+}
+
+/**
  * `KernelPort` backed by LangGraph. Construction stays synchronous; the module
  * is loaded (and the surface verified) on the first `next()`. When LangGraph is
  * absent the run degrades to the minimal kernel instead of failing.
@@ -681,20 +717,11 @@ class LangGraphPlanRun implements KernelRunHandle {
     const ids = plan.nodes.map((node) => node.id)
     const initial = this.state
     const replace = <T>(value: T) => ({ reducer: (_left: T, right: T) => right, default: () => value })
-    const root = lg.Annotation.Root({
-      taskHash: lg.Annotation(replace(initial.taskHash)),
-      planId: lg.Annotation(replace(initial.planId)),
-      planVersion: lg.Annotation(replace(initial.planVersion)),
-      superstep: lg.Annotation(replace(initial.superstep)),
-      next: lg.Annotation(replace(initial.next)),
-      status: lg.Annotation(replace(initial.status)),
-      facts: lg.Annotation(replace(initial.facts)),
-      artifacts: lg.Annotation(replace(initial.artifacts)),
-      children: lg.Annotation(replace(initial.children)),
-      journal: lg.Annotation(replace(initial.journal)),
-      budget: lg.Annotation(replace(initial.budget)),
-      replans: lg.Annotation(replace(initial.replans)),
-    })
+    // Built from LANGGRAPH_STATE_CHANNELS so the channels compiled here and the
+    // reserved ids `canKernelDrive()` rejects can never drift apart.
+    const root = lg.Annotation.Root(Object.fromEntries(
+      LANGGRAPH_STATE_CHANNELS.map((channel) => [channel, lg.Annotation(replace((initial as unknown as Record<string, unknown>)[channel]))]),
+    ))
     const builder = new lg.StateGraph(root)
     for (const node of plan.nodes) {
       builder.addNode(node.id, async (incoming: GraphState) => this.runPlanNode(node.id, incoming))
@@ -834,9 +861,9 @@ class LangGraphPlanRun implements KernelRunHandle {
       if (this.streamDone) return this.settle(this.doneResult())
       // Let the gated next node start only now that the caller asked again.
       this.releaseGate(true)
-      await this.ensureStream()
       let step: IteratorResult<any>
       try {
+        await this.ensureStream()
         step = await this.iterator!.next()
       } catch (error) {
         if (signal.aborted) {
@@ -846,6 +873,8 @@ class LangGraphPlanRun implements KernelRunHandle {
             error: cancelledFailure(this.state.next ?? '', abortMessage(signal)),
           })
         }
+        // Opening the stream is fallible too (aborted signal, compile error):
+        // surface it as a failed result + onFailure, never as a throw (A7/H7).
         const kernelError = mapStreamError(error, this.state.next ?? '')
         const failure = failureOf(kernelError, this.state.next ?? '')
         this.deps.onFailure?.(failure)

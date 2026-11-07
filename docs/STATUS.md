@@ -1,7 +1,9 @@
 # Status — 2026-11-07
 
 One-page snapshot of the repository. Decisions: [COMPOSITION.md](COMPOSITION.md). LangGraph merge
-plan: [MERGE-LANGGRAPH.md](MERGE-LANGGRAPH.md). Evidence: archived legacy [bench/archive/agent-eval/RESULTS.md](../bench/archive/agent-eval/RESULTS.md); active product suite defined in [`bench/official/subsets/`](../bench/official/subsets/).
+plan: [MERGE-LANGGRAPH.md](MERGE-LANGGRAPH.md). Evidence: archived local runs
+[bench/archive/agent-eval/RESULTS.md](../bench/archive/agent-eval/RESULTS.md); active product suite
+defined in [`bench/official/subsets/`](../bench/official/subsets/).
 
 ## What this is
 
@@ -17,12 +19,12 @@ graph driver plus a LangGraph kernel runs the turn, the Graph tab shows the topo
 | Mode | Explore preset registered; new sessions default to it (explicit user selection still wins) |
 | Kernel | `createKernel()` / `runPlan()` default to **LangGraph**; `MinimalKernel` fallback when the optional dependency is absent |
 | Live driver | `KernelTopology` pauses the kernel before a node, DSH runs the step, the kernel resumes with the outcome. Linear plans with safe node ids use it; subagent/conditional plans fall back to `FrontierTopology` |
-| Composition core | envelope / role resolution / capability composer **live in dynamic mode**; annotation layer + checkpoint contract; 116 tests |
+| Composition core | envelope / role resolution / capability composer **live in dynamic mode**; annotation layer + checkpoint contract; unit suite green |
 | UI | Graph tab + `/graph-chat`; installed e2e passes |
 | Packaging | tarball install + packed-loop runtime e2e passes (`scripts/e2e-tarball.sh`) |
 | Benchmark | product: **Terminal-Bench easy10 + medium10** defined; 20-task run pending; legacy local 20 archived |
 | Stress | Terminal-Bench smoke 1.0 all arms; hard subset 0.0 clean (not the gate) |
-| Tests | **116 unit tests**, typecheck clean, installed e2e + tarball e2e pass |
+| Tests | **unit suite green**, typecheck clean, installed e2e + tarball e2e pass |
 
 ## Evidence
 
@@ -30,8 +32,11 @@ graph driver plus a LangGraph kernel runs the turn, the Graph tab shows the topo
 ([`bench/official/subsets/product20.json`](../bench/official/subsets/product20.json)). It is
 **defined but not yet run** after the switch; smoke is 1.0 on oracle/graph/stock.
 
-Legacy local 20-task live-compose result (archived, no longer the active claim): 40/40 both,
-prompt **25,105 → 12,561 (−50.0% mean; −48.6% median)**, steps 4.2 → 4.0. See
+Archived local 20-task run on the live envelope/compose path (superseded; dirty worktree, not
+commit-bound): 40/40 both, prompt **25,105 → 12,561 (−50.0% mean; −48.6% median)**, steps 4.2 → 4.0,
+wall +9.4% / +4.2%. The earlier legacy-topology run in the same file (prompt −60.7%) is not
+comparable. Cost is not a win: billed total **+16.8%** live (+44.6% legacy), because output tokens
+rise +41.2% / +55.2%. See
 [`bench/archive/agent-eval/RESULTS.md`](../bench/archive/agent-eval/RESULTS.md).
 
 **Stress line:** Terminal-Bench hard subset 0.0 on clean trials; smoke 1.0. Not the product gate.
@@ -61,7 +66,7 @@ prompt **25,105 → 12,561 (−50.0% mean; −48.6% median)**, steps 4.2 → 4.0
 
 ```sh
 bash scripts/install-explore.sh          # install into the web profile
-npm test                                 # 116 unit tests
+npm test                                 # unit suite
 npm run typecheck
 bash scripts/e2e-installed.sh            # installed bundle e2e (mock LLM)
 bash scripts/e2e-tarball.sh              # packed-tarball install path

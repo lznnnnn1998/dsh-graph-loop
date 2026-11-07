@@ -2,8 +2,8 @@
  * `dsh-graph-loop/kernel` — graph kernels for the `explore` loop.
  *
  * Two interchangeable implementations:
- *   - `minimal`   (default) — vendored stepwise engine, no third-party runtime;
- *   - `langgraph` — adapter over `@langchain/langgraph@1.7.0`, loaded lazily.
+ *   - `langgraph` (default) — adapter over `@langchain/langgraph@1.7.0`, loaded lazily;
+ *   - `minimal`   — vendored stepwise engine, no third-party runtime; the fallback.
  *
  * Both expose Layer 1 (`createGraph` → `GraphBuilder` → `CompiledGraph`) and
  * Layer 2 (`KernelPort` → `KernelRunHandle.next()`, exactly one plan node per

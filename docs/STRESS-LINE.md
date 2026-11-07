@@ -15,8 +15,12 @@
 
 - Harness: Docker/Colima + Harbor + DSH adapter; native arm64 task images; smoke gate.
 - Smoke `answer-42`: oracle/graph/stock all **1.0**.
-- Hard fixed subset: **0.0 on every clean trial**. Graph runs ~5 steps; stock 30–60 steps or
+- Hard fixed subset: **7 tasks attempted, 0.0 on every clean trial** (2 clean stock / 5 clean graph;
+  the rest are timeouts or sidecar errors, not scores). Graph runs ~5 steps; stock 30–60 steps or
   timeouts. The graph is too shallow and has no verification gate; this is the main lesson.
+- Caveats: the first trial/subset attempts predate the smoke gate; the dataset was unpinned; the
+  graph arm also sets `retryPolicy.maxRetries: 1`. See
+  [`bench/official/README.md`](../bench/official/README.md#evidence-caveats-recorded-not-hidden).
 - Full infrastructure details and results live in [`bench/official/`](../bench/official/).
 
 ## Rules

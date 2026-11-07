@@ -89,6 +89,12 @@ export interface GraphTurnDriver {
   /** Complete one node from a batch, with its outcome. */
   completeNode(id: string, ok: boolean): Promise<void>
   done(): boolean
+  /**
+   * Current run status. `failed` means the graph ended unsuccessfully after
+   * recovery/replan had its chance; the loop turns that into a failed turn.
+   * Optional for test doubles that only exercise the stepping surface.
+   */
+  status?(): PlanStatus
   /** Called once by the driver after `turn/end`; flushes the trace. */
   endTurn(): void
   snapshot(): GraphTurnSnapshot
@@ -156,6 +162,13 @@ interface TurnTopology {
   steps(): number
   snapshot(): TaskPlan
   dispose?(): Promise<void> | void
+}
+
+/** One graph node outcome as the loop reports it after a step or subagent result. */
+interface NodeOutcome {
+  readonly ok: boolean
+  readonly failedTool?: string
+  readonly tools?: readonly { readonly name: string; readonly callId: string; readonly isError: boolean }[]
 }
 
 /**
@@ -239,6 +252,87 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     lastNode = topology.current()?.id
   }
 
+  /** Append one executed node to the run trail. */
+  function recordTrail(id: string, executor: string | undefined, outcome: NodeOutcome): void {
+    trail.push({
+      id,
+      step: (topology?.steps() ?? 0) + 1,
+      executor: executor ?? 'step',
+      status: outcome.ok ? 'ok' : 'failed',
+      ...(outcome.tools === undefined || outcome.tools.length === 0 ? {} : { tools: outcome.tools }),
+    })
+  }
+
+  /**
+   * Boundary replan: a failed work node gets a small diagnosis/retry graph.
+   * Shared by model steps and subagent batch completions so a failed child can
+   * trigger the same recovery a failed step can.
+   */
+  function recoverAfterFailure(outcome: NodeOutcome): void {
+    if (outcome.ok || topology === undefined || topology.status() !== 'failed') return
+    const maxReplans = plan?.budget.maxReplans ?? 0
+    if (replans >= maxReplans) return
+    replans += 1
+    const failedNode = lastNode ?? 'unknown'
+    const verifyFailure = /verify/i.test(failedNode)
+    const next = verifyFailure
+      ? repairTopology({
+        taskHash: plan?.id ?? 'unknown',
+        failedNode,
+        ...(outcome.failedTool === undefined ? {} : { failedTool: outcome.failedTool }),
+        budget: plan?.budget,
+      })
+      : recoveryTopology({
+        taskHash: plan?.id ?? 'unknown',
+        failedNode,
+        ...(outcome.failedTool === undefined ? {} : { failedTool: outcome.failedTool }),
+        budget: plan?.budget,
+      })
+    install(next)
+    rationale = [...rationale, `replan ${replans}: ${verifyFailure ? 'verify repair' : 'recovery'} after ${lastNode ?? 'failure'}`]
+  }
+
+  /**
+   * A model-authored proposal can arrive between steps. The default policy
+   * treats topology as a turn-start decision: adopt only before the first
+   * work node completes. `always` is an explicit opt-in to mid-run edits.
+   */
+  function adoptProposalAtBoundary(): void {
+    if (options.proposalSource === undefined) return
+    const proposed = options.proposalSource()
+    if (proposed === undefined) return
+    const steps = topology?.steps() ?? 0
+    const allowed = adoptPolicy === 'always'
+      || (adoptPolicy === 'start-only' && steps <= 1)
+      || (adoptPolicy === 'on-failure' && topology?.status() === 'failed')
+    if (allowed) {
+      install(proposed)
+      adoptedAtStep = steps
+      rationale = [...rationale, 'adopted model-authored topology']
+    } else {
+      rationale = [...rationale, 'proposal ignored: topology is fixed after the first work node']
+    }
+  }
+
+  /**
+   * Record one node outcome, advance the topology, then run boundary recovery.
+   * `record` is absent when `advance()` has no current node: the run still
+   * settles its boundary, without inventing a trail row.
+   */
+  async function advanceNode(
+    record: { readonly id: string; readonly executor?: string } | undefined,
+    lastNodeId: string | undefined,
+    outcome: NodeOutcome,
+    adoptProposal: boolean,
+  ): Promise<void> {
+    if (topology === undefined) return
+    if (record !== undefined) recordTrail(record.id, record.executor, outcome)
+    lastNode = lastNodeId ?? lastNode
+    await Promise.resolve(topology.advance({ ok: outcome.ok, ...(outcome.failedTool === undefined ? {} : { failedTool: outcome.failedTool }) }))
+    recoverAfterFailure(outcome)
+    if (adoptProposal) adoptProposalAtBoundary()
+  }
+
   return {
     async beginTurn(task: TurnTask): Promise<GraphTurnSnapshot> {
       plan = undefined
@@ -248,6 +342,11 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       rationale = []
       envelopeId = undefined
       trail = []
+      // Per-turn state: a new turn gets its own replan allowance and adoption
+      // window. Leaving these to accumulate permanently disables boundary
+      // recovery once an early turn exhausts the plan's replan budget.
+      replans = 0
+      adoptedAtStep = undefined
       const graph = await liveGraph()
       const surface = task.surface ?? 'api'
       const fingerprint = extractFingerprint({
@@ -259,15 +358,17 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
         visibleTools: task.visibleTools ?? [],
       })
 
-      if (mode === 'propose') {
-        install(bootstrapTopology(fingerprint.hash, { maxSteps }))
-        rationale = ['bootstrap frame: the model authors the topology']
-        return emit()
-      }
-
+      // A subagent child is always the single-node fallback, even in propose
+      // mode: children must not fork their own topology or nested fan-out.
       if (options.forceFallback === true) {
         install(fallbackPlan({ id: fingerprint.hash, instruction: options.fallbackInstruction, maxSteps }))
         rationale = ['child agent: single-node fallback']
+        return emit()
+      }
+
+      if (mode === 'propose') {
+        install(bootstrapTopology(fingerprint.hash, { maxSteps }))
+        rationale = ['bootstrap frame: the model authors the topology']
         return emit()
       }
 
@@ -372,60 +473,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
   }): Promise<GraphTurnSnapshot> {
       if (topology === undefined) return snapshot()
       const node = topology.current()
-      lastNode = node?.id ?? lastNode
-      if (node !== undefined) {
-        trail.push({
-          id: node.id,
-          step: topology.steps() + 1,
-          executor: node.executor ?? 'step',
-          status: outcome.ok ? 'ok' : 'failed',
-          ...(outcome.tools === undefined || outcome.tools.length === 0 ? {} : { tools: outcome.tools }),
-        })
-      }
-      await Promise.resolve(topology.advance({ ok: outcome.ok, ...(outcome.failedTool === undefined ? {} : { failedTool: outcome.failedTool }) }))
-      // Boundary replan: a failed work node gets a small diagnosis/retry graph.
-      if (!outcome.ok && topology.status() === 'failed') {
-        const maxReplans = plan?.budget.maxReplans ?? 0
-        if (replans < maxReplans) {
-          replans += 1
-          const failedNode = lastNode ?? 'unknown'
-          const verifyFailure = /verify/i.test(failedNode)
-          const next = verifyFailure
-            ? repairTopology({
-                taskHash: plan?.id ?? 'unknown',
-                failedNode,
-                ...(outcome.failedTool === undefined ? {} : { failedTool: outcome.failedTool }),
-                budget: plan?.budget,
-              })
-            : recoveryTopology({
-                taskHash: plan?.id ?? 'unknown',
-                failedNode,
-                ...(outcome.failedTool === undefined ? {} : { failedTool: outcome.failedTool }),
-                budget: plan?.budget,
-              })
-          install(next)
-          rationale = [...rationale, `replan ${replans}: ${verifyFailure ? 'verify repair' : 'recovery'} after ${lastNode ?? 'failure'}`]
-        }
-      }
-      // A model-authored proposal can arrive between steps. The default policy
-      // treats topology as a turn-start decision: adopt only before the first
-      // work node completes. `always` is an explicit opt-in to mid-run edits.
-      if (options.proposalSource !== undefined) {
-        const proposed = options.proposalSource()
-        if (proposed !== undefined) {
-          const steps = topology.steps()
-          const allowed = adoptPolicy === 'always'
-            || (adoptPolicy === 'start-only' && steps <= 1)
-            || (adoptPolicy === 'on-failure' && topology.status() === 'failed')
-          if (allowed) {
-            install(proposed)
-            adoptedAtStep = steps
-            rationale = [...rationale, 'adopted model-authored topology']
-          } else {
-            rationale = [...rationale, 'proposal ignored: topology is fixed after the first work node']
-          }
-        }
-      }
+      await advanceNode(node, node?.id, outcome, true)
       return emit()
     },
     adopt(next: TaskPlan): void {
@@ -449,15 +497,23 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     async completeNode(id: string, ok: boolean): Promise<void> {
       if (topology === undefined) return
       const node = topology.select(id)
-      if (node !== undefined) {
-        trail.push({ id, step: topology.steps() + 1, executor: node.executor ?? 'step', status: ok ? 'ok' : 'failed' })
-      }
-      await Promise.resolve(topology.advance({ ok }))
-      lastNode = id
+      // A batch node superseded by a recovery replan no longer exists in the
+      // live topology. Ignore it instead of advancing a node its completion
+      // never ran; the remaining batch members settle the same way.
+      if (node === undefined) return
+      // A batch completion is still a graph boundary: route it through the same
+      // trail/advance/replan path as a model step so a failed subagent can
+      // trigger recovery instead of silently advancing the topology. A
+      // model-authored proposal is not adopted mid-batch; that stays a step
+      // boundary decision.
+      await advanceNode(node, id, { ok }, false)
       options.onSnapshot?.(snapshot())
     },
     done(): boolean {
       return topology === undefined || topology.done()
+    },
+    status(): PlanStatus {
+      return topology?.status() ?? 'failed'
     },
     endTurn(): void {
       const finishing = topology

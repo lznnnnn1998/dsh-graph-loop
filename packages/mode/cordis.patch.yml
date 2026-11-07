@@ -10,7 +10,9 @@
 #      workflow-ptc, tool-workflow) is removed, because this mode delegates through the
 #      shared Agent Teams roster instead of spawning ad-hoc subagents;
 #   2. `explore-policy` and `explore-tools` are appended (graph policy section, idle
-#      roster context, suggest_executor / graph_status, duplicate-spawn guard).
+#      roster context, suggest_executor, duplicate-spawn guard). No `graph_status`
+#      row: the `dsh-graph-loop` bundle owns that host-wide tool and this preset must
+#      not shadow it with a scoped copy.
 # `tool-agent-team` is deliberately absent: it is a HOST row supplied by the
 # agent-team profile bundle, and a preset must not provide services.
 #
@@ -23,9 +25,9 @@
         id: explore
         name: 'Explore (graph)'
         description: >-
-          Task-matched graph policy over the standard tool set. The agent schedules
-          nodes, reuses idle teammates before spawning new ones, and reports its
-          route through graph_status.
+          Task-matched graph policy over the standard tool set. The agent reuses idle
+          teammates before spawning new ones and, when the graph driver is installed,
+          reports its route through the driver's graph_status tool.
         order: 5
         plugins:
           - id: persona

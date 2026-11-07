@@ -1,0 +1,31 @@
+# Developer overlay for scripts/e2e-subagents.sh: same as dev-headless.patch.yml
+# but composition is off, so dynamic mode uses the legacy synthesizeTopology
+# path that fans a research task out to parallel subagent nodes.
+#   dsh --profile headless --patch <abs>/packages/loop/dev-subagents.patch.yml
+- id: agent-loop
+  name: '@deepseek-ai/dsh-agent-loop'
+  disabled: true
+
+- insert:
+    - id: graph-registry
+      name: /Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/packages/loop/src/registry.ts
+      config:
+        snapshotTtlMs: 0
+    - id: graph-router
+      name: /Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/packages/loop/src/router.ts
+    - id: graph-runtime
+      name: /Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/packages/loop/src/runtime.ts
+      config:
+        traceDir: /tmp/dsh-graph-traces
+    - id: graph-loop
+      name: /Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/packages/loop/src/index.ts
+      config:
+        maxParallelToolCalls: 10
+        agents: []
+        topology: dynamic
+        composition: false
+
+
+
+    - id: graph-tools
+      name: /Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/packages/loop/src/tools.ts

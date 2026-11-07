@@ -10,7 +10,11 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import type { TaskPlan } from '../../packages/core/src/graph-schema.ts'
+import { KernelError, available } from '../../packages/loop/src/kernel/index.ts'
+import { LANGGRAPH_RESERVED_NODE_IDS, LANGGRAPH_STATE_CHANNELS } from '../../packages/loop/src/kernel/langgraph.ts'
 import { KernelTopology, canKernelDrive } from '../../packages/loop/src/kernel/topology.ts'
+
+const lgAvailable = await available()
 
 function plan(): TaskPlan {
   return {
@@ -30,6 +34,17 @@ function plan(): TaskPlan {
     fallback: false,
     confidence: 1,
     compiledDigest: 'kernel-topology-test',
+  }
+}
+
+/** The linear test plan with its first node rewritten to `id`. */
+function planWithNodeId(id: string): TaskPlan {
+  const base = plan()
+  return {
+    ...base,
+    entry: id,
+    nodes: [{ ...base.nodes[0]!, id }, base.nodes[1]!],
+    edges: [{ from: id, to: 'b', kind: 'control' }],
   }
 }
 
@@ -88,6 +103,74 @@ test('canKernelDrive excludes subagents and conditional edges', () => {
     edges: [{ from: 'node:respond', to: 'b', kind: 'control' }],
   }
   assert.equal(canKernelDrive(withReservedId), false)
+})
+
+test('canKernelDrive rejects kernel channels and engine-reserved ids (H1)', () => {
+  // Every GraphState channel the LangGraph root compiles is unusable as a node.
+  for (const id of LANGGRAPH_RESERVED_NODE_IDS) {
+    assert.equal(canKernelDrive(planWithNodeId(id)), false, `expected "${id}" to keep the frontier`)
+  }
+  assert.deepEqual(
+    [...LANGGRAPH_RESERVED_NODE_IDS],
+    [...LANGGRAPH_STATE_CHANNELS, '__start__', '__end__'],
+    'the reserved list derives from the compiled channels',
+  )
+  // Matching is case-sensitive, like LangGraph's channel names.
+  assert.equal(canKernelDrive(planWithNodeId('Next')), true)
+  assert.equal(canKernelDrive(planWithNodeId('__END__')), true)
+})
+
+test('canKernelDrive rejects a branching (diamond) plan and keeps linear plans (H2)', () => {
+  const base = plan()
+  const diamond: TaskPlan = {
+    ...base,
+    entry: 'a',
+    terminals: ['d'],
+    nodes: [
+      { id: 'a', kind: 'agent-step', executor: 'step', instruction: 'start' },
+      { id: 'b', kind: 'agent-step', executor: 'step', instruction: 'left' },
+      { id: 'c', kind: 'agent-step', executor: 'step', instruction: 'right' },
+      { id: 'd', kind: 'terminal', executor: 'step', instruction: 'join', toolAllow: [] },
+    ],
+    edges: [
+      { from: 'a', to: 'b', kind: 'control' },
+      { from: 'a', to: 'c', kind: 'control' },
+      { from: 'b', to: 'd', kind: 'control' },
+      { from: 'c', to: 'd', kind: 'control' },
+    ],
+  }
+  assert.equal(canKernelDrive(diamond), false)
+  // The single control out-edge per node keeps the linear plan kernel-driven.
+  assert.equal(canKernelDrive(base), true)
+  // A terminal-only plan has no out-edges at all and stays drivable.
+  const terminalOnly: TaskPlan = {
+    ...base,
+    entry: 'b',
+    nodes: [base.nodes[1]!],
+    edges: [],
+  }
+  assert.equal(canKernelDrive(terminalOnly), true)
+})
+
+test('kernel topology turns a reserved-id compile failure into a typed KernelError (H1)', async (t) => {
+  if (!lgAvailable) {
+    t.skip('@langchain/langgraph is not installed; the minimal fallback accepts any node id')
+    return
+  }
+  // canKernelDrive() already keeps this plan on the frontier; constructing the
+  // adapter directly still must fail with a typed error, not a bare throw.
+  const topology = new KernelTopology(planWithNodeId('next'), { kind: 'langgraph' })
+  try {
+    await assert.rejects(
+      () => topology.advance({ ok: true }),
+      (error: unknown) => error instanceof KernelError && error.code === 'BAD_NODE_ID',
+    )
+    assert.equal(topology.status(), 'failed')
+    assert.equal(topology.done(), true)
+    assert.equal(topology.current(), undefined)
+  } finally {
+    await topology.dispose()
+  }
 })
 
 test('kernel topology defaults to the LangGraph engine', async () => {

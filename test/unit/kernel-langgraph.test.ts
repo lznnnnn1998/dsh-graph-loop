@@ -348,6 +348,37 @@ test('langgraph: runPlan(kind: langgraph) matches the minimal kernel node-for-no
   )
 })
 
+test('langgraph: updateState() re-seeds the run and the next stream still advances', async (t) => {
+  if (!lgAvailable) {
+    t.skip(SKIP_REASON)
+    return
+  }
+  for (const withSignal of [false, true]) {
+    const controller = new AbortController()
+    const plan = makePlan([planNode('n1'), planNode('n2')], [['n1', 'n2']])
+    const log: string[] = []
+    const kernel = createKernel('langgraph', {
+      executors: [recordingExecutor(log)],
+      ...(withSignal ? { runContext: { signal: controller.signal } } : {}),
+    })
+    const run = kernel.compile(plan, planInitialState(plan))
+
+    assert.equal((await run.next()).kind, 'boundary')
+    assert.deepEqual(log, ['n1'])
+
+    // A replan between boundaries: patch state, recompile, keep going.
+    await run.updateState({ planVersion: 2 })
+    const next = await run.next()
+    assert.equal(next.kind, 'boundary', `withSignal=${withSignal}`)
+    assert.equal(next.kind === 'boundary' ? next.nodeId : undefined, 'n2')
+    assert.equal(next.state.planVersion, 2)
+    assert.deepEqual(log, ['n1', 'n2'])
+
+    assert.equal((await run.next()).kind, 'done')
+    await run.dispose()
+  }
+})
+
 test('langgraph: zero-dep kernel walks a plan topology with no-op nodes', async (t) => {
   if (!lgAvailable) {
     t.skip(SKIP_REASON)

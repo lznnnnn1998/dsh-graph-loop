@@ -1,10 +1,14 @@
 /**
  * The explore mode's model-facing tools and its duplicate-spawn guard.
  *
- * `suggest_executor` and `graph_status` are read-only. The one enforcement point is a
- * `tools/pre-execute` waterfall that refuses `spawn_teammate` when an *idle* teammate
- * already matches the proposed responsibility — the observed failure mode is a Lead that
- * spawns a second agent for work an existing teammate could resume.
+ * `suggest_executor` is read-only. The one enforcement point is a `tools/pre-execute`
+ * waterfall that refuses `spawn_teammate` when an *idle* teammate already matches the
+ * proposed responsibility — the observed failure mode is a Lead that spawns a second
+ * agent for work an existing teammate could resume.
+ *
+ * This row deliberately registers no `graph_status`: `dsh-graph-loop` owns that
+ * host-wide tool and reports the live plan/run. A scoped duplicate here would shadow
+ * the real one in this preset, so the mode only suggests executors.
  *
  * The guard is deliberately narrow and fail-open: it only inspects one tool, only when
  * the Agent Teams service is mounted, only when the call carries an Agent, and any
@@ -15,7 +19,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { defineTool, type PreToolDecision, type ToolExecution } from '@deepseek-ai/dsh-tools'
-import { DEFAULT_NODES, GUARDED_TOOL } from './constants.ts'
+import { GUARDED_TOOL } from './constants.ts'
 import {
   GUARD_THRESHOLD,
   SUGGEST_THRESHOLD,
@@ -41,8 +45,6 @@ export interface Config {
   suggestThreshold?: number
   /** Minimum score for a `reuse` recommendation and for the guard; defaults to 0.5. */
   reuseThreshold?: number
-  /** Node names reported by `graph_status`; defaults to the policy cycle. */
-  nodes?: string[]
 }
 
 /** Fully resolved plugin settings. */
@@ -50,7 +52,6 @@ interface Settings {
   readonly blockDuplicateSpawn: boolean
   readonly suggestThreshold: number
   readonly reuseThreshold: number
-  readonly nodes: readonly string[]
 }
 
 /**
@@ -124,36 +125,6 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
   }))
 
-  ctx.tools.register(defineTool({
-    name: 'graph_status',
-    description: 'Report the explore mode configuration: the active node policy, the reachable roster size, '
-      + 'and whether the duplicate-spawn guard is armed. Read-only and cheap.',
-    parameters: {},
-    output: {
-      schema: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          mode: { type: 'string', required: true },
-          policy: { type: 'array', required: true, items: { type: 'string' } },
-          agents: { type: 'integer', required: true },
-          guard: { type: 'boolean', required: true },
-        },
-      },
-      render: (_args, value) => [{
-        type: 'text',
-        text: `mode=${value.mode} nodes=${value.policy.join(' → ')} agents=${value.agents} guard=${value.guard ? 'on' : 'off'}`,
-      }],
-    },
-    async execute(_args, exec) {
-      const teams = teamsOf(ctx)
-      const agents = teams === undefined || exec.agent === undefined
-        ? 0
-        : listMembersSafely(teams, exec.agent).length
-      return { mode: 'preset', policy: [...settings.nodes], agents, guard: settings.blockDuplicateSpawn }
-    },
-  }))
-
   ctx.effect(() => ctx.on('tools/pre-execute', async (exec, next) => {
     const decision = duplicateSpawnGuard(ctx, exec, settings)
     return decision ?? await next()
@@ -165,7 +136,6 @@ const DEFAULT_SETTINGS: Settings = Object.freeze({
   blockDuplicateSpawn: true,
   suggestThreshold: SUGGEST_THRESHOLD,
   reuseThreshold: GUARD_THRESHOLD,
-  nodes: DEFAULT_NODES,
 })
 
 /**
@@ -247,7 +217,6 @@ function resolveSettings(config: Config): Settings {
     blockDuplicateSpawn: config.blockDuplicateSpawn ?? DEFAULT_SETTINGS.blockDuplicateSpawn,
     suggestThreshold: clampThreshold(config.suggestThreshold, SUGGEST_THRESHOLD),
     reuseThreshold: clampThreshold(config.reuseThreshold, GUARD_THRESHOLD),
-    nodes: normalizeNodes(config.nodes),
   }
 }
 
@@ -255,15 +224,6 @@ function resolveSettings(config: Config): Settings {
 function clampThreshold(value: number | undefined, fallback: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
   return Math.min(1, Math.max(0, value))
-}
-
-/** Sanitize the configured node list. */
-function normalizeNodes(nodes: string[] | undefined): readonly string[] {
-  if (!Array.isArray(nodes)) return DEFAULT_NODES
-  const cleaned = nodes
-    .filter((node): node is string => typeof node === 'string' && node.trim().length > 0)
-    .map(node => node.trim())
-  return cleaned.length > 0 ? cleaned : DEFAULT_NODES
 }
 
 /** Re-export the pure ranking helpers so tool consumers can import them here. */

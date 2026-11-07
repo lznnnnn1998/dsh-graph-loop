@@ -113,9 +113,23 @@ export function validateCheckpoint(checkpoint: GraphCheckpoint): readonly Checkp
   return issues
 }
 
+/**
+ * Escape one key component so a `/` inside it cannot forge a different key:
+ * `('a/b', 'c')` and `('a', 'b/c')` must not collide.
+ */
+function escapeKeyComponent(component: string): string {
+  return encodeURIComponent(component)
+}
+
 /** Stable storage key; zero-padded seq keeps lexicographic order meaningful. */
 export function checkpointKey(checkpoint: GraphCheckpoint): string {
-  return `${checkpoint.sessionId}/${checkpoint.turnId}/${String(checkpoint.seq).padStart(8, '0')}/${checkpoint.nodeId}/${checkpoint.boundary}`
+  return [
+    escapeKeyComponent(checkpoint.sessionId),
+    escapeKeyComponent(checkpoint.turnId),
+    String(checkpoint.seq).padStart(8, '0'),
+    escapeKeyComponent(checkpoint.nodeId),
+    checkpoint.boundary,
+  ].join('/')
 }
 
 function compareCheckpoints(left: GraphCheckpoint, right: GraphCheckpoint): number {

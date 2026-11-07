@@ -274,6 +274,13 @@ export interface Config {
    * in the synthesized plan.
    */
   toolPolicy: 'plan' | 'preset'
+  /**
+   * Use the live envelope/composition path in dynamic mode. `true` (default)
+   * synthesizes from the matched envelope; `false` keeps the legacy
+   * `synthesizeTopology` path (needed by harnesses that exercise legacy
+   * parallel-subagent topologies).
+   */
+  composition: boolean
   /** Agents created or resumed at plugin startup; a resumed agent records its configured route as the Session's model selection. */
   agents: (AgentOptions & {
     /** Stable config label used in logs and as the fresh combined-id prefix. */
@@ -317,12 +324,14 @@ export class AgentLoop extends Service implements AgentFactory {
     trivialChars?: number
     maxSteps?: number
     toolPolicy?: Config['toolPolicy']
+    composition?: boolean
   }, Config> = z.object({
     maxParallelToolCalls: z.number().step(1).min(1).default(DEFAULT_MAX_PARALLEL_TOOL_CALLS).volatile(),
     topology: z.union([z.const('template'), z.const('dynamic'), z.const('propose')]).default('dynamic'),
     trivialChars: z.number().step(1).min(1).default(32),
     maxSteps: z.number().step(1).min(1).default(24),
     toolPolicy: z.union([z.const('plan'), z.const('preset')]).default('plan'),
+    composition: z.boolean().default(true),
     agents: z.array(z.object({
       id: z.string().required(),
       sessionId: z.string().min(1),
@@ -359,6 +368,7 @@ export class AgentLoop extends Service implements AgentFactory {
       trivialChars: config.trivialChars ?? 32,
       maxSteps: config.maxSteps ?? 24,
       toolPolicy: config.toolPolicy ?? 'plan',
+      composition: config.composition ?? true,
     }
     validateConfiguredAgents(this.config.agents)
     this.ownership = new FactoryOwnership(ctx.fiber)
@@ -658,6 +668,7 @@ export class AgentLoop extends Service implements AgentFactory {
           maxSteps: loopConfig.maxSteps,
           trivialChars: loopConfig.trivialChars,
           toolPolicy: loopConfig.toolPolicy,
+          composition: loopConfig.composition,
           allowSubagents: delegationDepth === 0,
           forceFallback: delegationDepth > 0,
           depth: delegationDepth,

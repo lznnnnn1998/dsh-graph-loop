@@ -149,6 +149,8 @@ export type KernelErrorCode =
   | 'UNDECLARED_TARGET'
   /** The graph is malformed (duplicate node, edge to a missing node, no entry). */
   | 'INVALID_GRAPH'
+  /** A plan node id collides with a kernel channel or a reserved engine id. */
+  | 'BAD_NODE_ID'
   /** A node threw, or its retry policy was exhausted. */
   | 'NODE_FAILED'
   /** `ctx.interrupt()` was called with no saver, or outside a node. */
@@ -668,7 +670,12 @@ class LangGraphRun implements KernelRunHandleLike {
   private compiled: LangGraphCompiledLike | undefined
   private iterator: AsyncIterator<any> | undefined
   private finished = false
-  private readonly abort = new AbortController()
+  /**
+   * One controller per stream. A replan retires the current stream and installs
+   * a fresh controller, so the next stream is never opened on an aborted signal
+   * (H7: an aborted controller made every post-replan `next()` throw AbortError).
+   */
+  private abort = new AbortController()
 
   constructor(deps: LangGraphKernelDeps, plan: TaskPlan, state: GraphState) {
     this.deps = deps
@@ -715,14 +722,18 @@ class LangGraphRun implements KernelRunHandleLike {
       return { kind: 'paused', reason: pause, state: this.state }
     }
 
-    await this.ensureStream()
+    // Both opening the stream and pulling one chunk can fail (aborted signal,
+    // recompile, malformed graph). A kernel failure is a `{ kind: 'failed' }`
+    // result plus `onFailure`, never an unstructured throw across the driver (A7).
     let step: IteratorResult<any>
     try {
+      await this.ensureStream()
       step = await this.iterator!.next()
     } catch (error) {
       this.finished = true
+      const aborted = this.deps.runContext?.signal?.aborted === true || this.abort.signal.aborted
       const failure: KernelNodeFailure = {
-        code: 'graph-error',
+        code: aborted ? 'cancelled' : 'graph-error',
         nodeId: this.state.next ?? '',
         message: error instanceof Error ? error.message : String(error),
         retryable: false,
@@ -775,11 +786,16 @@ class LangGraphRun implements KernelRunHandleLike {
 
   async updateState(patch: Partial<GraphState>): Promise<void> {
     // The measured way to add/remove nodes: mutate the plan, recompile, and
-    // seed the new graph with the current state.
+    // seed the new graph with the current state. Keep the caller's patched state,
+    // retire the current stream's controller, and install a fresh one so the next
+    // `next()` opens a live stream (H7). The caller's runContext signal is never
+    // aborted here: it belongs to the turn, not to this run handle.
     this.state = { ...this.state, ...patch }
+    this.abort.abort(new KernelError('graph recompiled for a replan', 'INVALID_GRAPH'))
+    this.abort = new AbortController()
     this.compiled = undefined
     this.iterator = undefined
-    this.abort.abort(new KernelError('graph recompiled for a replan', 'INVALID_GRAPH'))
+    this.finished = false
   }
 
   snapshot(): GraphState {

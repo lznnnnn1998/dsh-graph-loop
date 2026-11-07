@@ -522,24 +522,47 @@ export const GRAPH_STATE_LIMITS = {
   maxHandoffOutputBytes: 8 * 1024,
 } as const
 
-/** JSON-safety check used before every checkpoint write. Returns the offending path. */
+/**
+ * JSON-safety check used before every checkpoint write. Returns the offending
+ * path, or `null` when the value is JSON.
+ *
+ * A cyclic object/array is reported as an issue instead of recursing until the
+ * stack overflows. `ancestors` holds the objects on the current path only, so a
+ * shared (diamond) reference is still legal JSON.
+ */
 export function assertJsonSafe(value: unknown, path = '$'): string | null {
+  return jsonProblem(value, path, new Set())
+}
+
+function jsonProblem(value: unknown, path: string, ancestors: Set<object>): string | null {
   if (value === null || typeof value === 'boolean' || typeof value === 'string') return null
   if (typeof value === 'number') return Number.isFinite(value) ? null : `${path}: non-finite number`
   if (Array.isArray(value)) {
+    if (ancestors.has(value)) return `${path}: cyclic reference`
+    ancestors.add(value)
     for (const [index, item] of value.entries()) {
-      const problem = assertJsonSafe(item, `${path}[${index}]`)
-      if (problem) return problem
+      const problem = jsonProblem(item, `${path}[${index}]`, ancestors)
+      if (problem) {
+        ancestors.delete(value)
+        return problem
+      }
     }
+    ancestors.delete(value)
     return null
   }
   if (typeof value === 'object') {
+    if (ancestors.has(value)) return `${path}: cyclic reference`
     const proto = Object.getPrototypeOf(value)
     if (proto !== Object.prototype && proto !== null) return `${path}: non-plain object`
+    ancestors.add(value)
     for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-      const problem = assertJsonSafe(item, `${path}.${key}`)
-      if (problem) return problem
+      const problem = jsonProblem(item, `${path}.${key}`, ancestors)
+      if (problem) {
+        ancestors.delete(value)
+        return problem
+      }
     }
+    ancestors.delete(value)
     return null
   }
   return `${path}: ${typeof value} is not JSON`
@@ -777,7 +800,7 @@ export function validateTaskPlan(graph: RegistryGraph, plan: TaskPlan): Validati
     }
   }
 
-  // Reachability + cycle check: only map nodes may close a cycle, and only with a bound.
+  // Reachability: a node the entry cannot reach is dead weight in the plan.
   const reachable = new Set<string>()
   const stack: string[] = plan.entry && nodeById.has(plan.entry) ? [plan.entry] : []
   while (stack.length > 0) {
@@ -793,9 +816,16 @@ export function validateTaskPlan(graph: RegistryGraph, plan: TaskPlan): Validati
       warnings.push({ code: 'W004', path: `nodes.${node.id}`, message: 'unreachable from entry' })
     }
   }
+
+  // Cycle check: only map nodes may close an *unconditional* cycle, and only
+  // with a bound. A cycle that needs a conditional edge (the bounded
+  // verify -> retry loop) is guarded by that condition — the frontier only
+  // follows it on the matching outcome — so it is not an unconditional loop;
+  // `maxSteps` still bounds it.
   const reportedCycles = new Set<string>()
   const visiting = new Set<string>()
   const visited = new Set<string>()
+  const unconditional = (edge: PlanEdge): boolean => edge.when === undefined || edge.when.op === 'always'
   const walk = (id: string): void => {
     if (visiting.has(id)) {
       const key = `${id}`
@@ -803,14 +833,17 @@ export function validateTaskPlan(graph: RegistryGraph, plan: TaskPlan): Validati
         reportedCycles.add(key)
         const node = nodeById.get(id)
         if (node && node.kind !== 'map') {
-          errors.push({ code: 'P013', path: `nodes.${id}`, message: 'cycle outside a bounded map node' })
+          errors.push({ code: 'P013', path: `nodes.${id}`, message: 'unconditional cycle outside a bounded map node' })
         }
       }
       return
     }
     if (visited.has(id)) return
     visiting.add(id)
-    for (const edge of outgoing.get(id) ?? []) walk(edge.to)
+    for (const edge of outgoing.get(id) ?? []) {
+      if (!unconditional(edge)) continue
+      walk(edge.to)
+    }
     visiting.delete(id)
     visited.add(id)
   }

@@ -1,6 +1,6 @@
 {
   "name": "dsh-graph-loop",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "type": "module",
   "exports": {
     ".": "./lib/index.js",
@@ -9,7 +9,7 @@
     "./router": "./lib/router.js",
     "./tools": "./lib/tools.js",
     "./scheduler": "./lib/scheduler.js",
-    "./kernel": "./lib/kernel.js",
+    "./kernel": "./lib/kernel/index.js",
     "./runtime": "./lib/runtime.js"
   },
   "files": [
@@ -19,7 +19,8 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "node ../../scripts/build-bundles.mjs"
+    "build": "node ../../scripts/build-bundles.mjs",
+    "prepack": "node ../../scripts/build-bundles.mjs"
   },
   "description": "Graph-native agent driver for DeepSeek Harness: one turn runs a per-turn topology.",
   "engines": {
@@ -36,7 +37,8 @@
     "@deepseek-ai/dsh-tools": "*",
     "@deepseek-ai/dsh-util-values": "*",
     "@deepseek-ai/dsh-scope": "*",
-    "@deepseek-ai/dsh-brand": "*"
+    "@deepseek-ai/dsh-brand": "*",
+    "@deepseek-ai/schemastery": "*"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/cordis": {
@@ -70,6 +72,9 @@
       "optional": true
     },
     "@deepseek-ai/dsh-brand": {
+      "optional": true
+    },
+    "@deepseek-ai/schemastery": {
       "optional": true
     }
   },

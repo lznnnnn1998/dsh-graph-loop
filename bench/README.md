@@ -58,7 +58,7 @@ node bench/scripts/aggregate.mjs bench/results/*.jsonl
 Deterministic, free endpoint (Anthropic-Messages wire compatible, no key needed):
 
 ```sh
-cd /Users/zhinan/deepseek-harness
+cd "${DSH_ROOT:-$HOME/deepseek-harness}"
 node --import tsx packages/test-support/llm-mock-server/src/bin.ts \
   --sequence success --repeat-last --success-text "OK" --port 8124
 ```

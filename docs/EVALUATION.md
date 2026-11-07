@@ -17,7 +17,8 @@ parity, not a win on tasks the model cannot do.
 
 Both arms use the same model, tasks, tool policy, timeouts and container image. The graph arm sets
 `toolPolicy: preset` only for stress-line harnesses; product-line runs use `toolPolicy: plan` to
-measure the actual tool-surface reduction.
+measure the actual tool-surface reduction. One known asymmetry from the first stress-line runs is
+recorded in §2 (the graph profile patch also set `llm-deepseek.retryPolicy.maxRetries: 1`).
 
 ### 1.1 Primary product suite: Terminal-Bench easy10 + medium10
 
@@ -34,6 +35,17 @@ measure the actual tool-surface reduction.
 The old local 20-task suite is archived at
 [`bench/archive/agent-eval/`](../bench/archive/agent-eval/). Its live-compose result (40/40, prompt
 −50%) predates the product-suite switch and is **not** the current product claim.
+
+Two corrections for anyone reading that evidence:
+
+- **Provenance:** both 20-task runs executed on dirty worktrees. The live run's manifest records
+  `pluginCommit: 388f1f1`, which contains no live composition code; the code landed in `b861a52`
+  after the run. They are measured local data, not reproducible commit-bound evidence. See
+  [`bench/archive/agent-eval/results/README.md`](../bench/archive/agent-eval/results/README.md).
+- **Cost:** only prompt tokens fall. Billed input is +33.8% (legacy topology) / −8.6% (live compose)
+  and billed total is +44.6% / +16.8%, because output tokens rise +55.2% / +41.2%. The repo's K3
+  kill criterion in [`research/04-tokens.md:332`](../research/04-tokens.md) (>15% more output
+  tokens ⇒ abandon) triggers in **both** runs. Recompute: [`RESULTS.md`](../bench/archive/agent-eval/RESULTS.md#billed-cost--both-runs-recomputed).
 
 ### 1.3 Product success criteria
 
@@ -52,6 +64,17 @@ The old local 20-task suite is archived at
 - Rules and findings: [`docs/STRESS-LINE.md`](STRESS-LINE.md).
 - Only fold a stress finding back into the product line when it improves normal-task reliability
   (e.g. bounded `verify → diagnose → edit` repair).
+- **Harness caveats (recorded, not hidden):**
+  - The dataset was fetched with `terminal-bench/terminal-bench@latest` (66 tasks); no dataset
+    digest or harness commit was pinned, so these runs are not exactly reproducible.
+  - The **smoke gate was added after** the first `html-js-filter` trial and the first 7-task subset
+    attempt (18:34–20:07); only the post-smoke subset follows the smoke-first protocol. Earlier 0.0
+    rows are not smoke-gated.
+  - The graph arm's profile patch sets `llm-deepseek.retryPolicy.maxRetries: 1`; the stock control
+    uses the default. Do not read arm deltas as purely the plugin effect.
+  - The fixed subset is **7 tasks, not 5**: 2 clean stock trials and 5 clean graph trials, all 0.0;
+    timeouts/sidecar failures are errors, not scores. `summary.json` writes error rows as `0.0`
+    with `n_trials: 0`, so `rows.jsonl` is canonical for validity.
 
 ## 3. Repair and verification (product reliability)
 

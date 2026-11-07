@@ -424,6 +424,7 @@ export interface GraphLoopDriver {
 /** Kernel errors that end a turn rather than a node. */
 export function isFatalKernelError(error: KernelError): boolean {
   return error.code === 'ABORTED' || error.code === 'INVALID_GRAPH' || error.code === 'STEP_BUDGET_EXCEEDED'
+    || error.code === 'BAD_NODE_ID'
 }
 
 /** Kernel step counter is the DSH step index inside the turn (kernel NodeContext.step). */

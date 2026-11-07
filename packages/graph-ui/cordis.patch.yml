@@ -1,10 +1,13 @@
 # dsh-graph-loop-ui — one row owns both the Graph tab client bundle and the
 # /graph-chat page/API. client-modules rejects two active Loader sources for one
 # client package, so the host surface must not get its own row.
+#
+# No `preset` here on purpose: /graph-chat sessions inherit the profile default
+# preset (Explore when the mode bundle is installed). Pinning one here silently
+# overrode that default.
 - insert:
     - id: graph-ui
       name: 'dsh-graph-loop-ui'
       config:
-        preset: standard
         provider: deepseek-official
         model: deepseek-flash

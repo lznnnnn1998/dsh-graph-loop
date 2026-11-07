@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { buildRegistrySnapshot, type ToolSource } from '../../packages/core/src/registry.ts'
 import { TEMPLATE_LIBRARY } from '../../packages/core/src/templates.ts'
+import type { TaskPlan } from '../../packages/core/src/graph-schema.ts'
 import { createGraphTurnDriver } from '../../packages/loop/src/scheduler.ts'
 
 const tools: ToolSource[] = [
@@ -165,4 +166,110 @@ test('subagent children force the single-node fallback', async () => {
   assert.equal(started.plan.nodes.length, 1)
   assert.equal(started.depth, 1)
   assert.ok(started.rationale.some(line => line.includes('child agent')))
+})
+
+test('driver status reports a failed run as failed and a completed run as done', async () => {
+  const failed = createGraphTurnDriver({ fallbackInstruction: 'answer' })
+  await failed.beginTurn({ text: 'hello' })
+  await failed.advance({ ok: false })
+  assert.equal(failed.done(), true)
+  assert.equal(failed.status?.(), 'failed')
+
+  const completed = createGraphTurnDriver({ fallbackInstruction: 'answer' })
+  await completed.beginTurn({ text: 'hello' })
+  await completed.advance({ ok: true })
+  assert.equal(completed.done(), true)
+  assert.equal(completed.status?.(), 'done')
+})
+
+test('forceFallback wins over propose mode: children stay single-node', async () => {
+  const driver = createGraphTurnDriver({ mode: 'propose', forceFallback: true })
+  const started = await driver.beginTurn({ text: 'investigate the first half of the research question' })
+  assert.equal(started.templateId, 't_stock')
+  assert.equal(started.plan.nodes.length, 1)
+  assert.equal(driver.current()?.id, 'node:respond')
+  assert.ok(started.rationale.some(line => line.includes('child agent')))
+})
+
+/** Parallel-subagent plan: p branches into s1 and s2. */
+function subagentPlan(maxReplans: number): TaskPlan {
+  return {
+    id: 'plan:batch',
+    templateId: 'test',
+    version: 1,
+    entry: 'p',
+    terminals: ['s1', 's2'],
+    nodes: [
+      { id: 'p', kind: 'agent-step', executor: 'step', instruction: 'plan the batch' },
+      { id: 's1', kind: 'agent-step', executor: 'subagent', instruction: 'first half' },
+      { id: 's2', kind: 'agent-step', executor: 'subagent', instruction: 'second half' },
+    ],
+    edges: [
+      { from: 'p', to: 's1', kind: 'control' },
+      { from: 'p', to: 's2', kind: 'control' },
+    ],
+    budget: { maxNodes: 3, maxSteps: 5, maxTokens: 1000, maxWallMs: 1000, maxReplans },
+    toolUniverse: [],
+    gatePolicy: 'turn',
+    fallback: false,
+    confidence: 0.5,
+    compiledDigest: 'test:batch',
+  }
+}
+
+test('a failed subagent node triggers the same boundary recovery as a failed step', async () => {
+  const driver = createGraphTurnDriver({ kernel: 'off' })
+  driver.adopt(subagentPlan(1))
+  await driver.advance({ ok: true })
+  const batch = driver.takeSubagentBatch()
+  assert.deepEqual(batch.map(node => node.id), ['s1', 's2'])
+  await driver.completeNode('s1', false)
+  const snapshot = driver.snapshot()
+  assert.equal(snapshot.replans, 1)
+  assert.equal(driver.status?.(), 'running')
+  assert.equal(driver.current()?.id, 'r_diagnose')
+  assert.ok(snapshot.rationale.some(line => line.includes('replan 1: recovery')))
+  assert.deepEqual(snapshot.trail.map(entry => [entry.id, entry.status]), [['p', 'ok'], ['s1', 'failed']])
+})
+
+test('a failed subagent with no replan budget leaves the run failed', async () => {
+  const driver = createGraphTurnDriver({ kernel: 'off' })
+  driver.adopt(subagentPlan(0))
+  await driver.advance({ ok: true })
+  driver.takeSubagentBatch()
+  await driver.completeNode('s1', false)
+  assert.equal(driver.snapshot().replans, 0)
+  assert.equal(driver.status?.(), 'failed')
+  assert.equal(driver.done(), true)
+})
+
+test('each turn gets its own replan allowance', async () => {
+  const driver = createGraphTurnDriver({ mode: 'dynamic', graphProvider: () => registry.graph })
+  for (let turn = 1; turn <= 3; turn += 1) {
+    await driver.beginTurn({ text: 'fix the failing test in the loader' })
+    assert.equal(driver.current()?.id, 'n_inspect')
+    await driver.advance({ ok: true })
+    assert.equal(driver.current()?.id, 'n_mutate')
+    await driver.advance({ ok: false, failedTool: 'bash' })
+    assert.equal(driver.snapshot().replans, 1, `turn ${turn} must start with a fresh replan budget`)
+    assert.equal(driver.current()?.id, 'r_diagnose', `turn ${turn} must install the recovery plan`)
+    driver.endTurn()
+  }
+})
+
+test('a batch node superseded by a recovery replan does not advance the recovery plan', async () => {
+  const driver = createGraphTurnDriver({ kernel: 'off' })
+  driver.adopt(subagentPlan(1))
+  await driver.advance({ ok: true })
+  driver.takeSubagentBatch()
+  await driver.completeNode('s1', false)
+  assert.equal(driver.current()?.id, 'r_diagnose')
+  const stepsAfterReplan = driver.snapshot().step
+  // The sibling completion still arrives after the replan replaced the
+  // topology; it must settle without running the recovery diagnosis step.
+  await driver.completeNode('s2', true)
+  assert.equal(driver.current()?.id, 'r_diagnose')
+  assert.equal(driver.snapshot().step, stepsAfterReplan)
+  assert.equal(driver.snapshot().replans, 1)
+  assert.deepEqual(driver.snapshot().trail.map(entry => entry.id), ['p', 's1'])
 })

@@ -152,6 +152,16 @@ interface StagePlan {
   readonly reason: string
 }
 
+/**
+ * Step budget for the whole composition. The explicit `budget.maxSteps` wins
+ * over the legacy top-level `maxSteps`; both the node cap and `budgetOf` read
+ * this one value so the emitted plan never claims a smaller/bigger step budget
+ * than the synthesizer enforced.
+ */
+function stepBudgetOf(input: ComposeInput): number {
+  return input.budget?.maxSteps ?? input.maxSteps ?? 12
+}
+
 function planStages(input: ComposeInput): { stages: StagePlan[]; issues: ComposeIssue[]; rationale: string[] } {
   const tools = envelopeTools(input)
   const stages: StagePlan[] = []
@@ -219,10 +229,14 @@ function planStages(input: ComposeInput): { stages: StagePlan[]; issues: Compose
     issues.push({ code: 'no-capability', severity: 'warning', detail: 'no stage matched; generic step only' })
   }
 
-  const maxSteps = input.maxSteps ?? 12
-  if (stages.length + 1 > maxSteps) {
-    stages.splice(Math.max(1, maxSteps - 1))
-    issues.push({ code: 'budget-capped', severity: 'warning', detail: `stages capped at ${maxSteps - 1}` })
+  const maxSteps = stepBudgetOf(input)
+  // Every composed plan spends one step on the terminal answer node. Capping
+  // the stages at maxSteps - 1 (never below zero) keeps nodes <= maxSteps even
+  // for maxSteps === 1, where the answer node is the only step.
+  const maxStages = Math.max(0, maxSteps - 1)
+  if (stages.length > maxStages) {
+    stages.splice(maxStages)
+    issues.push({ code: 'budget-capped', severity: 'warning', detail: `stages capped at ${maxStages}` })
   }
 
   return { stages: stages.sort((left, right) => STAGE_ORDER.indexOf(left.stage) - STAGE_ORDER.indexOf(right.stage)), issues, rationale }
@@ -254,7 +268,7 @@ function budgetOf(input: ComposeInput): TaskBudget {
   const requested = input.budget ?? {}
   return {
     maxNodes: requested.maxNodes ?? 12,
-    maxSteps: requested.maxSteps ?? 12,
+    maxSteps: stepBudgetOf(input),
     maxTokens: requested.maxTokens ?? 200_000,
     maxWallMs: requested.maxWallMs ?? 15 * 60_000,
     maxReplans: requested.maxReplans ?? 1,
@@ -311,13 +325,19 @@ export function synthesizeComposition(input: ComposeInput): ComposeResult {
   }
 
   const answerId = 'n_answer'
+  const generic = stages.length === 0
   nodes.push({
     id: answerId,
     kind: 'terminal',
     executor: 'step',
-    instruction: stages.length === 0
+    instruction: generic
       ? 'Complete the task using the available tools and report the result.'
       : 'Summarize what was produced, what was verified, and any remaining risk.',
+    // The terminal step answers from what the previous nodes produced; it must
+    // not carry the full preset tool surface. A generic single-step plan is the
+    // exception: there the terminal node is also the work node, so it keeps the
+    // envelope the escape hatch exists to expose.
+    ...(generic ? {} : { toolAllow: [] }),
     budget: { maxSteps: 1 },
   })
   if (previous !== undefined) edges.push({ from: previous, to: answerId, kind: 'control' })

@@ -2,7 +2,9 @@
  * The explore mode's prompt contribution.
  *
  * Two registrations, both agent-scoped and both read-only:
- *   - a system **section** naming the current graph node and the routing policy;
+ *   - a system **section** with the routing policy; it names a node of the preset's
+ *     own cycle only when the host graph driver is not mounted (see
+ *     {@link graphDriverActive});
  *   - a runtime **context** listing idle Agent Teams teammates, so the model can reuse
  *     a teammate instead of spawning a duplicate.
  *
@@ -27,22 +29,50 @@ export const inject = ['systemPrompt']
 
 /** Row config. Absent keys use the defaults described in `./constants.ts`. */
 export interface Config {
-  /** Node names cycled once per step; defaults to `inspect → plan → act → verify`. */
+  /** Node names for the preset's own cycle; unused when the host graph driver is mounted. */
   nodes?: string[]
   /** Whether the idle-roster context is contributed; defaults to true. */
   rosterContext?: boolean
 }
 
 /**
+ * Whether the host graph driver is mounted for this session.
+ *
+ * When the loop provides `graphRuntime` it already names the current plan node in
+ * its per-step `[graph node …]` directive, so the preset must not claim a second,
+ * unrelated node cycle. The lookup is structural (the mode package does not depend
+ * on `dsh-graph-loop`) and walks the Cordis scope chain at call time.
+ * @param ctx - any Cordis context; null/foreign values never throw.
+ * @returns true when the `graphRuntime` service resolves to a value.
+ */
+export function graphDriverActive(ctx: unknown): boolean {
+  if (ctx === null || typeof ctx !== 'object') return false
+  const getter = (ctx as ServiceGetter).get
+  if (typeof getter !== 'function') return false
+  try {
+    return getter.call(ctx, 'graphRuntime') !== undefined
+  } catch {
+    return false
+  }
+}
+
+/** The context surface used to resolve an optional service by name. */
+interface ServiceGetter {
+  get?(name: string): unknown
+}
+
+/**
  * The standing policy text. Deliberately short: it is paid on every request, and the
- * graph itself carries the plan.
- * @param node - node name for this step.
+ * graph itself carries the plan. The node line is omitted when the host graph driver
+ * is active; the rest of the routing policy still applies in both cases.
+ * @param node - node name for this step (used only when no graph driver is active).
+ * @param graphDriver - whether `graphRuntime` is mounted; defaults to false.
  * @returns the policy section text.
  */
-export function policyText(node: string): string {
+export function policyText(node: string, graphDriver = false): string {
   return [
     'Graph policy for this session (a mode over the standard tool set, not a separate loop):',
-    `current node: ${node}.`,
+    ...(graphDriver ? [] : [`current node: ${node}.`]),
     'Keep one node per step: state the node you are working, use only the tools it needs, and',
     'report a failure rather than silently widening scope. Reuse an idle teammate when the',
     'roster matches the next unit of work; spawn only for a genuinely new responsibility.',
@@ -107,7 +137,11 @@ function mountAgentPolicy(ctx: Context, agent: Agent, options: AgentPolicyOption
   agent.ctx.effect(() => agent.ctx.systemPrompt.section({
     name: POLICY_SECTION,
     order: options.order,
-    text: () => policyText(options.nodes[cursor.node] ?? options.nodes[0] ?? DEFAULT_NODES[0]),
+    // The graph driver may mount after this preset; resolve it at render time.
+    text: () => policyText(
+      options.nodes[cursor.node] ?? options.nodes[0] ?? DEFAULT_NODES[0],
+      graphDriverActive(ctx),
+    ),
   }), 'explore-policy: section')
 
   if (options.includeRoster) {

@@ -2,6 +2,11 @@
  * Pure reuse scoring for the explore mode: who on the Agent Teams roster could
  * take this task instead of spawning a new teammate.
  *
+ * Matching is lexical but evidence-based: {@link normalize} folds suffixes and drops
+ * stopwords plus generic intent words ("fix", "bug", "test", "docs"), and the guard
+ * requires a text-only floor before it may block, so an idle-status bonus never
+ * denies a spawn by itself.
+ *
  * The module deliberately has **no DSH imports** and no ambient state, so the
  * ranking and the guard decision can be unit-tested without a Cordis context.
  * @module dsh-graph-loop-mode/reuse
@@ -48,10 +53,20 @@ export const SUGGEST_THRESHOLD = 0.34
 /** Lower bound used by the duplicate-spawn guard. */
 export const GUARD_THRESHOLD = 0.5
 
+/**
+ * Minimum text-only overlap for a guard denial.
+ *
+ * The idle-status term is worth at most `STATUS_WEIGHT` (0.25), so without this floor
+ * a task sharing one third of its tokens with an idle teammate would reach
+ * {@link GUARD_THRESHOLD} on the bonus alone. Status ranks candidates; only text
+ * evidence beyond this floor can hard-deny a spawn.
+ */
+export const GUARD_TEXT_FLOOR = 0.5
+
 /** At most this many candidates are reported. */
 export const MAX_CANDIDATES = 5
 
-/** A one-token task is too ambiguous to justify blocking a spawn. */
+/** A one-word task is too ambiguous to justify blocking a spawn. */
 export const MIN_TASK_TOKENS = 2
 
 /** Share of the score that comes from text similarity. */
@@ -77,19 +92,60 @@ const STOPWORDS: ReadonlySet<string> = new Set([
   'no', 'yes', 'use', 'using', 'used', 'make', 'makes', 'made', 'one', 'two',
 ])
 
+/**
+ * Intent words that say *what kind* of work this is, not *whose* work it is.
+ *
+ * "Fix the tests and docs" and "fix a docs test bug" share nothing but generic
+ * vocabulary, so these words are never evidence of a duplicate spawn. They are
+ * matched both as written and after {@link stem}, covering plural/gerund forms.
+ */
+const GENERIC_WORDS: ReadonlySet<string> = new Set([
+  'add', 'api', 'bug', 'change', 'code', 'doc', 'documentation', 'feature',
+  'fix', 'implement', 'implementation', 'issue', 'task', 'test', 'update', 'work',
+])
+
+/**
+ * Conservative suffix folding so `test`/`tests`/`testing`/`tested` and
+ * `bug`/`bugs` compare as one token. Only endings whose remainder is still a word
+ * are folded (`string` keeps its `ing`), which is enough for task descriptions and
+ * stays deterministic.
+ * @param raw - lowercase Latin token.
+ * @returns the comparison stem.
+ */
+function stem(raw: string): string {
+  if (raw.length > 4 && raw.endsWith('ies')) return `${raw.slice(0, -3)}y`
+  if (raw.length > 5 && raw.endsWith('ing')) return raw.slice(0, -3)
+  if (raw.length > 4 && raw.endsWith('ed')) return raw.slice(0, -2)
+  if (raw.length > 4 && /(?:ches|shes|xes|zes|ses)$/.test(raw)) return raw.slice(0, -2)
+  if (raw.length > 3 && raw.endsWith('s') && !raw.endsWith('ss')) return raw.slice(0, -1)
+  return raw
+}
+
 /** Han/Hangul/Kana runs are scored as bigrams because they carry no word spaces. */
 const CJK = /[\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\uAC00-\uD7AF]/u
 
 /**
  * Normalize text into comparison tokens.
  *
- * Latin text is lowercased, split on non-letter/non-digit runs, and stripped of
- * stopwords and one-character fragments. A CJK run is split into character bigrams
- * (a one-character run stays a unigram) so Chinese descriptions still overlap.
+ * Latin text is lowercased, split on non-letter/non-digit runs, folded by {@link stem},
+ * and stripped of stopwords, generic intent words and one-character fragments. A CJK
+ * run is split into character bigrams (a one-character run stays a unigram) so Chinese
+ * descriptions still overlap.
  * @param text - arbitrary task or candidate text.
  * @returns comparable tokens; empty for text without signal.
  */
 export function normalize(text: string): string[] {
+  return tokenize(text, true)
+}
+
+/**
+ * Split text into comparable tokens.
+ * @param text - arbitrary task or candidate text.
+ * @param distinctive - when true, generic intent words are dropped; when false they
+ *   stay, so {@link duplicateSpawnDecision} can tell a one-word task from a longer one.
+ * @returns comparable tokens, in text order.
+ */
+function tokenize(text: string, distinctive: boolean): string[] {
   const tokens: string[] = []
   for (const raw of text.toLowerCase().split(/[^\p{L}\p{N}]+/u)) {
     if (raw.length === 0) continue
@@ -104,7 +160,11 @@ export function normalize(text: string): string[] {
       }
       continue
     }
-    if (raw.length >= 2 && !STOPWORDS.has(raw)) tokens.push(raw)
+    if (raw.length < 2) continue
+    const folded = stem(raw)
+    if (STOPWORDS.has(raw) || STOPWORDS.has(folded)) continue
+    if (distinctive && (GENERIC_WORDS.has(raw) || GENERIC_WORDS.has(folded))) continue
+    tokens.push(folded)
   }
   return tokens
 }
@@ -112,8 +172,10 @@ export function normalize(text: string): string[] {
 /**
  * Containment overlap: the share of `task` tokens that also occur in `reference`.
  *
- * Asymmetric on purpose — a short task must be *fully described* by a long roster
- * description, while a long description must not be penalized for extra words.
+ * Only distinctive tokens count — {@link normalize} drops stopwords, generic intent
+ * words and suffix variants first — so "fix the tests" cannot look like a match on
+ * its own. Asymmetric on purpose: a short task must be *fully described* by a long
+ * roster description, while a long description is not penalized for extra words.
  * @param task - text being routed.
  * @param reference - candidate name plus description.
  * @returns `0..1`.
@@ -183,9 +245,12 @@ export function shouldSuggestReuse(
 /**
  * Decide whether a `spawn_teammate` call duplicates an idle teammate.
  *
- * Denies only when the guard is enabled, the task carries enough tokens to compare,
- * and an idle teammate scores at or above `threshold`. The decision never throws:
- * malformed candidates are simply scored as non-matching.
+ * Denies only when the guard is enabled, the task carries at least
+ * {@link MIN_TASK_TOKENS} distinct words, an idle teammate scores at or above
+ * `threshold`, **and** that teammate covers at least {@link GUARD_TEXT_FLOOR} of the
+ * task's distinctive tokens. The last condition is what stops the idle-status bonus
+ * from denying a spawn on its own. The decision never throws: malformed candidates
+ * are simply scored as non-matching.
  * @param task - the proposed teammate description.
  * @param candidates - roster rows (the caller should exclude the lead).
  * @param threshold - minimum score that blocks the spawn; defaults to {@link GUARD_THRESHOLD}.
@@ -199,8 +264,12 @@ export function duplicateSpawnDecision(
   block: boolean = true,
 ): GuardDecision {
   if (!block) return { deny: false, matches: [] }
-  if (normalize(task).length < MIN_TASK_TOKENS) return { deny: false, matches: [] }
+  // The ambiguity gate counts meaningful words, generic intent words included: a
+  // one-word task ("login") cannot block, while "fix login bug" carries enough
+  // structure. The evidence below is scored on distinctive tokens only.
+  if (new Set(tokenize(task, false)).size < MIN_TASK_TOKENS) return { deny: false, matches: [] }
   const matches = shouldSuggestReuse(task, candidates, threshold, MAX_CANDIDATES)
+    .filter(match => tokenOverlap(task, `${match.name} ${match.description}`) >= GUARD_TEXT_FLOOR)
   if (matches.length === 0) return { deny: false, matches: [] }
   return { deny: true, reason: duplicateSpawnReason(matches), matches }
 }

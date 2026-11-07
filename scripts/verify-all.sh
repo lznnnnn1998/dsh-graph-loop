@@ -9,6 +9,12 @@ cd "$ROOT"
 echo "== typecheck"
 npm run typecheck
 
+echo "== build bundles (prepack equivalent)"
+npm run build
+
+echo "== build reproducibility (lib matches the source)"
+npm run build:check
+
 echo "== unit tests"
 npm test
 

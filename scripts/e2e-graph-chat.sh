@@ -30,24 +30,37 @@ HOST_PID=$!
 for _ in $(seq 1 120); do grep -q "dsh web:" "$LOG" && break; sleep 0.5; done
 grep -q "dsh web:" "$LOG" || { echo "host failed"; tail -30 "$LOG"; exit 1; }
 
-echo "== 3. page + API"
-curl -sf "http://127.0.0.1:$PORT/graph-chat" | grep -q "Graph Chat" || { echo "FAIL: page"; exit 1; }
-NEW=$(curl -sf -X POST -H 'content-type: application/json' -d '{}' "http://127.0.0.1:$PORT/graph-chat/api/new")
+echo "== 3. authenticate (every graph-chat route is behind the Connection trust fence)"
+LAUNCH="$(grep -o 'dsh web: http://[^[:space:]]*' "$LOG" | head -1 | sed 's/^dsh web: //')"
+[ -n "$LAUNCH" ] || { echo "FAIL: no launch url in host log"; tail -30 "$LOG"; exit 1; }
+UNAUTH=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/graph-chat/api/state")
+case "$UNAUTH" in
+  401|403) echo "unauthenticated /api/state rejected with $UNAUTH" ;;
+  *) echo "FAIL: unauthenticated request returned $UNAUTH (expected 401/403)"; exit 1 ;;
+esac
+# Exchange the one-shot launch token for the signed session cookie.
+curl -sS -o /dev/null -c "$HOME_DIR/cookies.txt" "$LAUNCH" || { echo "FAIL: token exchange"; exit 1; }
+grep -qv '^#' "$HOME_DIR/cookies.txt" || { echo "FAIL: no cookie issued"; exit 1; }
+CURL=(curl -sf -b "$HOME_DIR/cookies.txt")
+
+echo "== 4. page + API"
+"${CURL[@]}" "http://127.0.0.1:$PORT/graph-chat" | grep -q "Graph Chat" || { echo "FAIL: page"; exit 1; }
+NEW=$("${CURL[@]}" -X POST -H 'content-type: application/json' -d '{}' "http://127.0.0.1:$PORT/graph-chat/api/new")
 SID=$(printf '%s' "$NEW" | node -e 'let d="";process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>console.log(JSON.parse(d).sessionId))')
 [ -n "$SID" ] || { echo "FAIL: no session id"; exit 1; }
-curl -sf -X POST -H 'content-type: application/json' \
+"${CURL[@]}" -X POST -H 'content-type: application/json' \
   -d "{\"sessionId\":\"$SID\",\"text\":\"explain how the config loader works\"}" \
   "http://127.0.0.1:$PORT/graph-chat/api/send" > /dev/null
 
-echo "== 4. wait for the graph turn"
+echo "== 5. wait for the graph turn"
 for _ in $(seq 1 40); do
-  TURNS=$(curl -sf "http://127.0.0.1:$PORT/graph-chat/api/state?sessionId=$SID" | node -e 'let d="";process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{const j=JSON.parse(d);console.log(j.turns.length)})')
+  TURNS=$("${CURL[@]}" "http://127.0.0.1:$PORT/graph-chat/api/state?sessionId=$SID" | node -e 'let d="";process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{const j=JSON.parse(d);console.log(j.turns.length)})')
   [ "$TURNS" -ge 1 ] && break
   sleep 0.5
 done
 [ "${TURNS:-0}" -ge 1 ] || { echo "FAIL: no turn trace"; tail -20 "$LOG"; exit 1; }
 
-curl -sf "http://127.0.0.1:$PORT/graph-chat/api/state?sessionId=$SID" > "$HOME_DIR/state.json"
+"${CURL[@]}" "http://127.0.0.1:$PORT/graph-chat/api/state?sessionId=$SID" > "$HOME_DIR/state.json"
 node -e '
 const j=require(process.argv[1]); const t=j.turns[0];
 const ids=t.plan.nodes.map(n=>n.id);
@@ -56,13 +69,12 @@ if (t.plan.nodes.length < 3) { console.error("FAIL: expected a multi-node topolo
 if (!t.trail.every(x => x.status === "ok")) { console.error("FAIL: a node failed"); process.exit(1) }
 ' "$HOME_DIR/state.json"
 
-echo "== 5. screenshot (Chrome headless, best effort)"
+echo "== 6. screenshot (Chrome headless, best effort)"
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 if [ -x "$CHROME" ]; then
-  "$CHROME" --headless=new --disable-gpu --no-sandbox --hide-scrollbars \
-    --window-size=1600,1000 --virtual-time-budget=12000 \
-    --screenshot="$ROOT/preview/graph-chat-live.png" \
-    "http://127.0.0.1:$PORT/graph-chat" >/dev/null 2>&1 || true
+  # The page needs the signed cookie, so the shot goes through the launch URL first.
+  CHROME_PATH="$CHROME" node "$ROOT/scripts/graph-chat-shot.mjs" \
+    "http://127.0.0.1:$PORT" "$LAUNCH" "$ROOT/preview/graph-chat-live.png" || echo "screenshot skipped"
   [ -f "$ROOT/preview/graph-chat-live.png" ] && echo "screenshot: preview/graph-chat-live.png"
 fi
 echo "PASS  e2e live graph-chat  (home: $HOME_DIR)"

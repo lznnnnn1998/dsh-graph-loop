@@ -28,7 +28,6 @@
       config:
         provider: deepseek-official
         model: deepseek-flash
-        preset: standard
 
     - id: graph-tools
       name: /Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/packages/loop/src/tools.ts

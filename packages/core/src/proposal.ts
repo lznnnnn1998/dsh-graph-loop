@@ -16,6 +16,7 @@ import type {
   TaskPlan,
 } from './graph-schema.ts'
 import type { RegistryGraph } from './graph-schema.ts'
+import { validateTaskPlan } from './graph-schema.ts'
 
 export interface ProposalNode {
   readonly id: string
@@ -138,7 +139,7 @@ export function validateProposal(
         id: node.id,
         kind: 'tool-call',
         executor: 'step',
-        capabilityId: `tool:${node.tool}`,
+        ...(known === undefined ? {} : { capabilityId: known.id }),
         instruction: instruction || `Use \`${node.tool}\` if it advances the task.`,
         toolAllow: [node.tool],
         ...(node.model === undefined ? {} : { model: node.model }),
@@ -168,6 +169,22 @@ export function validateProposal(
     }
     if (!seen.has(edge.from)) errors.push(`edges[${index}].from "${edge.from}" is not a declared node`)
     if (!seen.has(edge.to)) errors.push(`edges[${index}].to "${edge.to}" is not a declared node`)
+    let condition: Condition | undefined
+    if (edge.when !== undefined) {
+      condition = normalizeCondition(edge.when)
+      // An unknown condition used to degrade to `always`, which silently changes
+      // the topology the model asked for. It is a proposal error instead.
+      if (condition === undefined) {
+        errors.push(`edges[${index}].when is not a supported condition`)
+        continue
+      }
+    }
+    // A conditional self-loop is the bounded retry/verify pattern; an
+    // unconditional one is a plan that can only spin.
+    if (edge.from === edge.to && (condition === undefined || condition.op === 'always')) {
+      errors.push(`edges[${index}] is an unconditional self-loop at "${edge.from}"`)
+      continue
+    }
     const key = `${edge.from}->${edge.to}`
     if (edgeKeys.has(key)) {
       warnings.push(`edges[${index}] duplicates ${key}; ignored`)
@@ -178,7 +195,7 @@ export function validateProposal(
       from: edge.from,
       to: edge.to,
       kind: 'control',
-      ...(edge.when === undefined ? {} : { when: normalizeCondition(edge.when) ?? { op: 'always' } }),
+      ...(condition === undefined ? {} : { when: condition }),
     })
   }
 
@@ -192,8 +209,28 @@ export function validateProposal(
   const leaves = planNodes.map(node => node.id).filter(id => !hasOutgoing.has(id))
   const terminals = declaredTerminals.length > 0 ? declaredTerminals : leaves
   if (terminals.length === 0) errors.push('the topology has no terminal node')
-
-  if (errors.length > 0) return { ok: false, errors, warnings }
+  // A declared terminal is the end of the graph; nothing may leave it. (When the
+  // model omits terminals they are the leaves, so this cannot fire.)
+  const terminalSet = new Set(terminals)
+  for (const [index, edge] of planEdges.entries()) {
+    if (terminalSet.has(edge.from)) errors.push(`edges[${index}].from "${edge.from}" leaves a terminal node`)
+  }
+  // Every non-entry node must be reachable from the entry.
+  if (seen.has(entry)) {
+    const reachable = new Set<string>([entry])
+    const queue = [entry]
+    while (queue.length > 0) {
+      const current = queue.shift() as string
+      for (const edge of planEdges) {
+        if (edge.from !== current || reachable.has(edge.to)) continue
+        reachable.add(edge.to)
+        queue.push(edge.to)
+      }
+    }
+    for (const node of planNodes) {
+      if (!reachable.has(node.id)) errors.push(`node "${node.id}" is unreachable from entry "${entry}"`)
+    }
+  }
 
   const plan: TaskPlan = {
     id: `proposed:${hashText(JSON.stringify(proposal)).slice(0, 12)}`,
@@ -216,6 +253,12 @@ export function validateProposal(
     confidence: 0.9,
     compiledDigest: `proposed:${hashText(JSON.stringify({ nodes: planNodes, edges: planEdges })).slice(0, 16)}`,
   }
+  // Schema-level invariants (unknown capability, terminal-outgoing, tool universe,
+  // unconditional cycles, handoff bounds, ...) apply to a proposal too; merge them
+  // so the model gets one complete error list to correct from.
+  const structural = validateTaskPlan(graph, plan)
+  for (const issue of structural.errors) errors.push(`${issue.code} ${issue.path}: ${issue.message}`)
+  if (errors.length > 0) return { ok: false, errors, warnings }
   return { ok: true, plan, errors: [], warnings }
 }
 

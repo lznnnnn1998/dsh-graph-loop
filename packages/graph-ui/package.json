@@ -1,6 +1,6 @@
 {
   "name": "dsh-graph-loop-ui",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "type": "module",
   "description": "Web surface for dsh-graph-loop: the Graph tab in the DSH conversation view and /graph-chat API.",
   "exports": {
@@ -15,6 +15,10 @@
     "README.md",
     "LICENSE"
   ],
+  "scripts": {
+    "build": "node ../../scripts/build-bundles.mjs",
+    "prepack": "node ../../scripts/build-bundles.mjs"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml",

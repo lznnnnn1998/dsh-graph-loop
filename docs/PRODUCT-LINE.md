@@ -31,8 +31,10 @@
   **pending** (native builds are required).
 - The live scheduler now calls `selectEnvelopeForTask` + `synthesizeComposition` in dynamic mode;
   the bounded verify → diagnose → edit → verify repair is installed on verification failure.
-- Legacy local 20-task live-compose result (archived, not the active claim): 40/40 both, prompt
-  **25,105 → 12,561 (−50.0% mean; −48.6% median)**, steps 4.2 → 4.0; wall +9.4% / +4.2%.
+- Archived local 20-task live-compose run (superseded; dirty worktree, not commit-bound): 40/40
+  both, prompt **25,105 → 12,561 (−50.0% mean; −48.6% median)**, steps 4.2 → 4.0; wall +9.4% /
+  +4.2%. Cost is not a win: billed total +16.8% (legacy topology +44.6%), output +41.2% / +55.2%.
+  See [`bench/archive/agent-eval/RESULTS.md`](../bench/archive/agent-eval/RESULTS.md).
 - Terminal-Bench easy/medium suite is prepared; it needs the Terminal-Bench product suite Docker environment and action
   mapping.
 

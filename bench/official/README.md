@@ -9,21 +9,25 @@ Primary benchmarks chosen from the DeepSeek V4.1-Flash-1017 model card:
 
 Adapter contract: [`adapter-contract.md`](adapter-contract.md).
 
-The local 20-task benchmark in [`../agent-eval/`](../agent-eval/) is the **pre-signal** that runs
-today. Official runs are gated on the missing pieces below; do not report a model-card comparison
-until the exact harness version, task selection and agent adapter are pinned.
+The archived local 20-task benchmark in [`../archive/agent-eval/`](../archive/agent-eval/) is the
+**old pre-signal** (superseded 2026-11-07). Official runs are gated on the missing pieces below; do
+not report a model-card comparison until the exact harness version, task selection and agent
+adapter are pinned.
 
 ## Current status (2026-11-07, after installing Docker)
 
 - **Docker is installed** via Colima (`--vm-type vz`, 8 GB / 4 CPU); Docker Compose is installed.
 - **Harbor is installed** (`uv tool install --python 3.12 'harbor[modal]'`), and the
-  `terminal-bench/terminal-bench@latest` dataset (66 tasks) is downloaded.
+  `terminal-bench/terminal-bench@latest` dataset (66 tasks) is downloaded. **The dataset is
+  unpinned**: `@latest` was used and no digest was recorded, so these runs are not exactly
+  reproducible; pin a digest before a reportable product run.
 - **Terminal-Bench DSH adapter is implemented**:
-  [`dsh_agent.py`](terminal-bench/dsh_agent.py). It installs Node + DSH in the task container,
-  installs the packed graph plugin, sets `toolPolicy: preset`, runs one DSH turn in `/app`, and can
-  run the stock loop with `DSH_STOCK=1`.
-- **Official trials are scored**: `html-js-filter` (both 0.0) and a 5-task subset attempt
-  (0.0 on every clean trial; two arms timed out). Details:
+  [`dsh_agent.py`](terminal-bench/dsh_agent.py) — `terminal-bench/preflight.sh` checks for it. It
+  installs Node + DSH in the task container, installs the packed graph plugin, sets
+  `toolPolicy: preset`, runs one DSH turn in `/app`, and can run the stock loop with `DSH_STOCK=1`.
+- **Official trials are scored** (local arm64 adaptations): `html-js-filter` (both 0.0) and a fixed
+  **7-task** subset attempt (0.0 on every clean trial; 2 clean stock / 5 clean graph trials, the rest
+  timeouts or sidecar errors). Details:
   [`results/2026-11-07-html-js-filter/`](results/2026-11-07-html-js-filter/) and
   [`results/terminal-bench-subset/`](results/terminal-bench-subset/).
 - **No nonzero task and no aggregate yet**; the harness is working, the agent is not solving these
@@ -34,7 +38,7 @@ until the exact harness version, task selection and agent adapter are pinned.
   platform from the public amd64 leaderboard; record it.
 - **NL2Repo-Bench is not adapted yet**: its harness is OpenHands-specific
   (`openhands/openhands_app.py`) and needs a DSH replacement.
-- This is **not an aggregate Terminal-Bench score**; one task is not a benchmark.
+- This is **not an aggregate Terminal-Bench score**; one task — or a handful — is not a benchmark.
 
 ## Product suite (10 easy + 10 medium)
 
@@ -58,6 +62,22 @@ bash bench/official/terminal-bench/run-smoke.sh
 
 Oracle, graph and stock must all score **1.0** on the trivial `answer-42` task before a benchmark
 subset. Latest: [`results/smoke-answer-42/`](results/smoke-answer-42/).
+
+## Evidence caveats (recorded, not hidden)
+
+- **The smoke gate was added after the first runs.** The first `html-js-filter` trial and the first
+  7-task subset attempt ran from 12:38 to 20:07; `run-smoke.sh` first ran at 21:29. Only
+  [`results/terminal-bench-post-smoke/`](results/terminal-bench-post-smoke/) follows the smoke-first
+  protocol. Earlier rows are not smoke-gated (the environment still ran end to end — Harbor started
+  the tasks, ran the agent and scored with the real verifier).
+- **Dataset unpinned.** `terminal-bench/terminal-bench@latest` (66 tasks) with no recorded digest;
+  these runs are not exactly reproducible until a digest is pinned.
+- **Graph arm retry policy.** The graph arm's profile patch also sets
+  `llm-deepseek.retryPolicy.maxRetries: 1` (`terminal-bench/dsh_agent.py:121`); the stock arm uses
+  the default. Arm deltas are therefore not purely the plugin effect.
+- **Error rows in summaries.** `summary.json` serialises timeout/error rows as `score: 0.0` with
+  `n_trials: 0` / `n_errors: 1`; those are placeholders, not valid 0 scores. `rows.jsonl` is
+  canonical.
 
 ## Run protocol (when the gates pass)
 
@@ -118,7 +138,10 @@ The repo has 104 tasks (`test_files/`), Docker images, and writes one result JSO
 
 ## What is deliberately not claimed
 
-- No aggregate official benchmark has been run; one Terminal-Bench task is scored in `results/`.
-- The local 20-task suite is not Terminal-Bench/NL2Repo; it measures the same plugin seam on a
-  cheaper harness.
+- No aggregate official benchmark has been run. Recorded so far: one single-task trial
+  (`html-js-filter`), one fixed 7-task subset attempt (2 clean stock / 5 clean graph trials, all
+  0.0, the rest errors), one 3-task post-smoke subset, and the smoke task (1.0 in all three arms).
+  None of these is a benchmark score.
+- The archived local 20-task suite is not Terminal-Bench/NL2Repo; it measures the same plugin seam
+  on a cheaper harness (and its billed total rises — see `docs/EVALUATION.md` §1.2).
 - A model-card score is **not** a baseline for this plugin until the adapter and harness match.

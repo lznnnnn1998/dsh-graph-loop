@@ -37,12 +37,13 @@ import { canonicalHeader, headerEquals, ToolCallRecovery } from '@deepseek-ai/ds
 import { joinContextSections, renderContextSections, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import { ToolActivationError, ToolBatchExecutionError } from '@deepseek-ai/dsh-tools'
-import type { ResolvedToolSet, ToolDefinition } from '@deepseek-ai/dsh-tools'
+import type { ResolvedToolSet } from '@deepseek-ai/dsh-tools'
 import type { Context } from '@deepseek-ai/cordis'
 import { ReactLoopInbox } from './inbox.ts'
 import { RuntimeContextProjection } from './runtime-context.ts'
 import { AssistantStreamAttempt } from './assistant-stream.ts'
 import { SystemPromptProjection } from './runtime-context.ts'
+import { isMutatingNode, mutationObserved, restrictToolSet } from './step-tools.ts'
 
 type Phase =
   | { kind: 'idle'; lastTurn: number }
@@ -110,32 +111,6 @@ type PreparedStep =
     toolSet: ResolvedToolSet
   }
 
-/**
- * Narrow the step's admitted tool set to the active node's tools.
- *
- * The plan already decided which capabilities are relevant; keeping the full
- * schema surface in every request would charge the graph for tools it cannot
- * use and would defeat the per-turn token win. A terminal node with an
- * explicit empty `toolAllow` is answer-only: the empty map is intentional, not
- * a resolution failure. If a non-empty universe resolves to no visible tool
- * (a stale plan, a missing plugin), fall back to the full set rather than
- * starting a turn with no tools at all.
- */
-function restrictToolSet(base: ResolvedToolSet, allowed: ReadonlySet<string>, allowEmpty = false): ResolvedToolSet {
-  return {
-    dispose: () => base.dispose(),
-    view: (scope) => {
-      const visible = base.view(scope)
-      const filtered = new Map<string, ToolDefinition>()
-      for (const [name, definition] of visible) {
-        if (allowed.has(name)) filtered.set(name, definition)
-      }
-      if (filtered.size > 0) return filtered
-      return allowEmpty ? filtered : visible
-    },
-  }
-}
-
 /** Remove adapter-derived values before plugins propose the next request config. */
 function requestProposal(header: EpochHeader): LlmCallConfig {
   if (header.adapterDefaults === undefined) return header.config
@@ -167,6 +142,22 @@ function abortedCancelCause(signal: AbortSignal): AgentCancelCause | undefined {
     /* v8 ignore next -- cancel accepts the closed AgentCancelCause union */
     default:
       return assertNever(cause)
+  }
+}
+
+/**
+ * A graph run that ended in `failed` status. Recovery/replan already had its
+ * chance at the failed node's boundary; a run that is still failed after that
+ * fails the turn with a structured `GRAPH_FAILED` reason instead of reporting
+ * success.
+ */
+class GraphRunFailure extends Error {
+  /** Stable turn-error code recorded with the `turn/end` reason. */
+  readonly code = 'GRAPH_FAILED'
+
+  constructor(message: string) {
+    super(message)
+    this.name = 'GraphRunFailure'
   }
 }
 
@@ -254,12 +245,19 @@ export class ReactLoopAgent implements Agent {
           .join('\n')
           .trim()
           .slice(0, 4000)
+        const ok = result.stopReason === undefined || result.stopReason === 'completed'
+        if (!ok) {
+          this.ctx.logger.warn(`agent "${this.id}": subagent node "${node.id}" ended with "${String(result.stopReason)}"`)
+        }
         this.inject(createUserMessage({
           content: [{ type: 'text', text: `[subagent ${node.id}] (${String(result.stopReason)}) ${text === '' ? '(no output)' : text}` }],
           source: { kind: 'user' },
         }))
-        await this.turnGraph?.completeNode(node.id, result.stopReason === undefined || result.stopReason === 'completed')
-      } catch {
+        await this.turnGraph?.completeNode(node.id, ok)
+      } catch (error: unknown) {
+        // A failed child is a failed graph node, not a silent success: the
+        // scheduler decides whether recovery/replan can still save the turn.
+        this.ctx.logger.warn(`agent "${this.id}": subagent node "${node.id}" failed: ${errorChain(error)}`)
         await this.turnGraph?.completeNode(node.id, false)
       } finally {
         await activation?.dispose().catch(() => undefined)
@@ -384,6 +382,20 @@ export class ReactLoopAgent implements Agent {
     throw error
   }
 
+  /**
+   * Fail the turn when the graph ended in `failed` status. The scheduler's
+   * recovery/replan pass runs at the failed node's boundary, so a run that is
+   * still failed here has no recovery left: report it instead of counting the
+   * turn as completed.
+   */
+  private throwGraphFailure(): void {
+    if (this.turnGraph?.status?.() !== 'failed') return
+    const node = this.turnGraph.snapshot().node
+    throw new GraphRunFailure(node === undefined
+      ? 'graph run ended in "failed" status'
+      : `graph run ended in "failed" status at node "${node}"`)
+  }
+
   private async kick(): Promise<void> {
     try {
       while (await this.turn()) {}
@@ -423,8 +435,9 @@ export class ReactLoopAgent implements Agent {
     const universe = this.turnGraph?.toolUniverse?.()
     // Per-node tools matter for one case: a terminal `toolAllow: []` is an
     // answer-only node. Every other node uses the plan universe, which already
-    // contains the safe tool floor — narrowing a step to only `edit`/`write`
-    // can leave nothing but deferred tools, which the provider rejects.
+    // contains the safe tool floor. An empty intersection stays empty: widening
+    // back to the full preset would silently undo the plan's narrowing, so the
+    // step runs with no tools and the mismatch is logged instead.
     const answerOnly = nodeToolAllow !== undefined && nodeToolAllow.length === 0
     const allowed = answerOnly
       ? new Set<string>()
@@ -432,7 +445,11 @@ export class ReactLoopAgent implements Agent {
         ? new Set(universe)
         : undefined
     const admittedToolSet = allowed !== undefined
-      ? restrictToolSet(toolSet, allowed, answerOnly)
+      ? restrictToolSet(toolSet, allowed, answerOnly
+        ? undefined
+        : (visible) => {
+          this.ctx.logger.warn(`agent "${this.id}": node "${node?.id ?? 'unknown'}" admits none of its visible tools (${visible.join(', ')}); starting the step with no tools`)
+        })
       : toolSet
     try {
       const assembly = await this.loopCtx.systemPrompt.assemble({ ...assembleContextFor(this, signal), modelSelection: selection, toolSet: admittedToolSet })
@@ -482,22 +499,26 @@ export class ReactLoopAgent implements Agent {
       this.throwError(error)
     }
     phase.turn = turn
-    if (this.turnGraph !== undefined) {
-      try {
-        const pending = [...this.inbox.nextTurn]
-        await this.turnGraph.beginTurn({ text: inboxText(pending), surface: 'api' })
-      } catch (error: unknown) {
-        this.throwError(error)
-      }
-    }
     let turnEnds: TurnEndReason | null = null
     let formatRetries = 0
     let mutationRetries = 0
     let target: InboxTarget = 'next-turn'
     try {
+      // beginTurn runs inside the turn boundary: a failing graph start must
+      // still close the turn it opened, exactly once, through the catch below.
+      if (this.turnGraph !== undefined) {
+        const pending = [...this.inbox.nextTurn]
+        await this.turnGraph.beginTurn({ text: inboxText(pending), surface: 'api' })
+      }
       while (true) {
         signal.throwIfAborted()
-        if (this.turnGraph?.done() === true) break
+        if (this.turnGraph?.done() === true) {
+          // A graph that completed before a step still owns the turn end; a
+          // failed one fails it instead of being reported as a completion.
+          this.throwGraphFailure()
+          if (turnEnds === null) turnEnds = { kind: 'completed' }
+          break
+        }
         const graphNode = this.turnGraph?.current()
         if (graphNode?.model !== undefined) {
           const { provider, model, reasoningEffort } = graphNode.model
@@ -510,6 +531,7 @@ export class ReactLoopAgent implements Agent {
           if (batch.length > 0) {
             await this.runSubagentBatch(batch)
             if (this.turnGraph?.done() === true) {
+              this.throwGraphFailure()
               if (turnEnds === null) turnEnds = { kind: 'completed' }
               await this.dispatch.serial('agent/turn-stopping', { turn, signal })
               signal.throwIfAborted()
@@ -599,24 +621,20 @@ export class ReactLoopAgent implements Agent {
           }))
           continue
         }
-        // A mutation node must actually mutate. Exploration in d_edit is a
-        // common failure on long tasks: the model lists files and never writes.
-        // Retry the same node with a direct correction instead of advancing.
-        const mutationCommand = /(?:^|[\s;&|])(?:mv|rm|mkdir|cp|tee|truncate|dd)\s|sed\s+-i|perl\s+-pi|>\s*(?!\/dev\/null|&)|open\([^)]*['"]w/u
-        const mutated = stepTools.some(tool => !tool.isError && (
-          tool.name === 'write'
-          || tool.name === 'edit'
-          || tool.name === 'str_replace_editor'
-          || ((tool.name === 'bash' || tool.name === 'pwsh') && mutationCommand.test(tool.arguments ?? ''))
-        ))
+        // A mutation node must actually mutate. Exploration on a mutation node
+        // is a common failure on long tasks: the model lists files and never
+        // writes. Retry the same node once with a direct correction instead of
+        // advancing; the node's own intent decides, so the composed `n_mutate`
+        // is enforced exactly like the dynamic `d_edit`.
         if (this.turnGraph !== undefined
-          && retryNode?.id === 'd_edit'
-          && !mutated
+          && retryNode !== undefined
+          && isMutatingNode(retryNode)
+          && !mutationObserved(stepTools)
           && mutationRetries < 1
           && !signal.aborted) {
           mutationRetries += 1
           this.inject(createUserMessage({
-            content: [{ type: 'text', text: 'You did not perform the mutation. Call the `write` tool (for a new artifact) or `edit` now; do not run more exploratory commands.' }],
+            content: [{ type: 'text', text: 'This node must perform the requested change. Call a mutating tool (`write` for a new artifact, `edit`/`str_replace_editor` for an in-place change) or a shell mutation now; do not run more exploratory commands.' }],
             source: { kind: 'user' },
           }))
           continue
@@ -644,7 +662,10 @@ export class ReactLoopAgent implements Agent {
           if (this.turnGraph.done()) {
             // A finished graph owns the turn end. If its terminal node ended on a
             // tool call rather than free text, the step result is null; the turn
-            // still completed successfully, so do not log a null reason.
+            // still completed successfully, so do not log a null reason. A run
+            // that ended failed is the one exception: recovery/replan already
+            // had its chance, so the turn ends with a structured error.
+            this.throwGraphFailure()
             if (turnEnds === null) turnEnds = { kind: 'completed' }
             await this.dispatch.serial('agent/turn-stopping', { turn, signal })
             signal.throwIfAborted()
@@ -665,13 +686,16 @@ export class ReactLoopAgent implements Agent {
         throw error
       }
       // Every failure is structured: an `LlmError` keeps its facts, a tool
-      // activation failure keeps its code, and anything else flattens to
-      // `errorChain` text under the `UNKNOWN` code.
+      // activation failure keeps its code, a failed graph run reports
+      // `GRAPH_FAILED`, and anything else flattens to `errorChain` text under
+      // the `UNKNOWN` code.
       turnEnds = {
         kind: 'error',
-        error: error instanceof LlmError
-          ? error.failure
-          : { message: errorChain(error), code: error instanceof ToolActivationError ? error.code : 'UNKNOWN' },
+        error: error instanceof GraphRunFailure
+          ? { message: error.message, code: error.code }
+          : error instanceof LlmError
+            ? error.failure
+            : { message: errorChain(error), code: error instanceof ToolActivationError ? error.code : 'UNKNOWN' },
       }
       this.throwError(error)
     } finally {

@@ -1,6 +1,6 @@
 {
   "name": "dsh-graph-loop-mode",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "type": "module",
   "description": "Explore agent preset and agent-reuse guard for dsh-graph-loop.",
   "exports": {
@@ -52,7 +52,8 @@
     }
   },
   "scripts": {
-    "build": "node ../../scripts/build-bundles.mjs"
+    "build": "node ../../scripts/build-bundles.mjs",
+    "prepack": "node ../../scripts/build-bundles.mjs"
   },
   "license": "MIT",
   "author": "lzn1998",

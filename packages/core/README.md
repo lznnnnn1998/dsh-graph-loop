@@ -15,7 +15,7 @@ executor, proposal validation, and the kernel port.
 
 ## Configuration
 
-This package has no config. Thresholds used by the driver are exposed on the `explore-loop` row
+This package has no config. Thresholds used by the driver are exposed on the `graph-loop` row
 (`trivialChars`, `maxSteps`) or embedded in templates/proposals.
 
 ## Extension points

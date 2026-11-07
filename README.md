@@ -7,9 +7,13 @@ tab; the LLM-facing kernel is LangGraph (Minimal fallback). The active path is a
 installed as a bundle; the long-term path is a control plane over the stock loop, which would
 remove the fork duplication.
 
-**Value:** a DSH-native, tool-agnostic plugin that is measurably better than the official default
-experience on a public benchmark, and that people actually install, use and extend. It is a
-community contribution — not a business, a general agent framework or a research paper.
+**Value (target, not yet demonstrated):** a DSH-native, tool-agnostic plugin built to beat the
+official default experience on a public benchmark, and that people actually install, use and extend.
+No public head-to-head has been run yet: the product suite (Terminal-Bench easy10 + medium10) is
+defined but not executed, NL2Repo-Bench is not adapted, the archived local 20-task run hits a 40/40
+ceiling (accuracy parity) and a prompt-token win but a **higher billed total**, and the hard
+Terminal-Bench stress line is 0.0. It is a community contribution — not a business, a general agent
+framework or a research paper.
 
 > **Status: 0.2 in progress — two lines.** *Product*: composition layer + live envelope/compose +
 > per-turn tool surface, evaluated on medium tasks. *Stress*: Terminal-Bench, used to expose
@@ -35,8 +39,9 @@ community contribution — not a business, a general agent framework or a resear
   plan instead of being dropped.
 - **Harness-owned executors** — `step`, `tool-batch`, `subagent`, `context`. Plugins are untouched;
   third parties contribute capabilities and templates, never node executors.
-- **Authoritative checkpoints** — graph state in a `storageDomain` sidecar, written at node
-  boundaries; the session log remains the conversation record.
+- **Checkpoint contract (contract only today)** — `GraphCheckpoint` / `CheckpointStore` with an
+  in-memory store; authoritative `storageDomain` persistence is designed but not wired (see
+  [`docs/COMPOSITION.md`](docs/COMPOSITION.md) §4.7). The session log remains the conversation record.
 - **Single-writer parent** — parallel branches are child sessions joined into the parent.
 - **Graph tab** — live topology, node → tool-call inspector, envelope and checkpoint history.
 - **Template packages** — npm packages binding abstract roles + concrete implementations, with
@@ -119,8 +124,9 @@ Composition-layer commands are documented as they land; the contract is in
 ## Requirements
 
 - DeepSeek Harness `^0.2.1-rc.3` (see each package's `engines.dsh`).
-- 0.2 additionally mounts `@deepseek-ai/dsh-storage-domain`; the composition row fails loudly if it
-  is absent.
+- Checkpoints are **contract-only** in 0.2: the `storageDomain` sidecar is designed but **not
+  mounted**, and the kernel writes `MemoryCheckpointer` (see
+  [`docs/COMPOSITION.md`](docs/COMPOSITION.md) §4.7).
 
 ## License
 

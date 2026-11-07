@@ -201,3 +201,77 @@ test('synthesis is deterministic and respects the envelope universe', () => {
   assert.ok(!first.stages.some(stage => stage.capabilityId === 'tool:bash'))
   assert.equal(validateTaskPlan(graph, first.plan).ok, true)
 })
+
+test('the terminal answer node is answer-only for a composed plan', () => {
+  const graph = graphOf({ tools: CORE_TOOLS })
+  const envelope = buildEnvelope({
+    roles: [
+      role('workspace-read'),
+      role('workspace-write'),
+      role('shell'),
+      role('verification'),
+    ],
+  }, graph)
+  const result = synthesizeComposition({
+    fingerprint: fingerprint({ intent: 'code-change', mutating: true }),
+    graph,
+    envelope: envelope.envelope,
+  })
+
+  assert.ok(result.stages.length > 0, 'the fixture must compose work stages')
+  const answer = result.plan.nodes.find(node => node.id === 'n_answer')
+  assert.ok(answer, 'composed plans end at n_answer')
+  assert.deepEqual(answer.toolAllow, [], 'the terminal step must not carry the preset tool surface')
+  assert.equal(validateTaskPlan(graph, result.plan).ok, true)
+})
+
+test('a generic single-step plan keeps the envelope: its terminal is also the work node', () => {
+  const graph = graphOf({ tools: [] })
+  const envelope = buildEnvelope({ roles: [] }, graph)
+  const result = synthesizeComposition({
+    fingerprint: fingerprint(),
+    graph,
+    envelope: envelope.envelope,
+  })
+
+  assert.equal(result.plan.templateId, 't_generic')
+  assert.equal(result.plan.nodes.length, 1)
+  assert.equal(result.plan.nodes[0]?.toolAllow, undefined, 'the escape hatch must keep its tools')
+  assert.equal(validateTaskPlan(graph, result.plan).ok, true)
+})
+
+test('a maxSteps budget of one yields a single terminal node', () => {
+  const graph = graphOf({ tools: CORE_TOOLS })
+  const envelope = buildEnvelope({
+    roles: [role('workspace-read'), role('workspace-write'), role('shell'), role('verification')],
+  }, graph)
+  const result = synthesizeComposition({
+    fingerprint: fingerprint({ intent: 'code-change', mutating: true }),
+    graph,
+    envelope: envelope.envelope,
+    budget: { maxSteps: 1 },
+  })
+
+  assert.equal(result.plan.budget.maxSteps, 1, 'the plan budget must match the enforced cap')
+  assert.equal(result.plan.nodes.length, 1)
+  assert.equal(result.plan.nodes[0]?.id, 'n_answer')
+  assert.ok(result.issues.some(issue => issue.code === 'budget-capped'))
+  assert.equal(validateTaskPlan(graph, result.plan).ok, true)
+})
+
+test('the legacy top-level maxSteps is honoured by the cap and the plan budget alike', () => {
+  const graph = graphOf({ tools: CORE_TOOLS })
+  const envelope = buildEnvelope({
+    roles: [role('workspace-read'), role('workspace-write'), role('shell'), role('verification')],
+  }, graph)
+  const result = synthesizeComposition({
+    fingerprint: fingerprint({ intent: 'code-change', mutating: true }),
+    graph,
+    envelope: envelope.envelope,
+    maxSteps: 2,
+  })
+
+  assert.equal(result.plan.budget.maxSteps, 2)
+  assert.equal(result.plan.nodes.length, 2, 'one work stage plus the terminal answer')
+  assert.equal(validateTaskPlan(graph, result.plan).ok, true)
+})

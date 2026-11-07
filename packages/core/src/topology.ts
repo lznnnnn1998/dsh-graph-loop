@@ -407,6 +407,13 @@ export class FrontierTopology {
     const visits = (this.visits.get(id) ?? 0) + 1
     this.visits.set(id, visits)
     if (!outcome.ok) {
+      // The step budget bounds recovery too: a `callFailed` self-loop is still a
+      // loop, so it must terminate when `maxSteps` is exhausted instead of
+      // queueing the recovery edge forever (H3).
+      if (this.stepCount >= this.maxSteps) {
+        this.state = 'failed'
+        return undefined
+      }
       // A failed node only continues when an explicit failed-tool edge exists.
       const recovery = this.adjacency.find(edge => edge.from === id
         && edge.when?.op === 'callFailed'

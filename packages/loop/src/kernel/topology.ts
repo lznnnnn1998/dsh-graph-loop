@@ -16,9 +16,10 @@
  */
 
 import type { GraphState, PlanNode, TaskPlan } from 'dsh-graph-loop-core/graph-schema'
+import { KernelError } from 'dsh-graph-loop-core/kernel'
 import type { KernelResult, KernelRunHandle } from 'dsh-graph-loop-core/runtime'
 
-import { createLangGraphKernel } from './langgraph.ts'
+import { createLangGraphKernel, isReservedPlanNodeId } from './langgraph.ts'
 import { createMinimalKernel } from './minimal.ts'
 import {
   planInitialState,
@@ -43,6 +44,7 @@ export interface KernelTopologyOptions {
 
 export class KernelTopology {
   private readonly plan: TaskPlan
+  private readonly engine: KernelEngine
   private readonly handle: KernelRunHandle
   private readonly nodeById: Map<string, PlanNode>
   private state: GraphState
@@ -53,6 +55,7 @@ export class KernelTopology {
 
   constructor(plan: TaskPlan, options: KernelTopologyOptions = {}) {
     this.plan = plan
+    this.engine = options.kind ?? 'langgraph'
     this.nodeById = new Map(plan.nodes.map(node => [node.id, node]))
     this.state = planInitialState(plan, options.taskHash ?? plan.id)
     this.currentId = this.nodeById.get(plan.entry)?.id ?? plan.entry
@@ -105,6 +108,12 @@ export class KernelTopology {
   /**
    * Resume the kernel with the DSH step outcome. Executes the node's bridge
    * executor, checkpoints, routes, and pauses before the next node.
+   *
+   * The kernel compiles lazily, so a malformed plan (e.g. a node id colliding
+   * with a LangGraph channel) first throws here rather than at construction.
+   * That failure is recorded as `failed` and rethrown as a typed `KernelError`
+   * so the scheduler can fall back to `FrontierTopology` instead of surfacing a
+   * bare LangGraph error.
    */
   async advance(outcome: KernelAdvanceOutcome): Promise<PlanNode | undefined> {
     if (this.stateStatus !== 'running' || this.currentId === undefined) return undefined
@@ -129,50 +138,69 @@ export class KernelTopology {
           }),
     }
 
-    let result = await this.handle.next()
+    try {
+      // LangGraph compiles lazily, so this is the first point where a reserved
+      // node id is detectable. Refuse it with the exact code instead of letting
+      // the engine throw its unstructured compile error.
+      if (this.engine === 'langgraph') {
+        const reserved = this.plan.nodes.find(node => isReservedPlanNodeId(node.id))?.id
+        if (reserved !== undefined) {
+          throw new KernelError(
+            `plan node id "${reserved}" collides with a kernel channel or reserved id`,
+            'BAD_NODE_ID',
+            { node: reserved },
+          )
+        }
+      }
+      let result = await this.handle.next()
 
-    // A failed plan node does not get a second chance in kernel mode: plans
-    // with failure/conditional edges are routed through FrontierTopology.
-    if (!outcome.ok) {
-      this.lastResult = result
-      this.state = result.state
-      this.stateStatus = 'failed'
-      this.currentId = undefined
-      return undefined
-    }
-
-    // The kernel returns a boundary after executing the bridge node. Pause it
-    // once more so `current()` points at the node the next DSH step must run.
-    if (result.kind === 'boundary') {
-      if (result.state.next === null || result.state.status !== 'running') {
+      // A failed plan node does not get a second chance in kernel mode: plans
+      // with failure/conditional edges are routed through FrontierTopology.
+      if (!outcome.ok) {
         this.lastResult = result
         this.state = result.state
-        this.stateStatus = result.state.status === 'failed' ? 'failed' : 'done'
+        this.stateStatus = 'failed'
         this.currentId = undefined
         return undefined
       }
-      result = await this.handle.next()
-    }
 
-    this.lastResult = result
-    this.state = result.state
-    if (result.kind === 'paused') {
+      // The kernel returns a boundary after executing the bridge node. Pause it
+      // once more so `current()` points at the node the next DSH step must run.
+      if (result.kind === 'boundary') {
+        if (result.state.next === null || result.state.status !== 'running') {
+          this.lastResult = result
+          this.state = result.state
+          this.stateStatus = result.state.status === 'failed' ? 'failed' : 'done'
+          this.currentId = undefined
+          return undefined
+        }
+        result = await this.handle.next()
+      }
+
+      this.lastResult = result
+      this.state = result.state
+      if (result.kind === 'paused') {
+        this.currentId = result.state.next ?? undefined
+        if (this.currentId === undefined) this.stateStatus = 'done'
+        return this.current()
+      }
+      if (result.kind === 'done') {
+        this.stateStatus = 'done'
+        this.currentId = undefined
+        return undefined
+      }
+      if (result.kind === 'failed') {
+        this.stateStatus = 'failed'
+        this.currentId = undefined
+        return undefined
+      }
       this.currentId = result.state.next ?? undefined
-      if (this.currentId === undefined) this.stateStatus = 'done'
       return this.current()
-    }
-    if (result.kind === 'done') {
-      this.stateStatus = 'done'
-      this.currentId = undefined
-      return undefined
-    }
-    if (result.kind === 'failed') {
+    } catch (error) {
       this.stateStatus = 'failed'
       this.currentId = undefined
-      return undefined
+      throw kernelTopologyError(error, nodeId, this.plan)
     }
-    this.currentId = result.state.next ?? undefined
-    return this.current()
   }
 
   done(): boolean {
@@ -213,5 +241,39 @@ export function canKernelDrive(plan: TaskPlan): boolean {
   // such ids keeps the frontier engine rather than renaming nodes behind the
   // plan's back.
   if (plan.nodes.some(node => !/^[A-Za-z0-9_-]+$/u.test(node.id))) return false
+  // Neither engine may use a kernel channel (`next`) or `__start__`/`__end__` as
+  // a node name: LangGraph's compile rejects it on the first advance().
+  if (plan.nodes.some(node => isReservedPlanNodeId(node.id))) return false
+  // The kernel's default route follows the first `control` out-edge only; a
+  // branching plan needs the frontier, which walks every branch. Reject any
+  // node with more than one outgoing control edge so a diamond cannot be
+  // silently reduced to one arm.
+  const controlOut = new Map<string, number>()
+  for (const edge of plan.edges) {
+    if (edge.kind !== 'control') continue
+    controlOut.set(edge.from, (controlOut.get(edge.from) ?? 0) + 1)
+  }
+  for (const count of controlOut.values()) {
+    if (count > 1) return false
+  }
   return plan.edges.every(edge => edge.when === undefined || edge.when.op === 'always')
+}
+
+/**
+ * Map a lazy-compile/runtime throw from the kernel handle to a typed
+ * `KernelError`. A plan whose node ids collide with engine-reserved names is the
+ * known cause (`BAD_NODE_ID`); anything else is an unusable graph.
+ */
+function kernelTopologyError(error: unknown, nodeId: string, plan: TaskPlan): KernelError {
+  if (error instanceof KernelError) return error
+  const reserved = plan.nodes.find(node => isReservedPlanNodeId(node.id))?.id
+  if (reserved !== undefined) {
+    return new KernelError(
+      `plan node id "${reserved}" collides with a kernel channel or reserved id`,
+      'BAD_NODE_ID',
+      { node: reserved, cause: error },
+    )
+  }
+  const message = error instanceof Error ? error.message : String(error)
+  return new KernelError(`kernel cannot drive this plan: ${message}`, 'INVALID_GRAPH', { node: nodeId, cause: error })
 }

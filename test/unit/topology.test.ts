@@ -4,6 +4,7 @@ import { buildRegistrySnapshot, type ToolSource } from '../../packages/core/src/
 import { extractFingerprint } from '../../packages/core/src/matching.ts'
 import { FrontierTopology, synthesizeTopology } from '../../packages/core/src/topology.ts'
 import { validateProposal } from '../../packages/core/src/proposal.ts'
+import type { TaskPlan } from '../../packages/core/src/graph-schema.ts'
 
 const tools: ToolSource[] = [
   { name: 'read', description: 'read', parameters: { type: 'object', properties: { path: { type: 'string' } } } },
@@ -113,4 +114,92 @@ test('proposal validation accepts a free-form topology and rejects invalid ones'
 
   const missingEntry = validateProposal({ entry: 'zz', nodes: [{ id: 'n1' }], edges: [] }, snapshot.graph, presetTools)
   assert.equal(missingEntry.ok, false)
+})
+
+test('frontier bounds a callFailed self-loop by maxSteps (H3)', () => {
+  const plan: TaskPlan = {
+    id: 'retry-loop',
+    templateId: 'test',
+    version: 1,
+    entry: 'a',
+    terminals: ['a'],
+    nodes: [{ id: 'a', kind: 'agent-step', executor: 'step', instruction: 'retry the call' }],
+    edges: [{ from: 'a', to: 'a', kind: 'control', when: { op: 'callFailed', tool: 'bash' } }],
+    budget: { maxNodes: 1, maxSteps: 3, maxTokens: 1_000, maxWallMs: 1_000, maxReplans: 0 },
+    toolUniverse: [],
+    gatePolicy: 'cold',
+    fallback: false,
+    confidence: 1,
+    compiledDigest: 'retry-loop',
+  }
+  const topology = new FrontierTopology(plan)
+  let advances = 0
+  while (topology.current() !== undefined && advances < 10) {
+    topology.advance({ ok: false, failedTool: 'bash' })
+    advances += 1
+  }
+  assert.equal(topology.done(), true)
+  assert.equal(topology.status(), 'failed')
+  // maxSteps counts the failed attempts: 3 advances, then the recovery edge is
+  // not queued again.
+  assert.equal(advances, 3)
+  assert.equal(topology.steps(), 3)
+})
+
+test('proposal validation rejects unsafe shapes and keeps a bounded retry loop', () => {
+  const invalidWhen = validateProposal({
+    entry: 'n1',
+    nodes: [{ id: 'n1' }, { id: 'n2', kind: 'terminal' }],
+    edges: [{ from: 'n1', to: 'n2', when: { op: 'nope' } as never }],
+  }, snapshot.graph, presetTools)
+  assert.equal(invalidWhen.ok, false)
+  assert.ok(invalidWhen.errors.some(error => error.includes('when')))
+
+  const selfLoop = validateProposal({
+    entry: 'n1',
+    nodes: [{ id: 'n1' }, { id: 'n2', kind: 'terminal' }],
+    edges: [{ from: 'n1', to: 'n1' }, { from: 'n1', to: 'n2' }],
+  }, snapshot.graph, presetTools)
+  assert.equal(selfLoop.ok, false)
+  assert.ok(selfLoop.errors.some(error => error.includes('self-loop')))
+
+  // The guarded verify -> retry loop stays legal: the frontier only follows the
+  // conditional edge on a matching outcome.
+  const retry = validateProposal({
+    entry: 'n1',
+    nodes: [{ id: 'n1', tool: 'bash' }, { id: 'n2', kind: 'terminal' }],
+    edges: [
+      { from: 'n1', to: 'n2' },
+      { from: 'n1', to: 'n1', when: { op: 'callFailed', tool: 'bash' } },
+    ],
+  }, snapshot.graph, presetTools)
+  assert.equal(retry.ok, true, retry.errors.join('; '))
+  assert.ok(retry.plan?.edges.some(edge => edge.when?.op === 'callFailed'))
+
+  const terminalOut = validateProposal({
+    entry: 'n1',
+    nodes: [{ id: 'n1' }, { id: 'n2', kind: 'terminal' }],
+    edges: [{ from: 'n1', to: 'n2' }, { from: 'n2', to: 'n1' }],
+    terminals: ['n2'],
+  }, snapshot.graph, presetTools)
+  assert.equal(terminalOut.ok, false)
+  assert.ok(terminalOut.errors.some(error => error.includes('terminal')))
+
+  const unreachable = validateProposal({
+    entry: 'n1',
+    nodes: [{ id: 'n1' }, { id: 'orphan' }, { id: 'n2', kind: 'terminal' }],
+    edges: [{ from: 'n1', to: 'n2' }],
+  }, snapshot.graph, presetTools)
+  assert.equal(unreachable.ok, false)
+  assert.ok(unreachable.errors.some(error => error.includes('unreachable')))
+
+  // validateTaskPlan() is merged in: a structural schema violation (P018, empty
+  // model provider) is reported alongside the proposal-specific checks.
+  const badModel = validateProposal({
+    entry: 'n1',
+    nodes: [{ id: 'n1', model: { provider: '', model: 'x' } }, { id: 'n2', kind: 'terminal' }],
+    edges: [{ from: 'n1', to: 'n2' }],
+  }, snapshot.graph, presetTools)
+  assert.equal(badModel.ok, false)
+  assert.ok(badModel.errors.some(error => error.includes('P018')))
 })

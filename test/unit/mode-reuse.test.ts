@@ -11,8 +11,10 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 import { policyText, rosterText } from '../../packages/mode/src/policy.ts'
 import {
+  GUARD_TEXT_FLOOR,
   GUARD_THRESHOLD,
   MAX_CANDIDATES,
+  MIN_TASK_TOKENS,
   SUGGEST_THRESHOLD,
   duplicateSpawnDecision,
   duplicateSpawnReason,
@@ -44,11 +46,13 @@ const DOCS: ExecutorCandidate = {
   status: 'inactive',
 }
 
-test('normalize lowercases, splits punctuation and drops stopwords', () => {
-  assert.deepEqual(normalize('Fix the failing unit-tests!'), ['fix', 'failing', 'unit', 'tests'])
+test('normalize lowercases, splits punctuation, folds suffixes and drops noise', () => {
+  assert.deepEqual(normalize('Fix the failing unit-tests!'), ['fail', 'unit'])
   assert.deepEqual(normalize('Auth-Service: login'), ['auth', 'service', 'login'])
+  assert.deepEqual(normalize('blocking blocked stories'), ['block', 'block', 'story'])
   assert.deepEqual(normalize(''), [])
   assert.deepEqual(normalize('a an the of to'), [], 'stopwords and single letters carry no signal')
+  assert.deepEqual(normalize('fix bug api docs tests'), [], 'generic intent words carry no routing signal')
 })
 
 test('normalize keeps CJK runs comparable as bigrams', () => {
@@ -58,11 +62,17 @@ test('normalize keeps CJK runs comparable as bigrams', () => {
 
 test('tokenOverlap is containment, not symmetric Jaccard', () => {
   assert.equal(tokenOverlap('login bug', 'fix the login bug'), 1)
-  assert.equal(tokenOverlap('login bug dashboard', 'fix the login bug'), 2 / 3)
+  assert.equal(tokenOverlap('login bug dashboard', 'fix the login bug'), 1 / 2)
   assert.equal(tokenOverlap('deploy kubernetes', 'write documentation'), 0)
+  assert.equal(tokenOverlap('fix the tests', 'update the docs bug'), 0, 'generic words alone never overlap')
   assert.equal(tokenOverlap('', 'anything'), 0)
   assert.equal(tokenOverlap('anything', ''), 0)
   assert.equal(tokenOverlap('修复登录问题', '修复登录缺陷'), 3 / 5)
+})
+
+test('suffix folding makes plural and gerund task wording comparable', () => {
+  assert.equal(tokenOverlap('fixing login authentication bugs', 'Fix login and authentication bugs'), 1)
+  assert.equal(tokenOverlap('bugs', 'fix login authentication bugs'), 0, 'a generic word alone carries no signal')
 })
 
 test('scoreExecutor weights text over status and clamps to 0..1', () => {
@@ -107,9 +117,33 @@ test('duplicateSpawnDecision denies a matching idle teammate', () => {
 test('duplicateSpawnDecision allows the spawn in every non-duplicate case', () => {
   assert.equal(duplicateSpawnDecision('fix login bug', [INACTIVE_LOGIN], GUARD_THRESHOLD, false).deny, false)
   assert.equal(duplicateSpawnDecision('fix login bug', [RUNNING_LOGIN]).deny, false, 'only idle teammates are reusable')
-  assert.equal(duplicateSpawnDecision('tests', [INACTIVE_LOGIN]).deny, false, 'one-token tasks are too ambiguous')
+  assert.equal(duplicateSpawnDecision('tests', [INACTIVE_LOGIN]).deny, false, 'one-word tasks are too ambiguous')
+  assert.equal(duplicateSpawnDecision('login', [INACTIVE_LOGIN]).deny, false, 'one-word tasks are too ambiguous')
   assert.equal(duplicateSpawnDecision('login deploy dashboard tests', [INACTIVE_LOGIN]).deny, false, 'weak matches do not block')
+  assert.equal(duplicateSpawnDecision('deploy kubernetes', [INACTIVE_LOGIN]).deny, false, 'the idle bonus alone does not block')
   assert.equal(duplicateSpawnDecision('fix login bug', []).deny, false)
+})
+
+test('same generic words never justify blocking a spawn', () => {
+  const genericOnly: ExecutorCandidate = {
+    name: 'bug-fixer',
+    description: 'Fix bugs, update the docs and test the api',
+    status: 'inactive',
+  }
+  // Both sides reduce to no distinctive tokens even though they share five words.
+  assert.deepEqual(normalize('fix bugs and test the api docs'), [])
+  assert.equal(duplicateSpawnDecision('fix bugs and test the api docs', [genericOnly]).deny, false)
+  assert.equal(duplicateSpawnDecision('update the docs and test the api', [genericOnly]).deny, false)
+})
+
+test('the idle-status bonus alone cannot cross the deny threshold', () => {
+  assert.ok(MIN_TASK_TOKENS >= 2)
+  assert.ok(GUARD_TEXT_FLOOR <= GUARD_THRESHOLD, 'the text floor is the guard rule, not a higher bar than the score')
+  assert.equal(scoreExecutor('deploy kubernetes', INACTIVE_LOGIN), 0.25, 'an idle match with no text evidence scores 0.25')
+  // A third of the tokens plus the 0.25 bonus reaches exactly the old 0.5 score
+  // threshold; the text-only floor (0.5) rejects it because 1/3 < 0.5.
+  assert.equal(scoreExecutor('login deploy dashboard', INACTIVE_LOGIN), GUARD_THRESHOLD)
+  assert.equal(duplicateSpawnDecision('login deploy dashboard', [INACTIVE_LOGIN]).deny, false)
 })
 
 test('duplicateSpawnReason names every match', () => {
