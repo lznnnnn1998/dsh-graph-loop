@@ -1,7 +1,7 @@
 # Evaluation — official benchmarks + local pre-signal
 
-Status: **protocol defined; local pre-signal runnable; official benchmarks gated on container
-runtime and agent adapters.** Related: [`docs/COMPOSITION.md`](COMPOSITION.md) §0/§5 and
+Status: **Terminal-Bench 4.0 is the primary external benchmark.** Docker/Harbor and the DSH adapter
+run; smoke passes 1.0; the hard subset is still 0.0. OfficeBench is retired. Related: [`docs/COMPOSITION.md`](COMPOSITION.md) §0/§5 and
 [`docs/MERGE-LANGGRAPH.md`](MERGE-LANGGRAPH.md).
 
 ## 1. What we are testing
@@ -17,10 +17,10 @@ median** are reported because API stalls create a heavy tail.
 
 | Tier | Benchmark | Status |
 |---|---|---|
-| Primary | **Terminal-Bench 4.0** | **Runnable**: Docker + Harbor + DSH adapter; one task scored (0.0), no aggregate yet |
-| Primary | **NL2Repo-Bench** | Harness public; OpenHands-only + Docker, so a DSH adapter is required |
+| Primary | **Terminal-Bench 4.0** | **Runnable**: smoke 1.0 all arms; hard subset 0.0 clean; no aggregate |
+| Secondary | **NL2Repo-Bench** | Harness public; OpenHands-only + Docker, so a DSH adapter is required |
 | Pre-signal | [local 20-task suite](../bench/agent-eval/tasks.json) | **Runnable now**; stock vs graph, real model |
-| Secondary | [OfficeBench 5-task probe](../bench/officebench/probe-tasks.json) | Prepared; needs Docker/OfficeBench |
+| Retired | OfficeBench | Archived; no active evaluation depends on it |
 
 The model is `deepseek-flash`, which is the **DeepSeek V4.1-Flash-1017** snapshot. Model-card scores
 (Terminal-Bench 4.0: 42.3, NL2Repo-Bench: 68.2) are references, not baselines, unless the harness,
@@ -55,9 +55,10 @@ synthesized plan does not name, and silently hiding them would invalidate the co
 - Environment smoke: `smoke/answer-42` — oracle **1.0**, graph **1.0**, stock **1.0**. Run
   `run-smoke.sh` before any subset; it proves Docker/Harbor/verifier/adapter health.
 - Hard subset: 7 tasks, **0.0 on every clean trial** (see `bench/official/results/terminal-bench-subset/`).
+  Post-smoke 3-task rerun: graph 3/3 clean 0.0; stock 1/3 clean 0.0, two timeouts.
   This is an agent-quality result, not an environment failure.
-- Gate: run a pre-registered 10–20-task subset on native images before claiming a Terminal-Bench
-  number.
+- Gate: smoke must be 1.0 first; then a pre-registered 10-task subset on native images before
+  claiming a Terminal-Bench number.
 
 ## 5. Primary: NL2Repo-Bench
 
@@ -82,11 +83,11 @@ synthesized plan does not name, and silently hiding them would invalidate the co
   [`bench/agent-eval/RESULTS.md`](../bench/agent-eval/RESULTS.md).
 - This suite is **not** Terminal-Bench/NL2Repo; it is the cheap signal for the plugin seam.
 
-## 7. Secondary: OfficeBench
+## 7. Retired: OfficeBench
 
-The original 5-task single-app probe is still valid for office-app fidelity, but it is not in the
-primary benchmark set. It needs Docker/OfficeBench; see
-[`bench/officebench/README.md`](../bench/officebench/README.md). OfficeBench has no PowerPoint app.
+OfficeBench was replaced by Terminal-Bench on 2026-11-07. Its 5-task probe is archived under
+[`bench/archive/officebench/`](../bench/archive/officebench/) for history; it is not part of the
+active plan, preflight, or gates.
 
 ## 8. Metrics and reporting
 
@@ -112,5 +113,5 @@ primary benchmark set. It needs Docker/OfficeBench; see
 
 - `bench/agent-eval/` — local harness, tasks, results, mean/median summarizer.
 - `bench/official/` — official preflights and runbooks.
-- `bench/officebench/` — OfficeBench probe manifest and preflight.
+- `bench/archive/officebench/` — retired OfficeBench probe (history only).
 - `docs/STATUS.md` — current snapshot and gaps.

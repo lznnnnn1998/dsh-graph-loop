@@ -1,8 +1,13 @@
-# OfficeBench probe
+# OfficeBench probe (retired)
+
+> **Retired 2026-11-07.** Terminal-Bench 4.0 is now the primary external benchmark
+> ([`docs/EVALUATION.md`](../../../docs/EVALUATION.md)). This probe and its manifest are kept only as
+> history; nothing in the active evaluation depends on OfficeBench.
+
 
 External benchmark: [OfficeBench](https://github.com/zlwang-cs/OfficeBench) (Apache-2.0, not vendored
 in this repo). The 5-task probe manifest is [`probe-tasks.json`](probe-tasks.json); the evaluation
-protocol is [`docs/EVALUATION.md`](../../docs/EVALUATION.md).
+protocol is [`docs/EVALUATION.md`](../../../docs/EVALUATION.md).
 
 ## Pinned version
 
@@ -17,7 +22,7 @@ Do not compare runs from different commits. Record the commit and container dige
 ## Preflight
 
 ```sh
-OFFICEBENCH_DIR=/path/to/OfficeBench bash scripts/officebench-preflight.sh
+OFFICEBENCH_DIR=/path/to/OfficeBench bash bench/archive/officebench/preflight.sh
 ```
 
 The script checks the Docker daemon, the pinned commit, the evaluator and the five task files. It

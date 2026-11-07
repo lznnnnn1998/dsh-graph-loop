@@ -48,8 +48,7 @@ the median −7.4%; one graph run took 49 s. Earlier 6-task runs (installed and 
    timeouts, payments sidecar images missing. NL2Repo-Bench still needs an OpenHands→DSH adapter.
 5. **Fork duplication** remains: `packages/loop` is a source copy of DSH's loop. Version tracking is
    automated today; it is still maintenance debt.
-6. **OfficeBench probe is not executed**; it is now a secondary benchmark.
-7. **No push** unless asked; the tree is committed locally after this snapshot.
+6. **No push** unless asked; the tree is committed locally after this snapshot.
 
 ## Next, in order
 
@@ -57,7 +56,7 @@ the median −7.4%; one graph run took 49 s. Earlier 6-task runs (installed and 
 2. Improve Terminal-Bench outcomes (prompt/tool/plan quality) and rerun a 10-task native subset;
    then adapt NL2Repo-Bench and publish the head-to-head report.
 3. M3e: kernel routing for conditional/subagent plans; `storageDomain` checkpoint saver.
-4. Optional: OfficeBench office-app probe; control-plane path to remove the fork duplication.
+4. Optional: control-plane path to remove the fork duplication.
 
 ## Commands
 
@@ -74,5 +73,4 @@ bash bench/official/terminal-bench/preflight.sh  # READY: Docker + Harbor + DSH 
 bash bench/official/terminal-bench/run-smoke.sh    # 1.0 oracle/graph/stock; run BEFORE subsets
 bash bench/official/terminal-bench/build-arm64-task.sh <task-dir> /tmp/tb-arm64
 bash bench/official/nl2repo/preflight.sh         # Docker present; DSH adapter still missing
-scripts/officebench-preflight.sh                 # secondary office probe
 ```

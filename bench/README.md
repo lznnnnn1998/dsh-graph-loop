@@ -18,7 +18,7 @@ README is the operator manual.
 bench/
   agent-eval/                # 0.2 local 20-task stock-vs-graph harness + results
   official/                  # Terminal-Bench 4.0 / NL2Repo preflights + adapter contract
-  officebench/               # secondary 5-task probe manifest (pinned commit)
+  archive/officebench/       # retired OfficeBench probe (history only)
   tasks/tasks.jsonl          # 8 tasks: single-tool, multi-tool edit, research, doc gen, bug fix,
                              # long refactor, multi-agent, no-tool
   schema/results.schema.json # one row per (arm, task, repetition)

@@ -11,8 +11,8 @@ are in [`docs/COMPOSITION.md`](docs/COMPOSITION.md). Summary:
 - per-turn capability envelope; tools stable inside the turn, prompt/memory vary per node;
 - authoritative checkpoints in `storageDomain`; the session log stays the conversation record;
 - control plane over the stock loop first; fork only if 2+ triggers fire;
-- evaluation: OfficeBench 5-task single-app probe across three arms, then a public head-to-head
-  report; no 1.0 gate; the probe is the first hard decision point;
+- evaluation: Terminal-Bench 4.0 smoke gate, fixed native-arm64 subset, then a public
+  head-to-head report; no 1.0 gate; the subset is the first hard decision point;
 - craft-first demo removed as the proof of value; crafts remain genericity fixtures;
 - `packages/loop` is the **active graph driver** (a source fork, tracked as maintenance debt); `packages/mode` (Explore) is the active mode and installed by default for new sessions.
 
@@ -82,11 +82,9 @@ The 0.1.x build history is archived in [`docs/archive/PROGRESS-0.1.md`](docs/arc
       (+5.9% mean / −7.4% median). Checks validated negative/positive; results and manifest in
       [`bench/agent-eval/RESULTS.md`](bench/agent-eval/RESULTS.md). Also added `toolPolicy: preset`,
       optional read nodes, DSML formatting retry, and mutation detection for merge/rename tasks.
-- [ ] **M4b — official harness**: Docker/Colima + Harbor + the Terminal-Bench DSH adapter
-      ([`bench/official/terminal-bench/dsh_agent.py`](bench/official/terminal-bench/dsh_agent.py))
-      run real tasks end to end. The fixed 7-task subset scored **0.0 on every clean trial**; stock
-      timeouts on three tasks, payments sidecar images missing. No aggregate. NL2Repo-Bench still
-      needs an OpenHands→DSH adapter.
-      See [`bench/official/results/terminal-bench-subset/`](bench/official/results/terminal-bench-subset/).
+- [x] **M4b — Terminal-Bench harness**: Docker/Colima + Harbor + the DSH adapter. **Smoke
+      `answer-42` is 1.0 on oracle/graph/stock**; the fixed 7-task hard subset scored **0.0 on every
+      clean trial** (post-smoke 3-task rerun: graph 3/3 clean 0.0, stock 1/3). This is agent quality,
+      not harness failure. See [`bench/official/results/`](bench/official/results/). NL2Repo is optional.
 - [ ] **M5 — official head-to-head** (Terminal-Bench + NL2Repo) + public report + 0.2.0.
 - [ ] **Gate at M4b:** continue / change benchmark / stop. No 1.0.

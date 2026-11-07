@@ -3,7 +3,7 @@
  * Local agent evaluation: stock DSH loop versus the graph driver.
  *
  * This is the cheap, reproducible inner-loop harness for 0.2. It is NOT the
- * OfficeBench probe (see docs/EVALUATION.md); it is the before/after signal used
+ * Terminal-Bench subset (see docs/EVALUATION.md); it is the before/after signal used
  * while wiring the graph runtime.
  *
  * Usage (real model; the shell wrapper supplies DEEPSEEK_API_KEY):

@@ -1,7 +1,7 @@
 # Local agent evaluation harness
 
 Fast inner-loop comparison of the stock DSH loop and the graph driver. This is **not** the
-OfficeBench probe — it exists to tell us whether a change moves success, steps, tokens or wall time
+Terminal-Bench subset — it exists to tell us whether a change moves success, steps, tokens or wall time
 before paying for a public benchmark.
 
 - Protocol and public evaluation: [`docs/EVALUATION.md`](../../docs/EVALUATION.md)

@@ -6,7 +6,7 @@
 # loudly when the environment is not ready.
 #
 # Usage:
-#   OFFICEBENCH_DIR=/path/to/OfficeBench bash scripts/officebench-preflight.sh
+#   OFFICEBENCH_DIR=/path/to/OfficeBench bash bench/archive/officebench/preflight.sh
 #
 # Pinned version: b978b808667c32b52ce19a67ce1def1de9ae02b7 (2026-03-31).
 set -euo pipefail
@@ -53,7 +53,7 @@ done
 
 echo
 if [ "$failures" -ne 0 ]; then
-  printf 'NOT READY: %d check(s) failed. See bench/officebench/README.md.\n' "$failures"
+  printf 'NOT READY: %d check(s) failed. See bench/archive/officebench/README.md.\n' "$failures"
   exit 1
 fi
 printf 'READY: OfficeBench checkout and Docker look usable for the 5-task probe.\n'

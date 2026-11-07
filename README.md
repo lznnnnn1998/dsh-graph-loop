@@ -74,7 +74,7 @@ packages/mode/          Explore mode (agent preset) + graph policy / reuse guard
 packages/graph-ui/      Graph tab (conversation.view) + /graph-chat API
 docs/                   active contracts + reference/ + archive/ (index: docs/README.md)
 research/               evidence base for the original plan
-bench/                  task/token harness + OfficeBench probe manifest
+bench/                  local eval + Terminal-Bench harness/results
 compat/                 DSH-style vitest/coverage harness
 ```
 
