@@ -42,4 +42,33 @@ NODES=$(grep -c '\[graph node ' "$HOME_DIR/session.jsonl" || true)
 echo "steps=$STEPS graph_node_messages=$NODES"
 [ "$STEPS" -ge 2 ] || { echo "FAIL: expected >=2 steps"; exit 1; }
 [ "$NODES" -ge 2 ] || { echo "FAIL: expected graph directives"; exit 1; }
+# A directive is logged (model-visible ⟺ logged) but must not claim the human
+# `user` source: the stock Web API reads the last such message as the question.
+node --input-type=module -e '
+import fs from "node:fs"
+const events = fs.readFileSync(process.argv[1], "utf8").trim().split("\n").map(line => JSON.parse(line))
+const directives = events.filter(e => e.type === "user/message"
+  && e.data.content.some(block => block.type === "text" && block.text.includes("[graph node ")))
+const wrongSource = directives.filter(e => e.data.source?.kind !== "graph-node")
+const humanPrompts = events.filter(e => e.type === "user/message" && e.data.source?.kind === "user")
+if (wrongSource.length > 0) {
+  console.error(`FAIL: ${wrongSource.length} graph directive(s) persisted with source.kind !== graph-node`)
+  process.exit(1)
+}
+if (humanPrompts.length === 0) {
+  console.error("FAIL: the real human prompt is missing from the session log")
+  process.exit(1)
+}
+const latestHuman = humanPrompts.at(-1)
+const textOf = e => e.data.content.flatMap(block => block.type === "text" ? [block.text] : []).join("\n")
+if (latestHuman === undefined || !textOf(latestHuman).includes("explain how the config loader works")) {
+  console.error("FAIL: the human question is not the latest source.kind === \"user\" message")
+  process.exit(1)
+}
+if (!directives.some(d => d.seq > latestHuman.seq)) {
+  console.error("FAIL: no graph directive follows the human prompt, so the source filter is untested")
+  process.exit(1)
+}
+console.log(`graph_node_sources=${directives.length} human_user_messages=${humanPrompts.length}`)
+' "$HOME_DIR/session.jsonl"
 echo "PASS  e2e installed bundle  (home: $HOME_DIR)"

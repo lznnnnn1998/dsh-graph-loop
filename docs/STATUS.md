@@ -28,7 +28,7 @@ mode is the default for new sessions. No DSH source files are modified.
 | Plan shape | Engine | Evidence |
 |---|---|---|
 | Linear chain (`always`/no condition, one control out-edge per node) | **LangGraph** (`KernelTopology`) | `test/unit/kernel-topology.test.ts`, `test/unit/kernel-langgraph.test.ts` |
-| Linear + one `callFailed` failure branch (success edge + recovery edge) | **LangGraph** — real conditional edge, one of two declared destinations taken | `test/unit/kernel-topology.test.ts` (`takes the callFailed branch`, `follows the success edge`) |
+| Linear + one `callFailed` failure branch (success edge + recovery edge) | **LangGraph** — `routeKernelPlan()` selects `state.next` before the superstep; the compiled conditional edge is a state-driven switch whose declared destinations are every node id + `END`, and only the selected arm runs | `test/unit/kernel-topology.test.ts` (`takes the callFailed branch`, `follows the success edge`) |
 | Parallel fan-out / two-branch join | `FrontierTopology` | `test/unit/topology.test.ts` |
 | Subagent batches | `FrontierTopology` | `test/unit/scheduler.test.ts` |
 | `artifact` / `noArtifact` / `fact` / `budget` conditions; conditions on `data` edges | `FrontierTopology` | `canKernelDrive()` rejects them |

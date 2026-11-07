@@ -47,11 +47,14 @@ Runtime trace storage is configured on the `graph-runtime` row (`traceDir`, `tra
 
 ## Model Experience
 
-A graph node is injected as a logged user message (`[graph node <id>] …`). Node-level tool
-admission narrows each step to the plan's tool universe plus a small safe floor. The archived
-local-20 run attributed a prompt-token reduction to that narrowing, but the run is **not
-reproducible** (dirty worktree) and is not a product claim. Because node directives enter history, a
-multi-node turn adds prompt bytes compared with a single stock step.
+A graph node is injected as a logged user-role message (`[graph node <id>] …`) whose source kind is
+the loop-owned `graph-node` (`{ kind: 'graph-node', nodeId }`), not the human `user` source. It is
+model-visible history like the stock loop's injected context, but the stock Web API's
+`latestUserQuestion` (which reads `source.kind === 'user'`) and any other human-prompt filter ignore
+it. Node-level tool admission narrows each step to the plan's tool universe plus a small safe floor.
+The archived local-20 run attributed a prompt-token reduction to that narrowing, but the run is
+**not reproducible** (dirty worktree) and is not a product claim. Because node directives enter
+history, a multi-node turn adds prompt bytes compared with a single stock step.
 
 ## Known Limitations
 

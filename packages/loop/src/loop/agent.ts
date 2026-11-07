@@ -40,10 +40,11 @@ import { ToolActivationError, ToolBatchExecutionError } from '@deepseek-ai/dsh-t
 import type { ResolvedToolSet } from '@deepseek-ai/dsh-tools'
 import type { Context } from '@deepseek-ai/cordis'
 import { ReactLoopInbox } from './inbox.ts'
+import { createGraphNodeDirective } from './graph-node.ts'
 import { RuntimeContextProjection } from './runtime-context.ts'
 import { AssistantStreamAttempt } from './assistant-stream.ts'
 import { SystemPromptProjection } from './runtime-context.ts'
-import { isMutatingNode, mutationObserved, restrictToolSet } from './step-tools.ts'
+import { isMutatingNode, mutationObserved, restrictToolSet, DEFAULT_SHELL_TOOLS, shellFailureTool } from './step-tools.ts'
 
 type Phase =
   | { kind: 'idle'; lastTurn: number }
@@ -196,6 +197,12 @@ export class ReactLoopAgent implements Agent {
    * `benchGuards: true`.
    */
   private benchGuards = false
+  /**
+   * Tools whose lone failed call fails the step's graph node. Configurable
+   * because "the shell" is a deployment fact, not a graph semantic; the
+   * default pair preserves the behaviour this fork had before the setting.
+   */
+  private shellTools: ReadonlySet<string> = new Set(DEFAULT_SHELL_TOOLS)
 
   constructor(
     private loopCtx: Context,
@@ -280,6 +287,15 @@ export class ReactLoopAgent implements Agent {
   /** Enable benchmark-only retry guards (default off). */
   setBenchGuards(enabled: boolean): void {
     this.benchGuards = enabled
+  }
+
+  /**
+   * Choose the shell/verification tools whose lone failure fails a node.
+   * Defaults to `bash`/`pwsh`; a deployment with differently named shells
+   * overrides this from `AgentLoop.Config.shellTools`.
+   */
+  setShellTools(tools: readonly string[]): void {
+    this.shellTools = new Set(tools)
   }
 
   get status(): AgentStatus {
@@ -434,10 +450,7 @@ export class ReactLoopAgent implements Agent {
       : `${this.turnGraph?.instruction() ?? `Execute graph node \`${node.id}\` and advance the task.`}\nTool calls must use the tool-call interface; never print tool-call, DSML or XML syntax as text.`
     const admitted = directive === undefined
       ? claimed
-      : [...claimed, createUserMessage({
-          content: [{ type: 'text', text: `[graph node ${node?.id ?? 'unknown'}] ${directive}` }],
-          source: { kind: 'user' },
-        })]
+      : [...claimed, createGraphNodeDirective(node?.id ?? 'unknown', directive)]
     const selection = this.model.current()
     if (selection === undefined) {
       throw new Error(`agent "${this.id}" has no provider/model: set AgentOptions.provider and AgentOptions.model or record a model selection`)
@@ -589,7 +602,10 @@ export class ReactLoopAgent implements Agent {
               const name = toolNames.get(event.data.message.toolCallId)
               const entry = stepTools.find(tool => tool.callId === event.data.message.toolCallId)
               if (entry !== undefined) entry.isError = event.data.message.isError === true
-              if (event.data.message.isError === true && (name === 'bash' || name === 'pwsh')) stepFailedTool = name
+              if (event.data.message.isError === true) {
+                const failed = shellFailureTool(name, this.shellTools)
+                if (failed !== undefined) stepFailedTool = failed
+              }
             }
           })
           try {

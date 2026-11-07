@@ -38,6 +38,7 @@ import { createGraphTurnDriver } from '../scheduler.ts'
 import { buildRegistrySnapshot, type ToolSource } from 'dsh-graph-loop-core/registry'
 import { scopeOf } from '@deepseek-ai/dsh-scope'
 import { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from './constants.ts'
+import { DEFAULT_SHELL_TOOLS } from './step-tools.ts'
 import type {} from './runtime-context.ts'
 
 /** Fiber states that cannot own or serve a new lifecycle.
@@ -288,6 +289,14 @@ export interface Config {
    * harness explicitly opts in.
    */
   benchGuards: boolean
+  /**
+   * Verification/shell tool names. A step that calls one of these, gets an
+   * error, and then makes no other tool call fails its graph node with that
+   * `failedTool`, which selects `callFailed` recovery edges. Defaults to
+   * `['bash', 'pwsh']`; override it when the deployment names its shells
+   * differently.
+   */
+  shellTools: string[]
   /** Agents created or resumed at plugin startup; a resumed agent records its configured route as the Session's model selection. */
   agents: (AgentOptions & {
     /** Stable config label used in logs and as the fresh combined-id prefix. */
@@ -341,6 +350,7 @@ export class AgentLoop extends Service implements AgentFactory {
     toolPolicy: z.union([z.const('plan'), z.const('preset')]).default('plan'),
     composition: z.boolean().default(true),
     benchGuards: z.boolean().default(false),
+    shellTools: z.array(z.string()).default([...DEFAULT_SHELL_TOOLS]),
     agents: z.array(z.object({
       id: z.string().required(),
       sessionId: z.string().min(1),
@@ -379,6 +389,7 @@ export class AgentLoop extends Service implements AgentFactory {
       toolPolicy: config.toolPolicy ?? 'plan',
       composition: config.composition ?? true,
       benchGuards: config.benchGuards ?? false,
+      shellTools: config.shellTools ?? DEFAULT_SHELL_TOOLS,
     }
     validateConfiguredAgents(this.config.agents)
     this.ownership = new FactoryOwnership(ctx.fiber)
@@ -637,6 +648,7 @@ export class AgentLoop extends Service implements AgentFactory {
           lastTurn,
         )
         created.setBenchGuards(loopConfig.benchGuards)
+        created.setShellTools(loopConfig.shellTools)
         const graphRegistry = loopCtx.get('graphRegistry') as
           { snapshot(): { graph: import('dsh-graph-loop-core/graph-schema').RegistryGraph } } | undefined
         const graphRouter = loopCtx.get('graphRouter') as

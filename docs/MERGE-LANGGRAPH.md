@@ -64,9 +64,12 @@ plan shapes the kernel cannot route. Both are tracked as debt, not hidden.
   when the optional dependency is absent.
 - `KernelTopology` pauses the kernel before each node, lets DSH run the step, then resumes with the
   step outcome. One kernel superstep = one DSH step.
-- Coverage today: linear plans with safe node ids, plus a single `callFailed` failure branch
-  (a real LangGraph conditional edge). Parallel fan-out/join, subagent batches, `artifact`/`fact`/
-  `budget` conditions and reserved node ids fall back to `FrontierTopology`.
+- Coverage today: linear plans with safe node ids, plus a single `callFailed` failure branch.
+  `routeKernelPlan()` selects `state.next` before the superstep; the compiled conditional edge is a
+  state-driven switch whose declared destinations are every node id + `END`, so only the selected
+  arm runs but the edge itself does not declare the two plan destinations. Parallel fan-out/join,
+  subagent batches, `artifact`/`fact`/`budget` conditions and reserved node ids fall back to
+  `FrontierTopology`.
 
 ### 3.2 Channels and reducers (next)
 

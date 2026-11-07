@@ -113,3 +113,24 @@ export function mutationObserved(tools: readonly StepTool[]): boolean {
     || (SHELL_TOOLS.has(tool.name) && MUTATION_COMMAND.test(tool.arguments ?? ''))
   ))
 }
+
+/**
+ * Verification tools whose lone failed call fails the step's graph node. The
+ * pair is a default, not a hardcoded rule: a deployment with differently named
+ * shells overrides it through `AgentLoop.Config.shellTools`.
+ */
+export const DEFAULT_SHELL_TOOLS: readonly string[] = ['bash', 'pwsh']
+
+/**
+ * The failed tool name when that error belongs to a configured verification
+ * tool. A step that calls such a tool, gets an error, and then makes no other
+ * tool call is a failed node even though every call was answered; any other
+ * tool's error still lets the step succeed when it completed.
+ * @param name - the failed call's tool name, from the step's `tool/call` event.
+ * @param shellTools - configured verification tool names.
+ * @returns the name to report as `failedTool`, or `undefined` when the tool is
+ * not a configured verification tool.
+ */
+export function shellFailureTool(name: string | undefined, shellTools: ReadonlySet<string>): string | undefined {
+  return name !== undefined && shellTools.has(name) ? name : undefined
+}

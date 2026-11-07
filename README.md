@@ -18,7 +18,7 @@ own. There is no second "control plane" product path; that framing was retired i
 | Plan shape | Engine |
 |---|---|
 | Linear chain (`always`/no condition, one control out-edge per node) | LangGraph (`KernelTopology` pause-before-node round-trip) |
-| Linear + **one `callFailed` failure branch** (success edge + recovery edge from a node) | LangGraph — the branch is a real conditional edge; both arms are unit-tested |
+| Linear + **one `callFailed` failure branch** (success edge + recovery edge from a node) | LangGraph — `routeKernelPlan()` picks `state.next`, the conditional edge follows it (declared destinations: every node id + `END`); both arms are unit-tested |
 | Parallel fan-out / two-branch join | `FrontierTopology` (a DSH step is sequential; parallel branches are subagent nodes) |
 | Subagent batches | `FrontierTopology` |
 | `artifact` / `noArtifact` / `fact` / `budget` conditions | `FrontierTopology` |

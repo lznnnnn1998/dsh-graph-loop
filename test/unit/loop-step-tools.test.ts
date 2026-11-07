@@ -8,9 +8,11 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { ResolvedToolSet, ToolDefinition } from '@deepseek-ai/dsh-tools'
 import {
+  DEFAULT_SHELL_TOOLS,
   isMutatingNode,
   mutationObserved,
   restrictToolSet,
+  shellFailureTool,
 } from '../../packages/loop/src/loop/step-tools.ts'
 
 function toolSetOf(names: readonly string[]): ResolvedToolSet & { disposed: number } {
@@ -118,4 +120,17 @@ test('mutationObserved recognizes writer tools and real shell mutations only', (
   assert.equal(mutationObserved([{ name: 'bash', isError: false, arguments: 'npm test' }]), false)
   assert.equal(mutationObserved([{ name: 'bash', isError: false, arguments: 'echo debug > /dev/null' }]), false)
   assert.equal(mutationObserved([]), false)
+})
+
+test('the shell-failure set is configurable, defaulting to bash/pwsh', () => {
+  const defaults = new Set(DEFAULT_SHELL_TOOLS)
+  assert.deepEqual(DEFAULT_SHELL_TOOLS, ['bash', 'pwsh'])
+  assert.equal(shellFailureTool('bash', defaults), 'bash')
+  assert.equal(shellFailureTool('pwsh', defaults), 'pwsh')
+  assert.equal(shellFailureTool('write', defaults), undefined, 'a non-shell failure stays a normal step error')
+  assert.equal(shellFailureTool(undefined, defaults), undefined, 'a result without a matching call is not a failure')
+
+  const custom = new Set(['zsh'])
+  assert.equal(shellFailureTool('zsh', custom), 'zsh', 'a deployment shell is honoured')
+  assert.equal(shellFailureTool('bash', custom), undefined, 'the default pair is not hardcoded once configured')
 })

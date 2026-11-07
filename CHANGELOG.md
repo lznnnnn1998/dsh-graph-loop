@@ -2,6 +2,24 @@
 
 ## 0.2.0 (unreleased)
 
+### 0.2 cycle-2 audit fixes (2026-11-08)
+
+- **Graph node directives are no longer human prompts**: the directive stays a logged
+  `user/message` (model-visible ⟺ logged) but now carries the loop-owned source
+  `{ kind: 'graph-node', nodeId }` instead of `{ kind: 'user' }`. The stock Web API's
+  `latestUserQuestion` filter (and any other `source.kind === 'user'` consumer) therefore reads the
+  real question, not `[graph node …]`. Unit test pins the source and the filter; the installed e2e
+  now asserts that every persisted directive has the `graph-node` source and that a directive follows
+  the human prompt.
+- **Verification tools are configurable**: `AgentLoop.Config.shellTools` (default `['bash', 'pwsh']`)
+  replaces the hardcoded pair in the failed-step classifier. Defaults preserve recovery semantics; a
+  deployment with differently named shells overrides the list.
+- **Conditional-edge wording corrected**: docs now say `routeKernelPlan()` selects `state.next` before
+  the superstep and the compiled conditional edge follows it with every node id + `END` as declared
+  destinations, instead of claiming "one of two declared destinations".
+- **`PROGRESS.md` M2 withdrawn**: the deleted `checkpoint.ts` contract and its 10 tests were never
+  wired; the milestone row now records that instead of claiming completion.
+
 ### 0.2 audit cleanup (2026-11-08)
 
 - **One architecture voice**: README/STATUS/docus state **B** (the fork replaces the stock loop).

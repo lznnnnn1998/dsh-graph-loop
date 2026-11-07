@@ -53,9 +53,11 @@ The 0.1.x build history is archived in [`docs/archive/PROGRESS-0.1.md`](docs/arc
       tool names. Craft-like, MCP-only and annotation-only registries compose; an empty envelope
       degrades to a single generic step instead of dropping the task. 5 unit tests; 0.1.x
       `topology.ts` / `templates.ts` marked legacy.
-- [x] **M2 — checkpoint contract**: `GraphCheckpoint` / `CheckpointStore` / `TableCheckpointStore`
-      (storageDomain-shaped) / `InMemoryCheckpointStore` (`packages/core/src/checkpoint.ts`),
-      10 unit tests. JSON guard, 64 KiB cap, stable keys, deterministic latest, prune by turn.
+- [x] ~~**M2 — checkpoint contract**~~ — **withdrawn**: the `GraphCheckpoint` / `CheckpointStore` /
+      `TableCheckpointStore` / `InMemoryCheckpointStore` contract in
+      `packages/core/src/checkpoint.ts` (10 unit tests) had zero production importers and was deleted
+      in the 0.2 audit; it was never wired. Durable checkpointing remains future work on the live
+      `MemoryCheckpointer`/LangGraph saver path (`docs/STATUS.md`, `docs/MERGE-LANGGRAPH.md` §3.3).
 - [x] **Verification**: the unit suite green; `npm run typecheck` clean.
 - [x] **M3a — measurable graph runtime (installable bundle)**: per-plan/per-node tool admission,
       mutation detection, answer-only terminal nodes, safe tool floor, and a non-null turn end when
