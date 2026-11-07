@@ -41,11 +41,14 @@ non-`callFailed` conditions are frontier features today.
 
 **Product evidence is absent.** The active suite is Terminal-Bench easy10 + medium10
 ([`bench/official/subsets/product20.json`](../bench/official/subsets/product20.json)); it is
-**defined but not yet run**. The earlier archived local 20-task run is **not reproducible**: it ran
-on a dirty worktree whose recorded commit contains no live composition code, and even there the
-billed total rose. Its prompt-token numbers are historical, not a product claim — see
-[`bench/archive/agent-eval/RESULTS.md`](../bench/archive/agent-eval/RESULTS.md) and the provenance
-note in the run manifest.
+**defined but not yet run**. One suite member, `html-js-filter`, has a standalone tracked trial that
+scored **0.0/0.0** for both arms
+([`bench/official/results/2026-11-07-html-js-filter`](../bench/official/results/2026-11-07-html-js-filter/README.md));
+one hard task is not a product aggregate. The earlier archived local 20-task run is
+**not reproducible**: it ran on a dirty worktree whose recorded commit contains no live composition
+code, and even there the billed total rose. Its prompt-token numbers are historical, not a product
+claim — see [`bench/archive/agent-eval/RESULTS.md`](../bench/archive/agent-eval/RESULTS.md) and the
+provenance note in the run manifest.
 
 **Stress line:** Terminal-Bench hard subset 0.0 on clean trials; smoke 1.0. Not the product gate.
 See [`STRESS-LINE.md`](STRESS-LINE.md).
@@ -60,8 +63,10 @@ See [`STRESS-LINE.md`](STRESS-LINE.md).
    selected tasks (some have sidecars/desktop deps).
 4. **The stress line is 0.0 on hard tasks**; it is diagnostic, not the product gate.
 5. **Fork duplication** remains: `packages/loop` is a source copy of DSH's loop, re-diffed with
-   [`scripts/diff-upstream.sh`](../scripts/diff-upstream.sh) (expected patch surface is documented in
-   the script).
+   [`scripts/diff-upstream.sh`](../scripts/diff-upstream.sh). The guard is **enforced** by
+   `scripts/ci-local.sh` and `scripts/verify-all.sh` (`--check`): the upstream commit is pinned, the
+   expected patch surface (including per-file added/removed budgets for `agent.ts`/`index.ts`) is
+   documented in the script, and `--report` stays available for inspection.
 6. **Benchmark heuristics are gated off by default**: DSML-text detection and the forced mutation
    retry now require `benchGuards: true` on the `graph-loop` row. They are harness-specific, not
    graph semantics.
@@ -82,12 +87,13 @@ See [`STRESS-LINE.md`](STRESS-LINE.md).
 npm run typecheck                        # tsc --noEmit over packages/** + test/**
 npm test                                 # unit suite
 npm run build && npm run build:check     # release gate (lib reproducible from source)
-bash scripts/ci-local.sh                 # typecheck + test + build gate (no external services)
+bash scripts/ci-local.sh                 # typecheck + tests + build + fork guard (no external services)
 bash scripts/install-explore.sh          # install into the web profile
 bash scripts/e2e-installed.sh            # installed bundle e2e (mock LLM)
 bash scripts/e2e-tarball.sh              # packed-tarball install path
-bash scripts/verify-all.sh               # typecheck + tests + both e2e + links
-bash scripts/diff-upstream.sh            # fork patch surface vs the DSH checkout
+bash scripts/verify-all.sh               # typecheck + tests + fork guard + both e2e + links
+bash scripts/diff-upstream.sh --check    # assert the fork patch surface vs the pinned DSH checkout
+bash scripts/diff-upstream.sh --report   # same measurement, report-only (exit 0)
 bash bench/official/terminal-bench/preflight.sh  # Docker + Harbor + DSH adapter
 bash bench/official/terminal-bench/run-smoke.sh  # 1.0 oracle/graph/stock; run BEFORE subsets
 bash bench/official/terminal-bench/run-subset.sh /tmp/tb-arm-dsh   # product20, after native builds

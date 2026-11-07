@@ -24,7 +24,6 @@ import {
   LlmError,
   createAssistantMessage,
   createDeveloperMessage,
-  createUserMessage,
   errorChain,
   markAgentLoopRequest,
 } from '@deepseek-ai/dsh-llm'
@@ -41,6 +40,8 @@ import type { ResolvedToolSet } from '@deepseek-ai/dsh-tools'
 import type { Context } from '@deepseek-ai/cordis'
 import { ReactLoopInbox } from './inbox.ts'
 import { createGraphNodeDirective } from './graph-node.ts'
+import { createSubagentResult } from './subagent-result.ts'
+import { createBenchRetryCorrection } from './bench-retry.ts'
 import { RuntimeContextProjection } from './runtime-context.ts'
 import { AssistantStreamAttempt } from './assistant-stream.ts'
 import { SystemPromptProjection } from './runtime-context.ts'
@@ -263,10 +264,7 @@ export class ReactLoopAgent implements Agent {
         if (!ok) {
           this.ctx.logger.warn(`agent "${this.id}": subagent node "${node.id}" ended with "${String(result.stopReason)}"`)
         }
-        this.inject(createUserMessage({
-          content: [{ type: 'text', text: `[subagent ${node.id}] (${String(result.stopReason)}) ${text === '' ? '(no output)' : text}` }],
-          source: { kind: 'user' },
-        }))
+        this.inject(createSubagentResult(node.id, result.stopReason, text))
         await this.turnGraph?.completeNode(node.id, ok)
       } catch (error: unknown) {
         // A failed child is a failed graph node, not a silent success: the
@@ -646,10 +644,7 @@ export class ReactLoopAgent implements Agent {
           && formatRetries < 1
           && (retryNode?.toolAllow?.length ?? 1) > 0) {
           formatRetries += 1
-          this.inject(createUserMessage({
-            content: [{ type: 'text', text: 'Your previous response printed a tool call as text. Re-issue the same tool call through the actual tool-call interface; do not print tool-call, DSML or XML syntax.' }],
-            source: { kind: 'user' },
-          }))
+          this.inject(createBenchRetryCorrection('Your previous response printed a tool call as text. Re-issue the same tool call through the actual tool-call interface; do not print tool-call, DSML or XML syntax.'))
           continue
         }
         // A mutation node must actually mutate. Exploration on a mutation node
@@ -665,10 +660,7 @@ export class ReactLoopAgent implements Agent {
           && mutationRetries < 1
           && !signal.aborted) {
           mutationRetries += 1
-          this.inject(createUserMessage({
-            content: [{ type: 'text', text: 'This node must perform the requested change. Call a mutating tool (`write` for a new artifact, `edit`/`str_replace_editor` for an in-place change) or a shell mutation now; do not run more exploratory commands.' }],
-            source: { kind: 'user' },
-          }))
+          this.inject(createBenchRetryCorrection('This node must perform the requested change. Call a mutating tool (`write` for a new artifact, `edit`/`str_replace_editor` for an in-place change) or a shell mutation now; do not run more exploratory commands.'))
           continue
         }
         signal.throwIfAborted()

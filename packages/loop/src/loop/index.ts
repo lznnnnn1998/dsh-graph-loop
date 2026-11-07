@@ -342,6 +342,7 @@ export class AgentLoop extends Service implements AgentFactory {
     toolPolicy?: Config['toolPolicy']
     composition?: boolean
     benchGuards?: boolean
+    shellTools?: string[]
   }, Config> = z.object({
     maxParallelToolCalls: z.number().step(1).min(1).default(DEFAULT_MAX_PARALLEL_TOOL_CALLS).volatile(),
     topology: z.union([z.const('template'), z.const('dynamic'), z.const('propose')]).default('dynamic'),
@@ -367,6 +368,10 @@ export class AgentLoop extends Service implements AgentFactory {
     topology?: Config['topology']
     trivialChars?: number
     maxSteps?: number
+    toolPolicy?: Config['toolPolicy']
+    composition?: boolean
+    benchGuards?: boolean
+    shellTools?: string[]
   }, Config>
 
   /** Validated configuration owned by the agent-loop service. */

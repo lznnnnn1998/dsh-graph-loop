@@ -2,8 +2,9 @@
 
 Status: **two-track evaluation, no product result yet.** The product line is defined on tasks
 within model capability (10 easy + 10 medium Terminal-Bench tasks) but the suite is **unrun**, so
-there is no product evidence to cite. Terminal-Bench is a separate stress line and is **not the
-default gate**.
+there is no product evidence to cite. One suite member, `html-js-filter`, has a standalone tracked
+trial at 0.0/0.0 for both arms; one hard task is not an aggregate. Terminal-Bench is a separate
+stress line and is **not the default gate**.
 
 ## 1. Product line
 
@@ -30,7 +31,10 @@ recorded in §2 (the graph profile patch also set `llm-deepseek.retryPolicy.maxR
   this the product line: tasks within model capability, not the hard stress subset.
 - Gate: smoke 1.0, then all 20 tasks run stock vs composition; report accuracy, prompt tokens and
   steps. A task that cannot build natively is an infrastructure gap, not a replacement.
-- **Status: defined; the 20-task product run is not executed yet.**
+- **Status: defined; the 20-task product run is not executed yet.** One member
+  (`html-js-filter`) has a standalone tracked trial with **0.0/0.0** for both arms
+  ([result](../bench/official/results/2026-11-07-html-js-filter/README.md)); it is one hard task,
+  not a product aggregate.
 
 ### 1.2 Legacy evidence (archived)
 

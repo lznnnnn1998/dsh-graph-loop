@@ -1,7 +1,7 @@
 # dsh-graph-loop
 
 A dedicated **graph loop** for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness).
-It replaces the stock `agent-loop` through DSH's `AgentFactory` seam and runs **one typed graph per
+It replaces the stock `agent-loop` through DSH's `AgentFactory` seam and runs **one graph per
 turn**: a runtime topology (nodes, control edges, per-node tool admission) whose nodes are ordinary
 DSH steps. The loop is installed as a bundle, so no DSH source file is modified.
 
@@ -45,7 +45,9 @@ own. There is no second "control plane" product path; that framing was retired i
   `npm run build && npm run build:check`).
 - **There is no reproducible product benchmark result.** The active product suite
   ([`bench/official/subsets/product20.json`](bench/official/subsets/product20.json), Terminal-Bench
-  easy10 + medium10) is defined but has not been run. The archived local 20-task run is
+  easy10 + medium10) is defined but has not been run. One suite member has a standalone tracked trial
+  ([`html-js-filter`](bench/official/results/2026-11-07-html-js-filter/README.md), 0.0/0.0 for both
+  arms); one hard task is not a product aggregate. The archived local 20-task run is
   **non-reproducible**: it ran on a dirty worktree whose recorded commit contains no live
   composition code, and even that run had a **higher billed total** despite fewer prompt tokens. Its
   −50% prompt figure is not a product claim and is quoted only in the archived evidence with that
@@ -53,7 +55,9 @@ own. There is no second "control plane" product path; that framing was retired i
 - Checkpoints are **in-memory** (`MemoryCheckpointer`); `storageDomain` durability is not wired, so a
   restart cannot resume mid-turn.
 - The fork is maintenance debt: `packages/loop` tracks DSH's loop and must be re-diffed on upstream
-  changes (`scripts/diff-upstream.sh`).
+  changes (`scripts/diff-upstream.sh`). The guard is enforced by `scripts/ci-local.sh` and
+  `scripts/verify-all.sh` (`--check`): shared files must stay identical apart from the `@module`
+  header, and `agent.ts`/`index.ts` must stay inside their pinned patch budgets.
 
 **Non-goals**
 
@@ -93,7 +97,7 @@ setting, so "default" means the profile you actually boot (`web` by default).
 
 ```sh
 bash scripts/link-dsh.sh            # link the read-only DSH checkout packages
-bash scripts/verify-all.sh          # typecheck + tests + installed e2e + tarball e2e + links
+bash scripts/verify-all.sh          # typecheck + tests + fork guard + installed e2e + tarball e2e + links
 bash scripts/install-explore.sh     # install into the default web profile (stock row disabled)
 ```
 

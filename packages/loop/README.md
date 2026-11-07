@@ -4,6 +4,9 @@
 > this driver runs one graph node per DSH step. The LLM-facing default kernel is **LangGraph**
 > (`MinimalKernel` fallback). This package is a **source fork** of `@deepseek-ai/dsh-agent-loop`;
 > the duplication is tracked as maintenance debt and re-diffed with `scripts/diff-upstream.sh`.
+> The guard is **enforced**: `scripts/ci-local.sh` and `scripts/verify-all.sh` run
+> `diff-upstream.sh --check`, which pins the upstream commit and fails when a shared file diverges
+> or a patched file (`agent.ts`, `index.ts`) outgrows its documented added/removed-line budget.
 > The fork is the active loop (architecture B); there is no separate control-plane product path.
 
 ## Use this package
@@ -31,6 +34,7 @@ The installer also adds the Explore mode and verifies the composed profile.
 | `maxSteps` | `24` | Upper bound on nodes in one synthesized plan |
 | `toolPolicy` | `plan` | `plan` narrows each step to the plan universe (token win); `preset` keeps the full preset tool set for benchmark harnesses |
 | `benchGuards` | `false` | Benchmark-only retries: detect DSML-printed tool calls and force a mutation node that did not mutate. Off for normal loop use |
+| `shellTools` | `['bash', 'pwsh']` | Tool names whose lone failed call fails the step's graph node (selects `callFailed` recovery) |
 | `maxParallelToolCalls` | inherited | Stock loop parallel tool-call bound |
 | `agents` | `[]` | Declarative startup agents |
 
@@ -51,7 +55,10 @@ A graph node is injected as a logged user-role message (`[graph node <id>] …`)
 the loop-owned `graph-node` (`{ kind: 'graph-node', nodeId }`), not the human `user` source. It is
 model-visible history like the stock loop's injected context, but the stock Web API's
 `latestUserQuestion` (which reads `source.kind === 'user'`) and any other human-prompt filter ignore
-it. Node-level tool admission narrows each step to the plan's tool universe plus a small safe floor.
+it. Injected subagent batch results use their own `subagent-result` source
+(`{ kind: 'subagent-result', nodeId }`), and the benchmark-only retry corrections use `bench-retry`;
+no synthetic producer claims the human source. Node-level tool admission narrows each step to the
+plan's tool universe plus a small safe floor.
 The archived local-20 run attributed a prompt-token reduction to that narrowing, but the run is
 **not reproducible** (dirty worktree) and is not a product claim. Because node directives enter
 history, a multi-node turn adds prompt bytes compared with a single stock step.

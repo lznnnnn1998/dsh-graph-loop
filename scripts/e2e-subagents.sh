@@ -33,4 +33,42 @@ grep -q '\[subagent d_fetch\]' "$HOME_DIR/session.jsonl" || { echo "FAIL: d_fetc
 grep -q '"type":"subagent/catalog"' "$HOME_DIR/session.jsonl" || { echo "FAIL: no subagent catalog"; exit 1; }
 STEPS=$(grep -c '"type":"step/start"' "$HOME_DIR/session.jsonl" || true)
 echo "parent steps=$STEPS"
+# A child summary is logged (model-visible ⟺ logged) but must not claim the
+# human `user` source: the stock Web API reads the last such message as the
+# latest question, so a synthetic child summary would hijack it.
+node --input-type=module -e '
+import fs from "node:fs"
+const events = fs.readFileSync(process.argv[1], "utf8").trim().split("\n").map(line => JSON.parse(line))
+const textOf = e => e.data.content.flatMap(block => block.type === "text" ? [block.text] : []).join("\n")
+const results = events.filter(e => e.type === "user/message"
+  && e.data.content.some(block => block.type === "text" && block.text.includes("[subagent ")))
+const wrongSource = results.filter(e => e.data.source?.kind !== "subagent-result")
+const humanPrompts = events.filter(e => e.type === "user/message" && e.data.source?.kind === "user")
+if (results.length === 0) {
+  console.error("FAIL: no [subagent ...] results persisted in the parent session")
+  process.exit(1)
+}
+if (wrongSource.length > 0) {
+  console.error(`FAIL: ${wrongSource.length} subagent result(s) persisted with source.kind !== subagent-result`)
+  process.exit(1)
+}
+if (results.some(e => e.data.source?.kind === "user")) {
+  console.error("FAIL: a subagent result claims the human user source")
+  process.exit(1)
+}
+if (humanPrompts.length === 0) {
+  console.error("FAIL: the real human prompt is missing from the session log")
+  process.exit(1)
+}
+const latestHuman = humanPrompts.at(-1)
+if (latestHuman === undefined || !textOf(latestHuman).includes("research the latest state of the art")) {
+  console.error("FAIL: the human question is not the latest source.kind === \"user\" message")
+  process.exit(1)
+}
+if (!results.some(e => e.seq > latestHuman.seq)) {
+  console.error("FAIL: no subagent result follows the human prompt, so the source filter is untested")
+  process.exit(1)
+}
+console.log(`subagent_sources=${results.length} human_user_messages=${humanPrompts.length}`)
+' "$HOME_DIR/session.jsonl"
 echo "PASS  e2e parallel subagent nodes  (home: $HOME_DIR)"
