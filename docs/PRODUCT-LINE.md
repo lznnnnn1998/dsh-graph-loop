@@ -13,8 +13,9 @@
   (verified on the 20-task suite), not just the legacy `synthesizeTopology`.
 - Bounded `verify → diagnose → edit → verify` repair for normal reliability.
 - Installable bundle + Explore mode; no DSH source changes.
-- Evaluation on **tasks within model capability**: local 20-task medium suite now; OfficeBench
-  5-task subset when the office environment is available.
+- Evaluation on **tasks within model capability**: 10 easy + 10 medium Terminal-Bench tasks
+  ([`bench/official/subsets/product20.json`](../bench/official/subsets/product20.json)); the old
+  local 20-task suite is archived.
 
 ## Success criteria
 
@@ -26,13 +27,13 @@
 
 ## Current evidence
 
-- Local 20-task, 2 reps, **live envelope/compose**: **40/40 both arms**, prompt
-  **25,105 → 12,561 (−50.0% mean; −48.6% median)**, steps **4.2 → 4.0** (median 4 = 4). This is the
-  product-line signal.
-- Wall mean/median is slightly worse (+9.4% / +4.2%); not claimed as a win.
+- **Active product suite:** Terminal-Bench easy10 + medium10, defined and fixed; the 20-task run is
+  **pending** (native builds are required).
 - The live scheduler now calls `selectEnvelopeForTask` + `synthesizeComposition` in dynamic mode;
   the bounded verify → diagnose → edit → verify repair is installed on verification failure.
-- OfficeBench 5-task probe is prepared; it needs the OfficeBench Docker environment and action
+- Legacy local 20-task live-compose result (archived, not the active claim): 40/40 both, prompt
+  **25,105 → 12,561 (−50.0% mean; −48.6% median)**, steps 4.2 → 4.0; wall +9.4% / +4.2%.
+- Terminal-Bench easy/medium suite is prepared; it needs the Terminal-Bench product suite Docker environment and action
   mapping.
 
 ## Non-goals

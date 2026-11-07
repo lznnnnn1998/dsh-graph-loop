@@ -1,0 +1,77 @@
+{
+  "suite": "terminal-bench-medium10",
+  "tier": "medium",
+  "selection": "expert_time_estimate_hours: easy <= 2.0, medium 2.5\u20134.0; gpus=0 unless noted; fixed before running; ",
+  "tasks": [
+    {
+      "id": "terminal-bench/cargo-flight-dispatch",
+      "task": "cargo-flight-dispatch",
+      "hours": "2.5",
+      "category": "Operations",
+      "gpus": "0"
+    },
+    {
+      "id": "terminal-bench/intrastat-meldung",
+      "task": "intrastat-meldung",
+      "hours": "3.0",
+      "category": "Operations",
+      "gpus": "0"
+    },
+    {
+      "id": "terminal-bench/roy-polymorph-cn",
+      "task": "roy-polymorph-cn",
+      "hours": "3.0",
+      "category": "Science",
+      "gpus": "0"
+    },
+    {
+      "id": "terminal-bench/nextjs-performance",
+      "task": "nextjs-performance",
+      "hours": "3.0",
+      "category": "Software",
+      "gpus": "0"
+    },
+    {
+      "id": "terminal-bench/formal-crypto",
+      "task": "formal-crypto",
+      "hours": "3",
+      "category": "Security",
+      "gpus": "0"
+    },
+    {
+      "id": "terminal-bench/shadow-relay",
+      "task": "shadow-relay",
+      "hours": "3",
+      "category": "Security",
+      "gpus": "?"
+    },
+    {
+      "id": "terminal-bench/legacy-utility-triage",
+      "task": "legacy-utility-triage",
+      "hours": "3.5",
+      "category": "Operations",
+      "gpus": "0"
+    },
+    {
+      "id": "terminal-bench/risk-scorer-replay",
+      "task": "risk-scorer-replay",
+      "hours": "4.0",
+      "category": "ML",
+      "gpus": "0"
+    },
+    {
+      "id": "terminal-bench/freight-dispatch-shift",
+      "task": "freight-dispatch-shift",
+      "hours": "4.0",
+      "category": "Operations",
+      "gpus": "0"
+    },
+    {
+      "id": "terminal-bench/heat-pump-warranty",
+      "task": "heat-pump-warranty",
+      "hours": "4.0",
+      "category": "Operations",
+      "gpus": "0"
+    }
+  ]
+}

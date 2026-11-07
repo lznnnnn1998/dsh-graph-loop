@@ -1,0 +1,77 @@
+{
+  "suite": "terminal-bench-easy10",
+  "tier": "easy",
+  "selection": "expert_time_estimate_hours: easy <= 2.0, medium 2.5\u20134.0; gpus=0 unless noted; fixed before running; ",
+  "tasks": [
+    {
+      "id": "terminal-bench/html-js-filter",
+      "task": "html-js-filter",
+      "hours": "0.75",
+      "category": "Security",
+      "gpus": "0"
+    },
+    {
+      "id": "terminal-bench/photonic-waveguide-routing",
+      "task": "photonic-waveguide-routing",
+      "hours": "0.75",
+      "category": "Software",
+      "gpus": "0"
+    },
+    {
+      "id": "terminal-bench/music-harmony",
+      "task": "music-harmony",
+      "hours": "1.0",
+      "category": "Media",
+      "gpus": "0"
+    },
+    {
+      "id": "terminal-bench/foodstuff-beta-activity",
+      "task": "foodstuff-beta-activity",
+      "hours": "1.5",
+      "category": "Science",
+      "gpus": "0"
+    },
+    {
+      "id": "terminal-bench/bun-sourcemap-leak",
+      "task": "bun-sourcemap-leak",
+      "hours": "1.5",
+      "category": "Software",
+      "gpus": "?"
+    },
+    {
+      "id": "terminal-bench/pretrain-shard-corruption",
+      "task": "pretrain-shard-corruption",
+      "hours": "2.0",
+      "category": "ML",
+      "gpus": "0"
+    },
+    {
+      "id": "terminal-bench/medical-claims-processing",
+      "task": "medical-claims-processing",
+      "hours": "2.0",
+      "category": "Operations",
+      "gpus": "0"
+    },
+    {
+      "id": "terminal-bench/protein-autointerp-disulfide",
+      "task": "protein-autointerp-disulfide",
+      "hours": "2.0",
+      "category": "Science",
+      "gpus": "0"
+    },
+    {
+      "id": "terminal-bench/vpp-loss-divergence",
+      "task": "vpp-loss-divergence",
+      "hours": "2",
+      "category": "ML",
+      "gpus": "0"
+    },
+    {
+      "id": "terminal-bench/interleaved-vigenere",
+      "task": "interleaved-vigenere",
+      "hours": "2",
+      "category": "Security",
+      "gpus": "?"
+    }
+  ]
+}

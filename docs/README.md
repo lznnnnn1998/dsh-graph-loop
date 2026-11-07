@@ -24,8 +24,8 @@ Start with the two lines: **product** (composition layer) and **stress** (Termin
 
 ## Evidence
 
-- [`bench/agent-eval/`](../bench/agent-eval/) — local 20-task medium suite and results
-- [`bench/officebench/`](../bench/officebench/) — product-line 5-task OfficeBench probe (prepared)
+- [`bench/archive/agent-eval/`](../bench/archive/agent-eval/) — legacy local 20-task harness (history)
+- [`bench/official/subsets/`](../bench/official/subsets/) — product suite: 10 easy + 10 medium Terminal-Bench tasks
 - [`bench/official/`](../bench/official/) — stress-line Terminal-Bench harness and results
 - [`research/`](../research/) — original evidence base
 - [`design/`](../design/) — original design contracts (historical)

@@ -3,7 +3,7 @@
 Status: **active reference**. LangGraph is now the default kernel; the live driver uses it for
 kernel-drivable plans, with `FrontierTopology` as the fallback. See
 [`docs/STATUS.md`](STATUS.md) for the current snapshot and
-[`bench/agent-eval/RESULTS.md`](../bench/agent-eval/RESULTS.md) for the evidence.
+[`bench/archive/agent-eval/RESULTS.md`](../bench/archive/agent-eval/RESULTS.md) for the evidence.
 
 > 中文摘要：DSH 负责 harness（session、turn/step、prompt、tools、审批、压缩、持久化、UI）；
 > LangGraph 负责图运行时（StateGraph/Pregel、channels/reducers、checkpoint、Send/Command、

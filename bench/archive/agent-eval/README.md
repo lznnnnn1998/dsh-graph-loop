@@ -1,10 +1,13 @@
-# Local agent evaluation harness
+# Local agent evaluation harness (legacy)
+
+> **Archived 2026-11-07.** The active product suite is Terminal-Bench easy10 + medium10
+> ([`bench/official/subsets/`](../../official/subsets/)); this local 20-task harness is kept for history.
 
 Fast inner-loop comparison of the stock DSH loop and the graph driver. This is **not** the
 Terminal-Bench subset — it exists to tell us whether a change moves success, steps, tokens or wall time
 before paying for a public benchmark.
 
-- Protocol and public evaluation: [`docs/EVALUATION.md`](../../docs/EVALUATION.md)
+- Protocol and public evaluation: [`docs/EVALUATION.md`](../../../docs/EVALUATION.md)
 - Latest result: [`RESULTS.md`](RESULTS.md)
 - Raw rows: [`results/`](results/) (what each file is: [`results/README.md`](results/README.md))
 

@@ -36,6 +36,19 @@ until the exact harness version, task selection and agent adapter are pinned.
   (`openhands/openhands_app.py`) and needs a DSH replacement.
 - This is **not an aggregate Terminal-Bench score**; one task is not a benchmark.
 
+## Product suite (10 easy + 10 medium)
+
+The product line uses a fixed 20-task Terminal-Bench suite:
+[`subsets/product20.json`](subsets/product20.json). It is separate from the hard stress subset.
+Run:
+
+```sh
+bash bench/official/subsets/run-product20.sh
+```
+
+Task directories must be built natively under `/tmp/tb-arm-dsh` first. If a task cannot build
+(sidecar/desktop dependency), record it as an infrastructure gap; do not substitute a different task.
+
 ## Smoke first (required)
 
 ```sh

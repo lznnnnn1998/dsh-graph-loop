@@ -1,8 +1,8 @@
 # bench/ — token & cache A/B harness for the DSH graph loop
 
-> **0.2 evaluation** uses the local 20-task suite ([`agent-eval/`](agent-eval/)) as the pre-signal
-> and Terminal-Bench 4.0 + NL2Repo-Bench as the official targets ([`official/`](official/)). See
-> [`../docs/EVALUATION.md`](../docs/EVALUATION.md). This file documents the 0.1.x token/cache
+> **0.2 product evaluation** uses the Terminal-Bench **easy10 + medium10** suite
+> ([`official/subsets/`](official/subsets/)); the old local 20-task harness is archived at
+> [`archive/agent-eval/`](archive/agent-eval/). The hard Terminal-Bench subset is a stress line. This file documents the 0.1.x token/cache
 > harness and remains useful for cost accounting.
 
 Status: **partially runnable**. The baseline arm runs end to end today; the two graph arms
@@ -16,9 +16,8 @@ README is the operator manual.
 
 ```
 bench/
-  agent-eval/                # 0.2 local 20-task stock-vs-graph harness + results
+  archive/agent-eval/        # legacy local 20-task harness (history; replaced by TB easy/medium)
   official/                  # Terminal-Bench 4.0 / NL2Repo preflights + adapter contract
-  archive/officebench/       # retired OfficeBench probe (history only)
   tasks/tasks.jsonl          # 8 tasks: single-tool, multi-tool edit, research, doc gen, bug fix,
                              # long refactor, multi-agent, no-tool
   schema/results.schema.json # one row per (arm, task, repetition)

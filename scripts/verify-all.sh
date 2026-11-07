@@ -13,7 +13,7 @@ echo "== unit tests"
 npm test
 
 echo "== benchmark fixtures fail before work"
-node bench/agent-eval/validate-tasks.mjs
+node bench/archive/agent-eval/validate-tasks.mjs
 
 echo "== installed-bundle e2e (mock LLM)"
 bash scripts/e2e-installed.sh

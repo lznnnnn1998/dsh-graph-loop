@@ -1,7 +1,7 @@
 # Evaluation — product line and stress line
 
 Status: **two-track evaluation.** The product line is measured on tasks within model capability
-(local 20-task medium suite; OfficeBench 5-task subset when the office environment is available).
+(10 easy + 10 medium Terminal-Bench tasks).
 Terminal-Bench is a separate stress line and is **not the default gate**.
 
 ## 1. Product line
@@ -19,21 +19,21 @@ Both arms use the same model, tasks, tool policy, timeouts and container image. 
 `toolPolicy: preset` only for stress-line harnesses; product-line runs use `toolPolicy: plan` to
 measure the actual tool-surface reduction.
 
-### 1.1 Primary product signal: local 20-task suite
+### 1.1 Primary product suite: Terminal-Bench easy10 + medium10
 
-- Tasks: [`bench/agent-eval/tasks.json`](../bench/agent-eval/tasks.json); checks validated negative
-  and positive.
-- Run: `bash bench/agent-eval/run-real.sh --arm both --reps 2`.
-- Latest **live envelope/compose** run: **40/40 both**, prompt **25,105 → 12,561 (−50.0% mean;
-  −48.6% median)**, steps 4.2 → 4.0 (median 4 = 4); wall +9.4% / +4.2%.
-- Report success, steps, tool calls, prompt/output/cache tokens, wall time; **mean and median**.
+- 20 fixed tasks: [`bench/official/subsets/product20.json`](../bench/official/subsets/product20.json)
+  (10 easy, 10 medium by expert estimate; fixed before running).
+- Same Harbor/adapter/smoke infrastructure as the stress line; the **task selection** is what makes
+  this the product line: tasks within model capability, not the hard stress subset.
+- Gate: smoke 1.0, then all 20 tasks run stock vs composition; report accuracy, prompt tokens and
+  steps. A task that cannot build natively is an infrastructure gap, not a replacement.
+- **Status: defined; the 20-task product run is not executed yet.**
 
-### 1.2 External product target: OfficeBench subset
+### 1.2 Legacy evidence (archived)
 
-- 5-task single-app probe (Word/Excel/PDF) in [`bench/officebench/`](../bench/officebench/); pinned
-  commit. It needs the OfficeBench Docker environment and action mapping; it is **prepared, not run**.
-- Gate: all arms complete and the evaluator scores all five; then a fixed 30-task subset and a public
-  report. OfficeBench has no PowerPoint app.
+The old local 20-task suite is archived at
+[`bench/archive/agent-eval/`](../bench/archive/agent-eval/). Its live-compose result (40/40, prompt
+−50%) predates the product-suite switch and is **not** the current product claim.
 
 ### 1.3 Product success criteria
 
@@ -74,7 +74,7 @@ bounded by `maxReplans` (default 2 for composed plans). A failed non-verify node
 
 ## 5. Artifacts
 
-- `bench/agent-eval/` — local 20-task suite and results.
-- `bench/officebench/` — product-line OfficeBench probe (prepared).
+- `bench/archive/agent-eval/` — legacy local 20-task harness and results (history).
+- `bench/official/subsets/` — 10 easy + 10 medium product task manifests.
 - `bench/official/` — stress-line Terminal-Bench harness, smoke and results.
 - `docs/STATUS.md` — current snapshot.

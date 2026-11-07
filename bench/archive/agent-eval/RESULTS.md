@@ -2,7 +2,7 @@
 
 Status: **product-line run**, 20 tasks × 2 arms × 2 repetitions on the **live envelope/compose**
 path. This is the product signal; Terminal-Bench is a separate stress line
-([`../official/README.md`](../official/README.md)).
+([`../../official/README.md`](../../official/README.md)).
 
 - Date: 2026-11-07
 - Model: `deepseek-flash` = **DeepSeek V4.1-Flash-1017**, `reasoningEffort: high`

@@ -41,9 +41,10 @@ community contribution — not a business, a general agent framework or a resear
 - **Graph tab** — live topology, node → tool-call inspector, envelope and checkpoint history.
 - **Template packages** — npm packages binding abstract roles + concrete implementations, with
   schema validation, dry-run preview and a curated index.
-- **Product evaluation** — local 20-task medium suite (accuracy parity + token/steps win), then
-  the OfficeBench 5-task subset when the office environment is available. **Terminal-Bench is a
-  separate stress line**, not the default gate. Protocol: [`docs/EVALUATION.md`](docs/EVALUATION.md).
+- **Product evaluation** — 10 easy + 10 medium Terminal-Bench tasks
+  ([`product20.json`](bench/official/subsets/product20.json)), stock vs composition, targeting
+  accuracy parity + token/steps win. **The hard Terminal-Bench subset is a separate stress line**,
+  not the default gate. Protocol: [`docs/EVALUATION.md`](docs/EVALUATION.md).
 
 ## Non-goals
 
@@ -74,7 +75,7 @@ packages/mode/          Explore mode (agent preset) + graph policy / reuse guard
 packages/graph-ui/      Graph tab (conversation.view) + /graph-chat API
 docs/                   active contracts + reference/ + archive/ (index: docs/README.md)
 research/               evidence base for the original plan
-bench/                  product eval (agent-eval, OfficeBench) + stress harness (official)
+bench/                  product TB easy/medium suite + archived local harness + stress harness
 compat/                 DSH-style vitest/coverage harness
 ```
 
@@ -100,14 +101,16 @@ bash scripts/verify-all.sh          # typecheck + tests + installed e2e + tarbal
 bash scripts/install-explore.sh     # install into the default web profile (stock row disabled)
 ```
 
-Benchmark:
+Product benchmark (Terminal-Bench easy10 + medium10):
 
 ```sh
-bash bench/agent-eval/run-real.sh --arm both --reps 2
-node bench/agent-eval/summarize.mjs bench/agent-eval/results/<file>.json --per-task
-bash bench/official/terminal-bench/preflight.sh   # NOT READY without Docker/Modal
-bash bench/official/nl2repo/preflight.sh          # NOT READY without Docker
+bash bench/official/terminal-bench/preflight.sh
+bash bench/official/terminal-bench/run-smoke.sh
+# build native task dirs, then run the fixed product suite
+bash bench/official/terminal-bench/run-subset.sh /tmp/tb-arm-dsh
 ```
+
+The old local 20-task harness is archived at [`bench/archive/agent-eval/`](bench/archive/agent-eval/).
 
 Composition-layer commands are documented as they land; the contract is in
 [`docs/COMPOSITION.md`](docs/COMPOSITION.md) and the evaluation protocol in

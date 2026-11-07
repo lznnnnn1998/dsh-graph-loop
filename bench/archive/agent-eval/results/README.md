@@ -15,4 +15,4 @@ tool calls, usage tokens and wall time. Read both **mean and median**:
 
 Model: `deepseek-flash` = DeepSeek V4.1-Flash-1017. The official Terminal-Bench 4.0 and
 NL2Repo-Bench scores are **not** in this directory; they are gated on Docker/Modal and the DSH
-adapters described in [`../../official/README.md`](../../official/README.md).
+adapters described in [`../../../official/README.md`](../../../official/README.md).

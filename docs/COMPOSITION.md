@@ -85,7 +85,7 @@ arms (D14/D15) — composition is the mechanism, the comparison is the proof.
 | D11 | **Memory = context selection** over what is already in the conversation. Durable memory is out of scope. |
 | D12 | Build the **control plane over the stock loop first**; fork only if 2+ triggers in §7 fire. |
 | D13 | The **first upstream artifact is a composition bundle**, not a loop replacement. A loop bundle is a later proposal. |
-| D14 | The **product line** is evaluated on the local 20-task medium suite and the **OfficeBench 5-task subset** — tasks within model capability. **Terminal-Bench is a separate stress line** (see STRESS-LINE.md), not the default gate; craft plugins remain genericity fixtures only. |
+| D14 | The **product line** is evaluated on **10 easy + 10 medium Terminal-Bench tasks** — tasks within model capability. The hard Terminal-Bench subset is a separate stress line (see STRESS-LINE.md), not the default gate; the local 20-task suite is archived. |
 | D15 | The product A/B uses **stock vs composition** on medium tasks; success = accuracy parity + token/steps win. The stress line uses stock vs composition on Terminal-Bench only to expose reliability gaps. No 1.0 gate. |
 | D16 | Ecosystem designs ship as **npm template packages** plus a curated index, bound by **abstract roles + concrete implementations**. |
 | D17 | Maintenance follows **DSH main**, fixing breakage continuously; every coupling sits behind an adapter. |
@@ -106,7 +106,7 @@ arms (D14/D15) — composition is the mechanism, the comparison is the proof.
 - Authoritative checkpoints in `storageDomain`; replay view; Graph tab data path.
 - Control plane over the stock loop, preserving stock session/event conformance.
 - Template package format: manifest, role binding, validation, dry-run preview.
-- **Product evaluation**: local 20-task medium suite + OfficeBench 5-task subset.
+- **Product evaluation**: 10 easy + 10 medium Terminal-Bench tasks.
 - **Stress evaluation**: Terminal-Bench smoke + fixed subset (diagnostic only).
 - A public head-to-head subset report and the `docs/EVALUATION.md` protocol.
 - Upstream compatibility work; an RFC/PR is optional, not a success criterion.
@@ -404,8 +404,8 @@ The curated index reviews listings before they appear. Templates never execute c
 | M1 | Envelope + role resolution + capability-driven synthesis (pure core) + tests | Deterministic envelope/plan for a representative task; unknown tools still compose |
 | M2 | `CheckpointStore` over `storageDomain` + contract tests | Put/latest/list/prune; JSON guard; fail-loud when absent |
 | M3 | Control plane: step nodes, prompt section, boundaries, checkpoints, annotation/preset feed | One composition turn runs ≥3 nodes over the stock loop; ordinary chat conformance holds; adapters ready for Terminal-Bench |
-| M4 | **Live envelope/compose + verify repair**; local 20-task product rerun; OfficeBench probe | Accuracy parity, token/steps win; OfficeBench scores all five |
-| M5 | OfficeBench 30-task subset + product head-to-head report; 0.2.0 | Report published with config/commit/model; product claim tested |
+| M4 | **Live envelope/compose + verify repair**; Terminal-Bench easy10 + medium10 product run | Accuracy parity, token/steps win |
+| M5 | Terminal-Bench product suite + product head-to-head report; 0.2.0 | Report published with config/commit/model; product claim tested |
 
 **Definition of done (chosen):** product accuracy parity + token/steps win on medium tasks, plus a public product report; stress results are separate. The public
 head-to-head report is the value proof; if it fails, the decision gate turns to the hedge (Graph tab
@@ -476,7 +476,7 @@ not a goal.
 |---|---|
 | No 1.0 gate → drift | Product medium suite is the decision gate; stress line is diagnostic |
 | Probe measures completion, not envelope/conformance | Record envelope bytes, step counts, cache ratio and conformance in the same run |
-| Product/OfficeBench environment integration | OfficeBench probe is the de-risk; stress harness issues do not block the product |
+| Product/Terminal-Bench product-suite environment integration | Terminal-Bench product suite is the de-risk; stress harness issues do not block the product |
 | Default-profile comparison is confounded | Three-arm design: default profile, controlled stock, composition |
 | Official adoption is not a goal | Upstream work is optional; do not block on an RFC |
 | Template curation has no owner | Start with an internal allowlist; open review later |

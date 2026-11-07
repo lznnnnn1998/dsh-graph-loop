@@ -11,7 +11,7 @@ are in [`docs/COMPOSITION.md`](docs/COMPOSITION.md). Summary:
 - per-turn capability envelope; tools stable inside the turn, prompt/memory vary per node;
 - authoritative checkpoints in `storageDomain`; the session log stays the conversation record;
 - control plane over the stock loop first; fork only if 2+ triggers fire;
-- product evaluation: local 20-task medium suite, then the OfficeBench 5-task subset;
+- product evaluation: 10 easy + 10 medium Terminal-Bench tasks; the local 20-task suite is archived;
   stress evaluation: Terminal-Bench smoke then a fixed subset, not the default gate;
 - craft-first demo removed as the proof of value; crafts remain genericity fixtures;
 - `packages/loop` is the **active graph driver** (a source fork, tracked as maintenance debt); `packages/mode` (Explore) is the active mode and installed by default for new sessions.
@@ -52,13 +52,13 @@ The 0.1.x build history is archived in [`docs/archive/PROGRESS-0.1.md`](docs/arc
       mutation detection, answer-only terminal nodes, safe tool floor, and a non-null turn end when
       the graph finishes. Local real-model evaluation, 2 repetitions × 6 tasks: **12/12 success for
       both arms**, median prompt **23,466 → 9,237 (−61%)**, median steps **4 = 4**, median wall
-      **14.9 s → 14.8 s** (parity). See [`bench/agent-eval/RESULTS.md`](bench/agent-eval/RESULTS.md).
+      **14.9 s → 14.8 s** (parity). See [`bench/archive/agent-eval/RESULTS.md`](bench/archive/agent-eval/RESULTS.md).
       The bundle builds and `scripts/e2e-installed.sh` passes; no DSH source is modified.
-- [x] **M3b — installed-profile real-model run**: `bench/agent-eval/prepare-installed.sh` creates a
+- [x] **M3b — installed-profile real-model run**: `bench/archive/agent-eval/prepare-installed.sh` creates a
       throwaway stock `headless` profile and an `explore` profile with `dsh plugin add packages/loop`
       (no `--patch`, no DSH source changes). 6/6 both arms; median steps **5 → 4**, median prompt
       **26,733 → 9,267 (−65%)**, median wall 15.6 s → 17.9 s (noise-dominated). Raw rows:
-      [`bench/agent-eval/results/2026-11-07-installed.json`](bench/agent-eval/results/2026-11-07-installed.json).
+      [`bench/archive/agent-eval/results/2026-11-07-installed.json`](bench/archive/agent-eval/results/2026-11-07-installed.json).
 - [x] **M3c — default install + default mode + kernel default**: `scripts/install-explore.sh` now
       defaults to the `web` profile, installs Graph-tab + driver + the **Explore mode**, creates a
       custom profile from the web template when needed, and fails unless `graph-loop`/`graph-ui`/
@@ -77,14 +77,14 @@ The 0.1.x build history is archived in [`docs/archive/PROGRESS-0.1.md`](docs/arc
 - [ ] **M3 — control plane over the stock loop** (product path; the measured graph above is the
       graph driver installed as a bundle): step nodes, late prompt section, node boundaries,
       checkpoint writes, annotation/preset feed, conformance for ordinary chat.
-- [x] **M4a — local 20-task product signal**: 20 tasks × 2 arms × 2 reps; **40/40 both**, prompt
+- [x] **M4a — legacy local 20-task signal (archived)**: 20 tasks × 2 arms × 2 reps; **40/40 both**, prompt
       **24,454 → 9,612 (−60.7%)** legacy; live envelope/compose rerun is **25,105 → 12,561
-      (−50.0% mean; −48.6% median)**, steps 4.2 → 4.0. The live result is the product claim. Results:
-      [`bench/agent-eval/RESULTS.md`](bench/agent-eval/RESULTS.md).
+      (−50.0% mean; −48.6% median)**, steps 4.2 → 4.0. The active claim is now the TB product suite. Results:
+      [`bench/archive/agent-eval/RESULTS.md`](bench/archive/agent-eval/RESULTS.md).
 - [x] **M4b — Terminal-Bench stress line**: Docker/Colima + Harbor + DSH adapter; smoke 1.0 on
       oracle/graph/stock; hard subset 0.0 on clean trials. This is a stress finding, **not the
       default gate**. See [`docs/STRESS-LINE.md`](docs/STRESS-LINE.md) and
       [`bench/official/results/`](bench/official/results/).
-- [ ] **M5 — product head-to-head** (OfficeBench subset + local 20) + public report + 0.2.0; stress
+- [ ] **M5 — product head-to-head** (Terminal-Bench easy10 + medium10) + public report + 0.2.0; stress
       line remains diagnostic.
 - [ ] **Gate at M4a/M5:** product accuracy parity + token/steps win; stress does not gate the product.

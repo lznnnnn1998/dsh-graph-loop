@@ -1,6 +1,6 @@
 # Structural A/B: stock loop vs graph driver
 
-> **Historical (0.1.x).** The 0.2 evaluation protocol — OfficeBench probe and the three-arm
+> **Historical (0.1.x).** The 0.2 evaluation protocol — Terminal-Bench product suite and the three-arm
 > head-to-head — is [`EVALUATION.md`](../EVALUATION.md). This file records the early structural
 > comparison only.
 
