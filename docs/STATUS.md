@@ -20,7 +20,7 @@ graph driver plus a LangGraph kernel runs the turn, the Graph tab shows the topo
 | Composition core | envelope / role resolution, capability-driven synthesis, annotation layer, checkpoint contract — pure core, 25 focused tests |
 | UI | Graph tab + `/graph-chat`; installed e2e passes |
 | Packaging | tarball install + packed-loop runtime e2e passes (`scripts/e2e-tarball.sh`) |
-| Benchmark | local 20-task suite (40/40 both); Docker/Harbor + DSH adapter; Terminal-Bench subset attempted, **0.0 on every clean trial**, no aggregate |
+| Benchmark | local 20-task suite (40/40 both); Docker/Harbor + DSH adapter; fixed Terminal-Bench 7-task subset, **0.0 on every clean trial**, no aggregate |
 | Tests | **115 unit tests**, typecheck clean, installed e2e + tarball e2e pass |
 
 ## Evidence (real model, `deepseek-flash`, `reasoningEffort: high`)
@@ -41,11 +41,11 @@ the median −7.4%; one graph run took 49 s. Earlier 6-task runs (installed and 
    LangGraph-reserved node ids still use `FrontierTopology`.
 2. **Checkpoints are in-memory** (`MemoryCheckpointer`); `storageDomain` persistence and
    `getStateHistory` are not wired.
-3. **Accuracy is parity**, not better on the local suite. The Terminal-Bench subset attempt scored 0.0
+3. **Accuracy is parity**, not better on the local suite. The Terminal-Bench 7-task subset scored 0.0
    on every clean trial; there is no nonzero official score yet.
-4. **Official coverage is thin**: native arm64 task images work and Harbor scores the runs, but the
-   fixed subset produced 0.0 on every clean trial (bun/foodstuff both arms; interleaved/music graph;
-   medical errored). NL2Repo-Bench still needs an OpenHands→DSH adapter.
+4. **Official coverage is thin**: native arm64 task images and Harbor work, but the fixed 7-task
+   subset produced 0.0 on every clean trial; stock interleaved/music/protein timeouts, medical
+   timeouts, payments sidecar images missing. NL2Repo-Bench still needs an OpenHands→DSH adapter.
 5. **Fork duplication** remains: `packages/loop` is a source copy of DSH's loop. Version tracking is
    automated today; it is still maintenance debt.
 6. **OfficeBench probe is not executed**; it is now a secondary benchmark.

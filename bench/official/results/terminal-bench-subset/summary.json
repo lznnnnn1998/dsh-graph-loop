@@ -52,7 +52,7 @@
       "n_trials": 0,
       "n_errors": 1,
       "exit": 0,
-      "result": "/Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/bench/official/results/terminal-bench-subset/jobs/tb-stock-interleaved-vigenere-191126/result.json"
+      "result": "/Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/bench/official/results/terminal-bench-subset/jobs/tb-stock-interleaved-vigenere-retry-200759/result.json"
     },
     {
       "task": "medical-claims-processing",
@@ -61,7 +61,7 @@
       "n_trials": 0,
       "n_errors": 1,
       "exit": 0,
-      "result": "/Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/bench/official/results/terminal-bench-subset/jobs/tb-graph-medical-claims-processing-194140/result.json"
+      "result": "/Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/bench/official/results/terminal-bench-subset/jobs/tb-graph-medical-claims-processing-retry-200759/result.json"
     },
     {
       "task": "medical-claims-processing",
@@ -70,7 +70,7 @@
       "n_trials": 0,
       "n_errors": 1,
       "exit": 0,
-      "result": "/Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/bench/official/results/terminal-bench-subset/jobs/tb-stock-medical-claims-processing-194143/result.json"
+      "result": "/Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/bench/official/results/terminal-bench-subset/jobs/tb-stock-medical-claims-processing-retry-200759/result.json"
     },
     {
       "task": "music-harmony",
@@ -80,30 +80,91 @@
       "n_errors": 0,
       "exit": 0,
       "result": "/Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/bench/official/results/terminal-bench-subset/jobs/tb-graph-music-harmony-194146/result.json"
+    },
+    {
+      "task": "music-harmony",
+      "arm": "stock",
+      "score": 0.0,
+      "n_trials": 0,
+      "n_errors": 1,
+      "exit": 0,
+      "result": "/Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/bench/official/results/terminal-bench-subset/jobs/tb-stock-music-harmony-retry-200759/result.json"
+    },
+    {
+      "task": "payments-pipeline-fix",
+      "arm": "graph",
+      "score": 0.0,
+      "n_trials": 0,
+      "n_errors": 1,
+      "exit": 0,
+      "result": "/Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/bench/official/results/terminal-bench-subset/jobs/tb-graph-payments-pipeline-fix-retry-195745/result.json"
+    },
+    {
+      "task": "payments-pipeline-fix",
+      "arm": "stock",
+      "score": 0.0,
+      "n_trials": 0,
+      "n_errors": 1,
+      "exit": 0,
+      "result": "/Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/bench/official/results/terminal-bench-subset/jobs/tb-stock-payments-pipeline-fix-retry-195745/result.json"
+    },
+    {
+      "task": "protein-autointerp-disulfide",
+      "arm": "graph",
+      "score": 0.0,
+      "n_trials": 1,
+      "n_errors": 0,
+      "exit": 0,
+      "result": "/Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/bench/official/results/terminal-bench-subset/jobs/tb-graph-protein-autointerp-disulfide-retry-195745/result.json"
+    },
+    {
+      "task": "protein-autointerp-disulfide",
+      "arm": "stock",
+      "score": 0.0,
+      "n_trials": 0,
+      "n_errors": 1,
+      "exit": 0,
+      "result": "/Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/bench/official/results/terminal-bench-subset/jobs/tb-stock-protein-autointerp-disulfide-retry-195745/result.json"
     }
   ],
   "summary": {
     "stock": {
-      "attempted": 4,
+      "attempted": 7,
       "clean_trials": 2,
       "mean_over_clean": 0.0,
       "scores": {
         "bun-sourcemap-leak": 0.0,
         "foodstuff-beta-activity": 0.0,
         "interleaved-vigenere": 0.0,
-        "medical-claims-processing": 0.0
+        "medical-claims-processing": 0.0,
+        "music-harmony": 0.0,
+        "payments-pipeline-fix": 0.0,
+        "protein-autointerp-disulfide": 0.0
+      },
+      "clean": {
+        "bun-sourcemap-leak": true,
+        "foodstuff-beta-activity": true
       }
     },
     "graph": {
-      "attempted": 5,
-      "clean_trials": 4,
+      "attempted": 7,
+      "clean_trials": 5,
       "mean_over_clean": 0.0,
       "scores": {
         "bun-sourcemap-leak": 0.0,
         "foodstuff-beta-activity": 0.0,
         "interleaved-vigenere": 0.0,
         "medical-claims-processing": 0.0,
-        "music-harmony": 0.0
+        "music-harmony": 0.0,
+        "payments-pipeline-fix": 0.0,
+        "protein-autointerp-disulfide": 0.0
+      },
+      "clean": {
+        "bun-sourcemap-leak": true,
+        "foodstuff-beta-activity": true,
+        "interleaved-vigenere": true,
+        "music-harmony": true,
+        "protein-autointerp-disulfide": true
       }
     }
   }
