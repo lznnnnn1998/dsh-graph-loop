@@ -6,7 +6,7 @@
  */
 import type { Volatile } from '@deepseek-ai/cosmokit'
 
-import { Context, FiberState, Service } from '@deepseek-ai/cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import { randomUUID } from 'node:crypto'
 import z from '@deepseek-ai/schemastery'
 import { brandString } from '@deepseek-ai/dsh-brand'
@@ -40,12 +40,11 @@ import { scopeOf } from '@deepseek-ai/dsh-scope'
 import { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from './constants.ts'
 import type {} from './runtime-context.ts'
 
-/** Fiber states that cannot own or serve a new lifecycle. */
-const INACTIVE_STATES: ReadonlySet<FiberState> = new Set([
-  FiberState.UNLOADING,
-  FiberState.DISPOSED,
-  FiberState.FAILED,
-])
+/** Fiber states that cannot own or serve a new lifecycle.
+ * Numeric values are stable across the published cordis API: FAILED=3, DISPOSED=4, UNLOADING=5.
+ * Keeping them numeric avoids importing a const enum that older npm builds do not export.
+ */
+const INACTIVE_STATES: ReadonlySet<number> = new Set([5, 4, 3])
 
 /** Re-throw one collected failure as itself, or several as one `AggregateError`. */
 function throwCollectedFailures(failures: readonly unknown[], message: string): void {

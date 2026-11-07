@@ -17,7 +17,7 @@ median** are reported because API stalls create a heavy tail.
 
 | Tier | Benchmark | Status |
 |---|---|---|
-| Primary | **Terminal-Bench 4.0** | Harness public; needs Docker/Modal + a DSH Harbor agent |
+| Primary | **Terminal-Bench 4.0** | **Runnable**: Docker + Harbor + DSH adapter; one task scored (0.0), no aggregate yet |
 | Primary | **NL2Repo-Bench** | Harness public; OpenHands-only + Docker, so a DSH adapter is required |
 | Pre-signal | [local 20-task suite](../bench/agent-eval/tasks.json) | **Runnable now**; stock vs graph, real model |
 | Secondary | [OfficeBench 5-task probe](../bench/officebench/probe-tasks.json) | Prepared; needs Docker/OfficeBench |
@@ -45,12 +45,17 @@ synthesized plan does not name, and silently hiding them would invalidate the co
 
 - Harness: [`harbor-framework/terminal-bench`](https://github.com/harbor-framework/terminal-bench),
   run through [Harbor](https://harborframework.com/docs).
-- Preflight: `bash bench/official/terminal-bench/preflight.sh` (READY only with `uv`, Harbor and a
-  container backend).
+- Preflight: `bash bench/official/terminal-bench/preflight.sh` (currently **READY**).
+- Docker is installed via Colima; the DSH adapter is
+  [`bench/official/terminal-bench/dsh_agent.py`](../bench/official/terminal-bench/dsh_agent.py).
+- On Apple Silicon, build task images natively with `build-arm64-task.sh`; the published amd64
+  images crash Node under qemu.
 - Exact command and adapter requirement: [`bench/official/README.md`](../bench/official/README.md).
 - Target: model-card 42.3. Run a fixed 10–20-task subset first; full set only after the probe.
-- Gate: a DSH Harbor agent adapter must exist and pass the oracle on the same image before this
-  benchmark is considered measured.
+- First trial: `html-js-filter` — stock **0.0**, graph **0.0** (hard task; stock wrote a filter that
+  failed hidden XSS vectors, graph wrote no file). This is not an aggregate score.
+- Gate: run a pre-registered 10–20-task subset on native images before claiming a Terminal-Bench
+  number.
 
 ## 5. Primary: NL2Repo-Bench
 

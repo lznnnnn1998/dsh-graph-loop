@@ -82,8 +82,9 @@ The 0.1.x build history is archived in [`docs/archive/PROGRESS-0.1.md`](docs/arc
       (+5.9% mean / −7.4% median). Checks validated negative/positive; results and manifest in
       [`bench/agent-eval/RESULTS.md`](bench/agent-eval/RESULTS.md). Also added `toolPolicy: preset`,
       optional read nodes, DSML formatting retry, and mutation detection for merge/rename tasks.
-- [ ] **M4b — official adapters**: Terminal-Bench 4.0 (Harbor) and NL2Repo-Bench (OpenHands) runbooks,
-      preflights and adapter contract are in [`bench/official/`](bench/official/). Official scores are
-      **not measured**: this machine has no Docker/Modal, and neither harness ships a DSH agent.
+- [~] **M4b — official harness**: Docker/Colima + Harbor + the Terminal-Bench DSH adapter
+      ([`bench/official/terminal-bench/dsh_agent.py`](bench/official/terminal-bench/dsh_agent.py))
+      now run a real task end to end. First trial (`html-js-filter`, native arm64) scored **0.0 on
+      both arms**; no aggregate yet. NL2Repo-Bench still needs an OpenHands→DSH adapter.
 - [ ] **M5 — official head-to-head** (Terminal-Bench + NL2Repo) + public report + 0.2.0.
 - [ ] **Gate at M4b:** continue / change benchmark / stop. No 1.0.

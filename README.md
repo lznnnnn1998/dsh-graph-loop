@@ -42,8 +42,7 @@ community contribution — not a business, a general agent framework or a resear
 - **Template packages** — npm packages binding abstract roles + concrete implementations, with
   schema validation, dry-run preview and a curated index.
 - **Evaluation** — a local 20-task stock-vs-graph pre-signal, then **Terminal-Bench 4.0** and
-  **NL2Repo-Bench** (the 1017 model-card references) with three arms. Official runs are gated on a
-  container runtime + DSH agent adapters; the preflights say so explicitly. Protocol:
+  **NL2Repo-Bench** (the 1017 model-card references) with three arms. Official runs now have Docker/Harbor + a DSH adapter; one task is scored, no aggregate yet. Protocol:
   [`docs/EVALUATION.md`](docs/EVALUATION.md).
 
 ## Non-goals

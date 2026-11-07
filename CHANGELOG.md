@@ -19,7 +19,8 @@
   rename/move/delete, not to create a copy with `write` and leave the original.
 - **Benchmark**: local suite expanded to 20 tasks with mean/median reporting, fixture validation,
   run manifests, and a packed-tarball install/runtime test. Added Terminal-Bench 4.0 and
-  NL2Repo-Bench preflights/runbooks; official runs are gated on Docker/Modal + DSH adapters.
+  NL2Repo-Bench preflights/runbooks. Docker + Harbor + a DSH Terminal-Bench adapter now run a real
+  task end to end; the first trial scored 0.0 on both arms (no aggregate yet).
 - **Docs**: status/decision/merge/evaluation docs, a docs index, and archived 0.1 history.
 
 ## 0.1.2

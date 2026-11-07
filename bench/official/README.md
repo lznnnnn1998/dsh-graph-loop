@@ -13,17 +13,25 @@ The local 20-task benchmark in [`../agent-eval/`](../agent-eval/) is the **pre-s
 today. Official runs are gated on the missing pieces below; do not report a model-card comparison
 until the exact harness version, task selection and agent adapter are pinned.
 
-## Current status (2026-11-07)
+## Current status (2026-11-07, after installing Docker)
 
-- **No container runtime** on the development machine: `docker`, `podman`, `colima` all absent.
-  Terminal-Bench and NL2Repo-Bench both require containers.
-- Terminal-Bench 4.0 is run through **Harbor**. Harbor does not ship a DSH agent; a small adapter
-  must launch DSH in the task container and report the final answer. Not implemented.
-- NL2Repo-Bench is an **OpenHands** harness (`main.py` → `openhands/openhands_app.py`), with
-  Docker images `openhands:0.56` and `runtime:0.56-nikolaik`. Replacing OpenHands with DSH is a
-  larger adapter; not implemented.
-- Therefore the official scores are **not measured**. Preflights below exit `NOT READY`; that is the
-  honest state, not a failure of the plugin.
+- **Docker is installed** via Colima (`--vm-type vz`, 8 GB / 4 CPU); Docker Compose is installed.
+- **Harbor is installed** (`uv tool install --python 3.12 'harbor[modal]'`), and the
+  `terminal-bench/terminal-bench@latest` dataset (66 tasks) is downloaded.
+- **Terminal-Bench DSH adapter is implemented**:
+  [`dsh_agent.py`](terminal-bench/dsh_agent.py). It installs Node + DSH in the task container,
+  installs the packed graph plugin, sets `toolPolicy: preset`, runs one DSH turn in `/app`, and can
+  run the stock loop with `DSH_STOCK=1`.
+- **One official task has been scored**: `terminal-bench/html-js-filter`, both arms **0.0**.
+  Stock wrote a filter but failed hidden XSS vectors; graph produced no file. Details and raw
+  verifier output: [`results/2026-11-07-html-js-filter/`](results/2026-11-07-html-js-filter/).
+- **Apple Silicon caveat**: published task images are amd64 and Node crashes under qemu
+  (`uv__io_poll` assertion). Build a native arm64 copy with
+  [`build-arm64-task.sh`](terminal-bench/build-arm64-task.sh) before running DSH. This changes the
+  platform from the public amd64 leaderboard; record it.
+- **NL2Repo-Bench is not adapted yet**: its harness is OpenHands-specific
+  (`openhands/openhands_app.py`) and needs a DSH replacement.
+- This is **not an aggregate Terminal-Bench score**; one task is not a benchmark.
 
 ## Run protocol (when the gates pass)
 
@@ -45,20 +53,25 @@ until the exact harness version, task selection and agent adapter are pinned.
 ## Terminal-Bench 4.0
 
 ```sh
-# preflight first
 bash bench/official/terminal-bench/preflight.sh
 
-git clone https://github.com/harbor-framework/terminal-bench.git /tmp/terminal-bench
-uv tool install 'harbor[modal]'
-harbor run -d terminal-bench/terminal-bench@latest \
-  --agent <dsh-harbor-agent> \
-  --model deepseek/deepseek-flash \
-  --env docker \
-  --n-concurrent 4
+# pack the plugin once
+npm pack ./packages/loop --pack-destination dist
+
+# build one task natively for Apple Silicon (repeat per task)
+bash bench/official/terminal-bench/build-arm64-task.sh \
+  "$HOME/.cache/harbor/tasks/packages/terminal-bench/html-js-filter/<hash>" /tmp/tb-html-arm
+
+# run graph (stock: add DSH_STOCK=1)
+PYTHONPATH="$PWD/bench/official/terminal-bench" \
+DSH_PLUGIN_TARBALL="$PWD/dist/dsh-graph-loop-0.1.2.tgz" \
+harbor run --path /tmp/tb-html-arm --agent dsh_agent:DshAgent \
+  --model deepseek/deepseek-flash --ae DEEPSEEK_API_KEY=... \
+  --env docker --n-concurrent 1 --yes
 ```
 
-The `--agent` value must be a Harbor agent that launches DSH. The model card used 42.3; treat it as
-a reference, not a guarantee under a different agent harness.
+The model card used 42.3; treat it as a reference, not a guarantee under a different harness,
+platform, or subset.
 
 ## NL2Repo-Bench
 
@@ -76,7 +89,7 @@ The repo has 104 tasks (`test_files/`), Docker images, and writes one result JSO
 
 ## What is deliberately not claimed
 
-- No official benchmark has been run in this repository yet.
+- No aggregate official benchmark has been run; one Terminal-Bench task is scored in `results/`.
 - The local 20-task suite is not Terminal-Bench/NL2Repo; it measures the same plugin seam on a
   cheaper harness.
 - A model-card score is **not** a baseline for this plugin until the adapter and harness match.

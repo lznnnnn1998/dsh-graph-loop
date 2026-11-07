@@ -11,3 +11,7 @@ tmp/
 
 # Benchmark fixtures intentionally contain .log files
 !bench/agent-eval/tasks/**/*.log
+
+# Harbor job outputs (local benchmark runs)
+jobs/
+__pycache__/
