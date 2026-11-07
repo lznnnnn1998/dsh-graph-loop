@@ -6,7 +6,8 @@ tool calls, usage tokens and wall time. Read both **mean and median**:
 
 | file | suite | notes |
 |---|---|---|
-| `2026-11-07-local-20-2x.json` | 20 local tasks, 2 reps | final stock-vs-graph run after the optional-read/formatting/rename fixes |
+| `2026-11-07-compose-live-20-2x.json` | 20 local tasks, 2 reps | **live envelope/compose** product run; 40/40 both, prompt −50% |
+| `2026-11-07-local-20-2x.json` | 20 local tasks, 2 reps | legacy `synthesizeTopology` run; kept for comparison |
 | `2026-11-07-local-2x.json` | 6 local tasks, 2 reps | earlier inner-loop run |
 | `2026-11-07-installed.json` | 6 local tasks | installed-profile path |
 | `2026-11-07-kernel-live.json` | 6 local tasks | first kernel-live run; wall sample has 82–92 s API stalls |

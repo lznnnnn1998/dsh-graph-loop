@@ -492,6 +492,68 @@ export class FrontierTopology {
  * Boundary replan: a small recovery graph built when a work node fails.
  * Diagnosis is deliberately separate from retry so the retry sees the failure.
  */
+/**
+ * Bounded verify -> diagnose -> edit -> verify repair graph.
+ *
+ * Used when a verification node fails (exit/error), not as a generic failure
+ * recovery. The plan keeps the caller's `maxReplans` so the scheduler can stop
+ * after the configured number of cycles.
+ */
+export function repairTopology(input: {
+  readonly taskHash: string
+  readonly failedNode: string
+  readonly failedTool?: string
+  readonly budget?: Partial<TopologyBudget>
+}): TaskPlan {
+  const budget = { ...budgetOf(input.budget), maxReplans: input.budget?.maxReplans ?? 2 }
+  const nodes: PlanNode[] = [
+    {
+      id: 'r_diagnose',
+      kind: 'agent-step',
+      executor: 'step',
+      instruction: `Verification (${input.failedNode}${input.failedTool ? ` via ${input.failedTool}` : ''}) failed. Diagnose the exact failure from the last output; identify the smallest fix.`,
+    },
+    {
+      id: 'r_edit',
+      kind: 'agent-step',
+      executor: 'step',
+      instruction: 'Apply the smallest fix identified by the diagnosis. Do not rewrite unrelated work.',
+    },
+    {
+      id: 'r_verify',
+      kind: 'agent-step',
+      executor: 'step',
+      instruction: 'Re-run the verification that failed. Report the exact command and its result; do not claim success without it.',
+    },
+    {
+      id: 'r_answer',
+      kind: 'terminal',
+      executor: 'step',
+      instruction: 'Report what failed, what was repaired, the verification result, and any remaining risk.',
+      toolAllow: [],
+    },
+  ]
+  return {
+    id: `repair:${input.taskHash}:${input.failedNode}`,
+    templateId: 'repair',
+    version: 1,
+    entry: 'r_diagnose',
+    terminals: ['r_answer'],
+    nodes,
+    edges: [
+      { from: 'r_diagnose', to: 'r_edit', kind: 'control' },
+      { from: 'r_edit', to: 'r_verify', kind: 'control' },
+      { from: 'r_verify', to: 'r_answer', kind: 'control' },
+    ],
+    budget,
+    toolUniverse: [],
+    gatePolicy: 'cold',
+    fallback: true,
+    confidence: 0.5,
+    compiledDigest: `repair:${input.taskHash}:${input.failedNode}`,
+  }
+}
+
 export function recoveryTopology(input: {
   readonly taskHash: string
   readonly failedNode: string

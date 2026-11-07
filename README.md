@@ -11,17 +11,17 @@ remove the fork duplication.
 experience on a public benchmark, and that people actually install, use and extend. It is a
 community contribution — not a business, a general agent framework or a research paper.
 
-> **Status: 0.2 in progress — direction reset (2026-11).** The graph driver (a source fork) is the
-> active loop, with the LangGraph kernel as the default; the fork duplication is tracked as debt.
-> The **Explore mode** is installed as the default for new sessions. Start with
-> [`docs/STATUS.md`](docs/STATUS.md) and [`docs/COMPOSITION.md`](docs/COMPOSITION.md).
+> **Status: 0.2 in progress — two lines.** *Product*: composition layer + live envelope/compose +
+> per-turn tool surface, evaluated on medium tasks. *Stress*: Terminal-Bench, used to expose
+> reliability gaps, not as the default gate. Start with [`docs/PRODUCT-LINE.md`](docs/PRODUCT-LINE.md),
+> [`docs/STRESS-LINE.md`](docs/STRESS-LINE.md), and [`docs/STATUS.md`](docs/STATUS.md).
 > Changelog: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## What 0.2 builds
 
-> **Live today:** graph driver + LangGraph kernel (kernel-drivable plans), Explore mode default,
-> Graph tab, per-plan tool admission. The envelope/synthesis/checkpoint items below are implemented
-> core contracts; their live wiring is in progress. See [`docs/STATUS.md`](docs/STATUS.md).
+> **Live today:** graph driver + LangGraph kernel, Explore mode default, Graph tab, per-plan tool
+> admission, **envelope + capability composer in dynamic mode**, and bounded verify→diagnose→edit
+> repair. Checkpoints/`storageDomain` remain contract-only.
 
 - **Per-turn capability envelope** — the router picks the smallest role/tool set a turn needs;
   tools stay stable inside the turn, prompt sections and memory selection vary per node.
@@ -41,9 +41,9 @@ community contribution — not a business, a general agent framework or a resear
 - **Graph tab** — live topology, node → tool-call inspector, envelope and checkpoint history.
 - **Template packages** — npm packages binding abstract roles + concrete implementations, with
   schema validation, dry-run preview and a curated index.
-- **Evaluation** — a local 20-task stock-vs-graph pre-signal, then **Terminal-Bench 4.0** and
-  **NL2Repo-Bench** (the 1017 model-card references) with three arms. Official runs now have Docker/Harbor + a DSH adapter; one task is scored, no aggregate yet. Protocol:
-  [`docs/EVALUATION.md`](docs/EVALUATION.md).
+- **Product evaluation** — local 20-task medium suite (accuracy parity + token/steps win), then
+  the OfficeBench 5-task subset when the office environment is available. **Terminal-Bench is a
+  separate stress line**, not the default gate. Protocol: [`docs/EVALUATION.md`](docs/EVALUATION.md).
 
 ## Non-goals
 
@@ -74,7 +74,7 @@ packages/mode/          Explore mode (agent preset) + graph policy / reuse guard
 packages/graph-ui/      Graph tab (conversation.view) + /graph-chat API
 docs/                   active contracts + reference/ + archive/ (index: docs/README.md)
 research/               evidence base for the original plan
-bench/                  local eval + Terminal-Bench harness/results
+bench/                  product eval (agent-eval, OfficeBench) + stress harness (official)
 compat/                 DSH-style vitest/coverage harness
 ```
 

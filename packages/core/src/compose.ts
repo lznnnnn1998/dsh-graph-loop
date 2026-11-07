@@ -173,7 +173,10 @@ function planStages(input: ComposeInput): { stages: StagePlan[]; issues: Compose
   const investigative = INVESTIGATIVE_INTENTS.has(input.fingerprint.intent)
   const wantsMutation = input.fingerprint.mutating
 
-  if (investigative) {
+  // Discovery is exploratory work, not a mutation prerequisite. A mutating
+  // task goes straight to inspect → mutate → verify; this keeps the product
+  // plan at four steps instead of paying an extra model call.
+  if (investigative && !wantsMutation) {
     add('discover', firstWithTag(tools, ['search', 'discovery']), 'tag:search|discovery')
   }
   if (investigative || input.fingerprint.intent === 'document' || input.fingerprint.intent === 'data-analysis') {
@@ -190,7 +193,7 @@ function planStages(input: ComposeInput): { stages: StagePlan[]; issues: Compose
     ...(input.requestedArtifacts ?? []),
   ])]
   for (const artifact of requested) {
-    if (wantsMutation && stages.some(stage => stage.stage === 'mutate' && produces(stage.tool, artifact))) continue
+    if (wantsMutation && (artifact === 'file.patch' || stages.some(stage => stage.stage === 'mutate' && produces(stage.tool, artifact)))) continue
     const producer = firstProducing(tools, artifact)
     if (producer === undefined) {
       issues.push({
@@ -210,9 +213,6 @@ function planStages(input: ComposeInput): { stages: StagePlan[]; issues: Compose
 
   if (wantsMutation || input.fingerprint.intent === 'test-failure' || input.fingerprint.intent === 'bug-fix') {
     add('verify', firstWithTag(tools, ['verification']), 'tag:verification')
-  }
-  if (requested.length > 0 || wantsMutation) {
-    add('deliver', firstWithTag(tools, ['delivery']), 'tag:delivery')
   }
 
   if (stages.length === 0) {

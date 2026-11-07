@@ -1,21 +1,41 @@
 # Local agent evaluation — result
 
-Status: **final local benchmark run**, 20 tasks × 2 arms × 2 repetitions. This is the cheap
-pre-signal; it is **not** Terminal-Bench 4.0 or NL2Repo-Bench (see
-[`../official/README.md`](../official/README.md) for those runbooks and gates).
+Status: **product-line run**, 20 tasks × 2 arms × 2 repetitions on the **live envelope/compose**
+path. This is the product signal; Terminal-Bench is a separate stress line
+([`../official/README.md`](../official/README.md)).
 
 - Date: 2026-11-07
 - Model: `deepseek-flash` = **DeepSeek V4.1-Flash-1017**, `reasoningEffort: high`
 - DSH: local source checkout; stock `agent-loop` vs the graph driver
 - Tasks: 20 file/coding tasks ([`tasks.json`](tasks.json)), checks validated to fail on the initial
   fixture and pass on a verified solution
-- Raw rows: [`results/2026-11-07-local-20-2x.json`](results/2026-11-07-local-20-2x.json)
-- Manifest: [`results/2026-11-07-local-20-2x.manifest.json`](results/2026-11-07-local-20-2x.manifest.json)
+- Raw rows: [`results/2026-11-07-compose-live-20-2x.json`](results/2026-11-07-compose-live-20-2x.json)
+- Manifest: [`results/2026-11-07-compose-live-20-2x.manifest.json`](results/2026-11-07-compose-live-20-2x.manifest.json)
 
 **Mean and median are both reported.** Means are sensitive to long-tail API stalls; medians are
 robust. A result counts only when the direction holds for both or the difference is explained.
 
-## Result (20 tasks, 2 repetitions, 40 runs per arm)
+## Live composition result (20 tasks, 2 repetitions)
+
+The scheduler used `selectEnvelopeForTask` + `synthesizeComposition` in dynamic mode; the graph
+plan is `inspect → mutate → verify → answer` (no redundant discover/author/deliver node).
+
+| arm | success | steps mean / median | prompt tokens mean / median | wall mean / median |
+|---|---|---|---|---|
+| stock | 40/40 | 4.2 / 4 | 25,105 / 23,741 | 5.8 s / 5.9 s |
+| graph | 40/40 | **4.0 / 4** | **12,561 / 12,201** | 6.3 s / 6.2 s |
+| delta | parity | **−4.8% / 0** | **−50.0% / −48.6%** | +9.4% / +4.2% |
+
+- Accuracy parity; steps median parity and mean slightly better.
+- Token win holds on both statistics: about **−50% prompt tokens**.
+- Wall mean/median slightly worse (+9.4% / +4.2%); do not call wall a win.
+- Tool calls: stock 3.7 / 3.5, graph 4.0 / 4.0. Output tokens: stock 352 / 324, graph 497 / 480.
+
+## Legacy dynamic synthesis (pre-composition, history)
+
+The previous run used `synthesizeTopology` and is kept for comparison; it is not the current path.
+
+## Legacy result (20 tasks, 2 repetitions, 40 runs per arm, old path)
 
 | arm | success | steps mean / median | prompt tokens mean / median | wall mean / median |
 |---|---|---|---|---|

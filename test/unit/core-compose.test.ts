@@ -56,7 +56,7 @@ const CORE_TOOLS: ToolSource[] = [
   { name: 'present' },
 ]
 
-test('a code change composes discover → inspect → mutate → verify → deliver', () => {
+test('a code change composes inspect → mutate → verify', () => {
   const graph = graphOf({ tools: CORE_TOOLS })
   const envelope = buildEnvelope({
     roles: [
@@ -78,11 +78,10 @@ test('a code change composes discover → inspect → mutate → verify → deli
 
   assert.equal(result.plan.templateId, 't_compose')
   assert.equal(result.plan.fallback, false)
-  assert.deepEqual(result.stages.map(stage => stage.stage), ['discover', 'inspect', 'mutate', 'verify', 'deliver'])
+  assert.deepEqual(result.stages.map(stage => stage.stage), ['inspect', 'mutate', 'verify'])
   const capabilityIds = new Set(result.stages.map(stage => stage.capabilityId))
-  assert.ok(capabilityIds.has('tool:glob') || capabilityIds.has('tool:grep'), 'discover must use a search tool')
   assert.ok(capabilityIds.has('tool:write') || capabilityIds.has('tool:edit'), 'mutate must use a mutation tool')
-  for (const capability of ['tool:read', 'tool:bash', 'tool:present']) {
+  for (const capability of ['tool:read', 'tool:bash']) {
     assert.ok(capabilityIds.has(capability), `expected ${capability} in ${[...capabilityIds].join(',')}`)
   }
   assert.equal(validateTaskPlan(graph, result.plan).ok, true)

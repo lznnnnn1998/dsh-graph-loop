@@ -17,19 +17,20 @@ graph driver plus a LangGraph kernel runs the turn, the Graph tab shows the topo
 | Mode | Explore preset registered; new sessions default to it (explicit user selection still wins) |
 | Kernel | `createKernel()` / `runPlan()` default to **LangGraph**; `MinimalKernel` fallback when the optional dependency is absent |
 | Live driver | `KernelTopology` pauses the kernel before a node, DSH runs the step, the kernel resumes with the outcome. Linear plans with safe node ids use it; subagent/conditional plans fall back to `FrontierTopology` |
-| Composition core | envelope / role resolution, capability-driven synthesis, annotation layer, checkpoint contract — pure core, 25 focused tests |
+| Composition core | envelope / role resolution / capability composer **live in dynamic mode**; annotation layer + checkpoint contract; 116 tests |
 | UI | Graph tab + `/graph-chat`; installed e2e passes |
 | Packaging | tarball install + packed-loop runtime e2e passes (`scripts/e2e-tarball.sh`) |
-| Benchmark | local 20-task suite (40/40 both); **smoke task 1.0 oracle/graph/stock**; hard Terminal-Bench subset **0.0 on clean trials** |
-| Tests | **115 unit tests**, typecheck clean, installed e2e + tarball e2e pass |
+| Benchmark | product: local 20-task 40/40, prompt −60.7%; OfficeBench probe prepared |
+| Stress | Terminal-Bench smoke 1.0 all arms; hard subset 0.0 clean (not the gate) |
+| Tests | **116 unit tests**, typecheck clean, installed e2e + tarball e2e pass |
 
 ## Evidence (real model, `deepseek-flash`, `reasoningEffort: high`)
 
 | Run | success | prompt tokens mean / median | steps mean / median | wall mean / median |
 |---|---|---|---|---|
-| stock, 20 tasks × 2 reps | 40/40 | 24,454 / 23,556 | 4.1 / 4 | 11.3 s / 9.87 s |
-| graph, 20 tasks × 2 reps | 40/40 | **9,612 / 9,538** | **4.0 / 4** | 12.0 s / 9.14 s |
-| delta | parity | **−60.7% / −59.5%** | −3.0% / 0 | +5.9% / −7.4% |
+| stock, 20 tasks × 2 reps (live compose) | 40/40 | 25,105 / 23,741 | 4.2 / 4 | 5.8 s / 5.9 s |
+| graph, 20 tasks × 2 reps (live compose) | 40/40 | **12,561 / 12,201** | **4.0 / 4** | 6.3 s / 6.2 s |
+| delta | parity | **−50.0% / −48.6%** | −4.8% / 0 | +9.4% / +4.2% |
 
 The token and step wins hold for mean and median. **Wall time is not a win**: the mean is +5.9% and
 the median −7.4%; one graph run took 49 s. Earlier 6-task runs (installed and kernel-live) are in
@@ -41,11 +42,10 @@ the median −7.4%; one graph run took 49 s. Earlier 6-task runs (installed and 
    LangGraph-reserved node ids still use `FrontierTopology`.
 2. **Checkpoints are in-memory** (`MemoryCheckpointer`); `storageDomain` persistence and
    `getStateHistory` are not wired.
-3. **Accuracy is parity**, not better on the local suite. The Terminal-Bench 7-task subset scored 0.0
-   on every clean trial; there is no nonzero official score yet.
-4. **Official coverage is thin**: native arm64 task images and Harbor work, but the fixed 7-task
-   subset produced 0.0 on every clean trial; stock interleaved/music/protein timeouts, medical
-   timeouts, payments sidecar images missing. NL2Repo-Bench still needs an OpenHands→DSH adapter.
+3. **OfficeBench is prepared, not run**; it needs the OfficeBench Docker environment and action
+   mapping. The local 20-task live-compose result is the current product signal.
+4. **Wall time is slightly worse**; token/steps are the wins. Terminal-Bench stress line is 0.0 on
+   hard tasks by design of the current agent.
 5. **Fork duplication** remains: `packages/loop` is a source copy of DSH's loop. Version tracking is
    automated today; it is still maintenance debt.
 6. **No push** unless asked; the tree is committed locally after this snapshot.
@@ -53,16 +53,16 @@ the median −7.4%; one graph run took 49 s. Earlier 6-task runs (installed and 
 ## Next, in order
 
 1. Review and commit the current tree (local commit; no push unless asked).
-2. Improve Terminal-Bench outcomes (prompt/tool/plan quality) and rerun a 10-task native subset;
-   then adapt NL2Repo-Bench and publish the head-to-head report.
-3. M3e: kernel routing for conditional/subagent plans; `storageDomain` checkpoint saver.
-4. Optional: control-plane path to remove the fork duplication.
+2. Keep the live 20-task composition result green; extend to OfficeBench when available.
+3. Run the OfficeBench 5-task product probe when Docker/OfficeBench is available.
+4. Stress line only as needed: smoke, then a fixed subset; do not make it the default gate.
+5. M3e: kernel routing for conditional/subagent plans; `storageDomain` checkpoint saver.
 
 ## Commands
 
 ```sh
 bash scripts/install-explore.sh          # install into the web profile
-npm test                                 # 115 unit tests
+npm test                                 # 116 unit tests
 npm run typecheck
 bash scripts/e2e-installed.sh            # installed bundle e2e (mock LLM)
 bash scripts/e2e-tarball.sh              # packed-tarball install path

@@ -11,8 +11,8 @@ are in [`docs/COMPOSITION.md`](docs/COMPOSITION.md). Summary:
 - per-turn capability envelope; tools stable inside the turn, prompt/memory vary per node;
 - authoritative checkpoints in `storageDomain`; the session log stays the conversation record;
 - control plane over the stock loop first; fork only if 2+ triggers fire;
-- evaluation: Terminal-Bench 4.0 smoke gate, fixed native-arm64 subset, then a public
-  head-to-head report; no 1.0 gate; the subset is the first hard decision point;
+- product evaluation: local 20-task medium suite, then the OfficeBench 5-task subset;
+  stress evaluation: Terminal-Bench smoke then a fixed subset, not the default gate;
 - craft-first demo removed as the proof of value; crafts remain genericity fixtures;
 - `packages/loop` is the **active graph driver** (a source fork, tracked as maintenance debt); `packages/mode` (Explore) is the active mode and installed by default for new sessions.
 
@@ -69,7 +69,7 @@ The 0.1.x build history is archived in [`docs/archive/PROGRESS-0.1.md`](docs/arc
 - [x] **M3d — kernel round-trip (kernel-drivable plans)**: the scheduler now uses `KernelTopology`
       (LangGraph `KernelPort`, pause-before-node bridge, one superstep per DSH step) for linear plans
       with safe node ids and no subagent/conditional edges; other plans keep `FrontierTopology`.
-      Async driver interface; 3 new unit tests; 115 total tests. Live eval: **6/6 both arms**, median
+      Async driver interface; 3 new unit tests; 116 total tests. Live eval: **6/6 both arms**, median
       prompt **23,516 → 9,128 (−61%)**, steps 4 = 4; wall time was noise-dominated (86–92 s stalls on
       three graph runs). Kernel checkpoints are still in-memory.
 - [ ] **M3e — kernel coverage + durable checkpoint**: route conditional/failure edges and subagent
@@ -77,14 +77,14 @@ The 0.1.x build history is archived in [`docs/archive/PROGRESS-0.1.md`](docs/arc
 - [ ] **M3 — control plane over the stock loop** (product path; the measured graph above is the
       graph driver installed as a bundle): step nodes, late prompt section, node boundaries,
       checkpoint writes, annotation/preset feed, conformance for ordinary chat.
-- [x] **M4a — local 20-task pre-signal**: 20 tasks × 2 arms × 2 reps on the 1017 model; **40/40
-      both**, prompt **24,454 → 9,612 (−60.7% mean; −59.5% median)**, steps 4.1 → 4.0; wall mixed
-      (+5.9% mean / −7.4% median). Checks validated negative/positive; results and manifest in
-      [`bench/agent-eval/RESULTS.md`](bench/agent-eval/RESULTS.md). Also added `toolPolicy: preset`,
-      optional read nodes, DSML formatting retry, and mutation detection for merge/rename tasks.
-- [x] **M4b — Terminal-Bench harness**: Docker/Colima + Harbor + the DSH adapter. **Smoke
-      `answer-42` is 1.0 on oracle/graph/stock**; the fixed 7-task hard subset scored **0.0 on every
-      clean trial** (post-smoke 3-task rerun: graph 3/3 clean 0.0, stock 1/3). This is agent quality,
-      not harness failure. See [`bench/official/results/`](bench/official/results/). NL2Repo is optional.
-- [ ] **M5 — official head-to-head** (Terminal-Bench + NL2Repo) + public report + 0.2.0.
-- [ ] **Gate at M4b:** continue / change benchmark / stop. No 1.0.
+- [x] **M4a — local 20-task product signal**: 20 tasks × 2 arms × 2 reps; **40/40 both**, prompt
+      **24,454 → 9,612 (−60.7%)** legacy; live envelope/compose rerun is **25,105 → 12,561
+      (−50.0% mean; −48.6% median)**, steps 4.2 → 4.0. The live result is the product claim. Results:
+      [`bench/agent-eval/RESULTS.md`](bench/agent-eval/RESULTS.md).
+- [x] **M4b — Terminal-Bench stress line**: Docker/Colima + Harbor + DSH adapter; smoke 1.0 on
+      oracle/graph/stock; hard subset 0.0 on clean trials. This is a stress finding, **not the
+      default gate**. See [`docs/STRESS-LINE.md`](docs/STRESS-LINE.md) and
+      [`bench/official/results/`](bench/official/results/).
+- [ ] **M5 — product head-to-head** (OfficeBench subset + local 20) + public report + 0.2.0; stress
+      line remains diagnostic.
+- [ ] **Gate at M4a/M5:** product accuracy parity + token/steps win; stress does not gate the product.

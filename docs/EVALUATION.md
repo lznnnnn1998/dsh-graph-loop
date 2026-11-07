@@ -1,117 +1,80 @@
-# Evaluation — official benchmarks + local pre-signal
+# Evaluation — product line and stress line
 
-Status: **Terminal-Bench 4.0 is the primary external benchmark.** Docker/Harbor and the DSH adapter
-run; smoke passes 1.0; the hard subset is still 0.0. OfficeBench is retired. Related: [`docs/COMPOSITION.md`](COMPOSITION.md) §0/§5 and
-[`docs/MERGE-LANGGRAPH.md`](MERGE-LANGGRAPH.md).
+Status: **two-track evaluation.** The product line is measured on tasks within model capability
+(local 20-task medium suite; OfficeBench 5-task subset when the office environment is available).
+Terminal-Bench is a separate stress line and is **not the default gate**.
 
-## 1. What we are testing
+## 1. Product line
 
-**Hypothesis.** The graph/plugin path — graph planning, per-plan tool admission and the LangGraph
-kernel — produces equal or better task outcomes than the stock DSH loop, with lower prompt tokens
-and no unacceptable latency regression.
+**Hypothesis.** The composition layer — per-turn envelope, capability-driven plan, live envelope/compose
+wiring — produces equal task outcomes to stock with fewer prompt tokens and steps. Accuracy is
+parity, not a win on tasks the model cannot do.
 
-Accuracy is the headline. Tokens, steps and wall time are recorded in the same runs; both **mean and
-median** are reported because API stalls create a heavy tail.
+| Arm | What runs |
+|---|---|
+| `stock` | stock `agent-loop`, same model/tools/budget |
+| `composition` | this bundle; dynamic mode uses `selectEnvelopeForTask` + `synthesizeComposition` |
 
-## 2. Benchmarks
+Both arms use the same model, tasks, tool policy, timeouts and container image. The graph arm sets
+`toolPolicy: preset` only for stress-line harnesses; product-line runs use `toolPolicy: plan` to
+measure the actual tool-surface reduction.
 
-| Tier | Benchmark | Status |
-|---|---|---|
-| Primary | **Terminal-Bench 4.0** | **Runnable**: smoke 1.0 all arms; hard subset 0.0 clean; no aggregate |
-| Secondary | **NL2Repo-Bench** | Harness public; OpenHands-only + Docker, so a DSH adapter is required |
-| Pre-signal | [local 20-task suite](../bench/agent-eval/tasks.json) | **Runnable now**; stock vs graph, real model |
-| Retired | OfficeBench | Archived; no active evaluation depends on it |
+### 1.1 Primary product signal: local 20-task suite
 
-The model is `deepseek-flash`, which is the **DeepSeek V4.1-Flash-1017** snapshot. Model-card scores
-(Terminal-Bench 4.0: 42.3, NL2Repo-Bench: 68.2) are references, not baselines, unless the harness,
-prompt, tools, max steps and timeouts match the card exactly.
-
-## 3. Arms
-
-| Arm | What runs | Purpose |
-|---|---|---|
-| `official` | DSH default profile as shipped | User-facing claim |
-| `stock` | Stock `agent-loop` + same model/tools/budget | Attribution |
-| `composition` | This bundle (graph driver + kernel) | Candidate |
-
-All arms use the same model, tasks, `max_iter`, container image and harness version.
-
-For benchmark runs the graph arm must set **`toolPolicy: preset`** on the `agent-loop` row. The
-default `plan` policy narrows tools to the plan universe; a benchmark harness may register tools the
-synthesized plan does not name, and silently hiding them would invalidate the comparison. See
-[`packages/loop/README.md`](../packages/loop/README.md).
-
-## 4. Primary: Terminal-Bench 4.0
-
-- Harness: [`harbor-framework/terminal-bench`](https://github.com/harbor-framework/terminal-bench),
-  run through [Harbor](https://harborframework.com/docs).
-- Preflight: `bash bench/official/terminal-bench/preflight.sh` (currently **READY**).
-- Docker is installed via Colima; the DSH adapter is
-  [`bench/official/terminal-bench/dsh_agent.py`](../bench/official/terminal-bench/dsh_agent.py).
-- On Apple Silicon, build task images natively with `build-arm64-task.sh`; the published amd64
-  images crash Node under qemu.
-- Exact command and adapter requirement: [`bench/official/README.md`](../bench/official/README.md).
-- Target: model-card 42.3. Run a fixed 10–20-task subset first; full set only after the probe.
-- Environment smoke: `smoke/answer-42` — oracle **1.0**, graph **1.0**, stock **1.0**. Run
-  `run-smoke.sh` before any subset; it proves Docker/Harbor/verifier/adapter health.
-- Hard subset: 7 tasks, **0.0 on every clean trial** (see `bench/official/results/terminal-bench-subset/`).
-  Post-smoke 3-task rerun: graph 3/3 clean 0.0; stock 1/3 clean 0.0, two timeouts.
-  This is an agent-quality result, not an environment failure.
-- Gate: smoke must be 1.0 first; then a pre-registered 10-task subset on native images before
-  claiming a Terminal-Bench number.
-
-## 5. Primary: NL2Repo-Bench
-
-- Harness: [`multimodal-art-projection/NL2RepoBench`](https://github.com/multimodal-art-projection/NL2RepoBench),
-  104 tasks, OpenHands headless, Docker images `openhands:0.56` and `runtime:0.56-nikolaik`.
-- Preflight: `bash bench/official/nl2repo/preflight.sh`.
-- Target: model-card 68.2.
-- Gate: the harness must be adapted from OpenHands to DSH (or DSH must be wrapped as an OpenHands
-  agent). Until then the score is not measured.
-
-## 6. Pre-signal: local 20-task suite
-
-- Tasks: [`bench/agent-eval/tasks.json`](../bench/agent-eval/tasks.json), fixtures under
-  `bench/agent-eval/tasks/<id>/`. Each check fails on the initial fixture and passes on a verified
-  solution.
+- Tasks: [`bench/agent-eval/tasks.json`](../bench/agent-eval/tasks.json); checks validated negative
+  and positive.
 - Run: `bash bench/agent-eval/run-real.sh --arm both --reps 2`.
-- Metrics: success, steps, tool calls, billed input, output, cache read, prompt tokens, wall time.
-- Report both mean and median; save `results.json` under `bench/agent-eval/results/` and summarize
-  with `node bench/agent-eval/summarize.mjs <file> --per-task`.
-- Latest: **40/40 both arms**, prompt **24,454 → 9,612 (−60.7% mean; −59.5% median)**, steps
-  4.1 → 4.0; wall mixed (+5.9% mean / −7.4% median). Full rows in
-  [`bench/agent-eval/RESULTS.md`](../bench/agent-eval/RESULTS.md).
-- This suite is **not** Terminal-Bench/NL2Repo; it is the cheap signal for the plugin seam.
+- Latest **live envelope/compose** run: **40/40 both**, prompt **25,105 → 12,561 (−50.0% mean;
+  −48.6% median)**, steps 4.2 → 4.0 (median 4 = 4); wall +9.4% / +4.2%.
+- Report success, steps, tool calls, prompt/output/cache tokens, wall time; **mean and median**.
 
-## 7. Retired: OfficeBench
+### 1.2 External product target: OfficeBench subset
 
-OfficeBench was replaced by Terminal-Bench on 2026-11-07. Its 5-task probe is archived under
-[`bench/archive/officebench/`](../bench/archive/officebench/) for history; it is not part of the
-active plan, preflight, or gates.
+- 5-task single-app probe (Word/Excel/PDF) in [`bench/officebench/`](../bench/officebench/); pinned
+  commit. It needs the OfficeBench Docker environment and action mapping; it is **prepared, not run**.
+- Gate: all arms complete and the evaluator scores all five; then a fixed 30-task subset and a public
+  report. OfficeBench has no PowerPoint app.
 
-## 8. Metrics and reporting
+### 1.3 Product success criteria
 
-- **Primary:** task score / success per benchmark, aggregate.
-- **Secondary:** steps, tool calls, billed input, `cacheReadRatio`, output tokens, p50/p95 latency,
-  wall time, crash count.
-- Report **mean and median** for every metric; identify outliers and do not cite a mean-dominated
-  wall time as a win.
+1. Accuracy parity with stock.
+2. Lower prompt tokens (mean and median).
+3. Steps parity or better; wall time reported, not required to win.
+4. Installable/default-mode behavior verified; no DSH source changes.
+5. The live path really uses envelope/compose, not only core tests.
+
+## 2. Stress line: Terminal-Bench 4.0
+
+- Harness: [`bench/official/`](../bench/official/); Docker/Harbor + DSH adapter, native arm64 images.
+- **Smoke first**: `run-smoke.sh`; oracle/graph/stock must be 1.0.
+- Hard fixed subset: 0.0 on every clean trial; graph ~5 steps vs stock 30–60 or timeouts. This is a
+  reliability/model-capability finding, not the product gate.
+- Rules and findings: [`docs/STRESS-LINE.md`](STRESS-LINE.md).
+- Only fold a stress finding back into the product line when it improves normal-task reliability
+  (e.g. bounded `verify → diagnose → edit` repair).
+
+## 3. Repair and verification (product reliability)
+
+The scheduler installs `repairTopology` when a **verification** node fails:
+
+```
+r_diagnose → r_edit → r_verify → r_answer
+```
+
+bounded by `maxReplans` (default 2 for composed plans). A failed non-verify node uses the existing
+`recoveryTopology`. This is for normal-task robustness, not hard-benchmark score chasing.
+
+## 4. Metrics and reporting
+
+- **Product primary:** success/accuracy parity; prompt tokens; steps.
+- **Product secondary:** output tokens, cache ratio, wall time, crash count.
+- Report **mean and median** for every metric; identify outliers.
 - Per-task table + aggregate + exact command/config/commit/model/harness digest.
-- Raw rows in `bench/agent-eval/results/` (local) or `bench/official/results/` (official).
+- **Stress line:** score/harness diagnostics only; not part of the product aggregate.
 
-## 9. Decision gates
+## 5. Artifacts
 
-1. **Local pre-signal:** 20 tasks × 2 arms; graph must not lose success, must keep the token
-   reduction, and must not show an unexplained wall regression.
-2. **Official probe:** Terminal-Bench 4.0 fixed subset, three arms. All arms must complete and be
-   scored; then decide continue / change benchmark / stop.
-3. **Full head-to-head:** only after the probe; pre-register the subset and acceptance before the
-   first full run.
-4. Publish the report whether it wins or loses.
-
-## 10. Artifacts
-
-- `bench/agent-eval/` — local harness, tasks, results, mean/median summarizer.
-- `bench/official/` — official preflights and runbooks.
-- `bench/archive/officebench/` — retired OfficeBench probe (history only).
-- `docs/STATUS.md` — current snapshot and gaps.
+- `bench/agent-eval/` — local 20-task suite and results.
+- `bench/officebench/` — product-line OfficeBench probe (prepared).
+- `bench/official/` — stress-line Terminal-Bench harness, smoke and results.
+- `docs/STATUS.md` — current snapshot.

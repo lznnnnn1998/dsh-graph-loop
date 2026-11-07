@@ -1,0 +1,39 @@
+{
+  "benchmark": "local-20-live-composition",
+  "startedAt": "2026-11-07T23:11:22+08:00",
+  "model": "deepseek-flash",
+  "modelSnapshot": "DeepSeek V4.1-Flash-1017",
+  "arms": [
+    "stock",
+    "graph"
+  ],
+  "tasks": [
+    "read-summary",
+    "edit-config",
+    "fix-test",
+    "search-file",
+    "write-answer",
+    "multi-step",
+    "rename-file",
+    "append-log",
+    "json-filter",
+    "csv-max",
+    "multi-file",
+    "bug-hunt",
+    "grep-count",
+    "sort-unique",
+    "env-config",
+    "mkdir-nested",
+    "calc-script",
+    "replace-all",
+    "validate-json",
+    "long-chain"
+  ],
+  "reps": 2,
+  "toolPolicy": "plan",
+  "profile": "headless",
+  "topology": "dynamic + envelope/compose",
+  "pluginCommit": "388f1f18ee8025c1ebeed665481e13896eb8ad18",
+  "dshCommit": "22ddee3792402c3e70ec5f86a63c3e3e895a2f60",
+  "note": "Live selectEnvelopeForTask + synthesizeComposition path; bounded verify repair present. Stock and graph both 40/40."
+}

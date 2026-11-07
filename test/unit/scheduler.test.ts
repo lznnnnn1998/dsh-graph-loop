@@ -70,8 +70,9 @@ test('dynamic mode synthesizes a topology from the capability graph', async () =
     graphProvider: () => registry.graph,
   })
   const started = await driver.beginTurn({ text: 'explain how the config loader works' })
-  assert.equal(started.templateId, 'dynamic')
+  assert.equal(started.templateId, 't_compose')
   assert.equal(started.fallback, false)
+  assert.ok(started.rationale.some(line => line.includes('envelope')))
   let steps = 0
   while (!driver.done() && steps < 10) {
     driver.current()
@@ -116,6 +117,7 @@ test('propose mode starts from a frame and adopts a model-authored topology at t
 test('a failed work node triggers a boundary recovery plan', async () => {
   const driver = createGraphTurnDriver({
     mode: 'dynamic',
+    composition: false,
     graphProvider: () => registry.graph,
   })
   const started = await driver.beginTurn({ text: 'fix the failing test in the loader' })
@@ -128,6 +130,20 @@ test('a failed work node triggers a boundary recovery plan', async () => {
   assert.equal(snapshot.replans, 1)
   assert.equal(driver.current()?.id, 'r_diagnose')
   assert.ok(snapshot.rationale.some(line => line.includes('replan 1')))
+})
+
+test('a failed verify node installs the bounded repair graph', async () => {
+  const driver = createGraphTurnDriver({ mode: 'dynamic', graphProvider: () => registry.graph })
+  await driver.beginTurn({ text: 'fix the failing test in the loader' })
+  for (const id of ['n_inspect', 'n_mutate']) {
+    assert.equal(driver.current()?.id, id)
+    await driver.advance({ ok: true })
+  }
+  assert.equal(driver.current()?.id, 'n_verify')
+  await driver.advance({ ok: false, failedTool: 'bash' })
+  assert.equal(driver.snapshot().replans, 1)
+  assert.equal(driver.current()?.id, 'r_diagnose')
+  assert.equal(driver.snapshot().templateId, 'repair')
 })
 
 test('triage keeps a trivial task at one step', async () => {

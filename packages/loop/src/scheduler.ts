@@ -22,7 +22,9 @@ import {
   type TaskFingerprint,
   type TemplateLibrary,
 } from 'dsh-graph-loop-core/matching'
-import { FrontierTopology, bootstrapTopology, recoveryTopology, synthesizeTopology, type TopologyMode } from 'dsh-graph-loop-core/topology'
+import { FrontierTopology, bootstrapTopology, recoveryTopology, repairTopology, synthesizeTopology, type TopologyMode } from 'dsh-graph-loop-core/topology'
+import { synthesizeComposition } from 'dsh-graph-loop-core/compose'
+import { selectEnvelopeForTask } from 'dsh-graph-loop-core/envelope'
 import { KernelTopology, canKernelDrive } from './kernel/topology.ts'
 import { fallbackPlan } from 'dsh-graph-loop-core/step-graph'
 
@@ -62,6 +64,8 @@ export interface GraphTurnSnapshot {
   }[]
   readonly depth?: number
   readonly replans?: number
+  /** Envelope chosen by the live composition path, when it ran. */
+  readonly envelopeId?: string
 }
 
 export interface GraphTurnDriver {
@@ -103,6 +107,8 @@ export interface GraphTurnDriverOptions {
   readonly adoptPolicy?: AdoptPolicy
   /** Kernel engine for plans the kernel can route; `off` keeps the frontier. */
   readonly kernel?: 'langgraph' | 'minimal' | 'off'
+  /** Use the envelope + capability composer in dynamic mode (default true). */
+  readonly composition?: boolean
   /**
    * Tool admission for a step. `plan` (default) narrows to the plan universe and
    * the safe floor; `preset` keeps the full preset tool set, which benchmark
@@ -184,6 +190,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
   let topology: TurnTopology | undefined
   let lastNode: string | undefined
   let rationale: readonly string[] = []
+  let envelopeId: string | undefined
 
   function presetToolsOf(graph: RegistryGraph, task: TurnTask): readonly string[] {
     if (task.presetTools !== undefined) return task.presetTools
@@ -208,6 +215,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       trail: [...trail],
       replans,
       depth: options.depth ?? 0,
+      ...(envelopeId === undefined ? {} : { envelopeId }),
     }
   }
 
@@ -238,6 +246,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       topology = undefined
       lastNode = undefined
       rationale = []
+      envelopeId = undefined
       trail = []
       const graph = await liveGraph()
       const surface = task.surface ?? 'api'
@@ -273,6 +282,34 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
         install(fallbackPlan({ id: fingerprint.hash, instruction: options.fallbackInstruction, maxSteps }))
         rationale = ['triage: trivial task, single-node plan']
         return emit()
+      }
+
+      if (mode === 'dynamic' && graph !== undefined && options.composition !== false) {
+        try {
+          const selected = selectEnvelopeForTask({
+            fingerprint,
+            graph,
+            presetTools: presetToolsOf(graph, task),
+            includePresetTools: false,
+          })
+          if (!selected.fallbackToStock) {
+            const composed = synthesizeComposition({
+              fingerprint,
+              graph,
+              envelope: selected.envelope,
+              budget: { maxSteps, maxReplans: 2 },
+            })
+            install(composed.plan)
+            envelopeId = selected.envelope.id
+            rationale = [
+              `envelope ${selected.envelope.id}`,
+              ...composed.rationale,
+            ]
+            return emit()
+          }
+        } catch {
+          // fall through to legacy dynamic synthesis
+        }
       }
 
       if (mode === 'dynamic' && graph !== undefined) {
@@ -351,13 +388,23 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
         const maxReplans = plan?.budget.maxReplans ?? 0
         if (replans < maxReplans) {
           replans += 1
-          install(recoveryTopology({
-            taskHash: plan?.id ?? 'unknown',
-            failedNode: lastNode ?? 'unknown',
-            ...(outcome.failedTool === undefined ? {} : { failedTool: outcome.failedTool }),
-            budget: plan?.budget,
-          }))
-          rationale = [...rationale, `replan ${replans}: recovery after ${lastNode ?? 'failure'}`]
+          const failedNode = lastNode ?? 'unknown'
+          const verifyFailure = /verify/i.test(failedNode)
+          const next = verifyFailure
+            ? repairTopology({
+                taskHash: plan?.id ?? 'unknown',
+                failedNode,
+                ...(outcome.failedTool === undefined ? {} : { failedTool: outcome.failedTool }),
+                budget: plan?.budget,
+              })
+            : recoveryTopology({
+                taskHash: plan?.id ?? 'unknown',
+                failedNode,
+                ...(outcome.failedTool === undefined ? {} : { failedTool: outcome.failedTool }),
+                budget: plan?.budget,
+              })
+          install(next)
+          rationale = [...rationale, `replan ${replans}: ${verifyFailure ? 'verify repair' : 'recovery'} after ${lastNode ?? 'failure'}`]
         }
       }
       // A model-authored proposal can arrive between steps. The default policy
