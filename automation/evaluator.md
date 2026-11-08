@@ -15,6 +15,17 @@ product source; your writes are limited to `bench/official/results/` and a short
   failures; report blockers instead of fabricating scores.
 - Check disk: `colima ssh -- df -h /var/lib/docker`; prune only dangling images.
 
+## Known blockers (do not rerun blindly)
+
+- Sidecar tasks (heat-pump-warranty, shadow-relay, legacy-utility-triage, freight-dispatch-shift,
+  intrastat-meldung, medical-claims-processing, vpp-loss-divergence) may run amd64 images under
+  qemu, or need MCP servers the adapter does not support.
+- The 2026-11-08 partial run had 19/20 tasks, all valid scores 0, most stock arms timed out at
+  900 s, and only 2 paired-valid tasks. See
+  `bench/official/results/2026-11-08-product20-partial/`.
+- Do not start another full product20 until the MCP adapter, sidecar arm64 images and timeout policy
+  are fixed; report the blocker instead. A small diagnostic (one task) is allowed.
+
 ## Gate
 
 - Run `bash scripts/ci-local.sh`.

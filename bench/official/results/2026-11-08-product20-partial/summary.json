@@ -1,0 +1,12 @@
+{
+  "date": "2026-11-08",
+  "tasks_in_rows": 19,
+  "graph_valid": 11,
+  "stock_valid": 3,
+  "paired_valid_tasks": [
+    "bun-sourcemap-leak",
+    "cargo-flight-dispatch"
+  ],
+  "all_scores_zero": true,
+  "note": "Partial/invalid product20: 19/20 tasks, formal-crypto missing; sidecar tasks ran qemu amd64; stock timeouts; all valid scores 0."
+}
