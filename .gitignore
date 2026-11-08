@@ -15,3 +15,6 @@ __pycache__/
 
 # Large Harbor job trees under results (rows/summary stay tracked)
 bench/official/results/**/jobs/
+
+# Recurring audit reports (local only; not repo truth)
+docs/audits/
