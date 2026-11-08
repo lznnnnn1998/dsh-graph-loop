@@ -7,7 +7,12 @@ product source; your writes are limited to `bench/official/results/` and a short
 
 - 20 product tasks must each have `tb-arm64-<task>-env:latest` and `-verifier:latest`, plus
   `tb-dsh-base:latest`, `dist/dsh-graph-loop-bench.tgz`, Docker proxy configured, and a passing
-  smoke gate. If not, report exactly what is missing; do not fabricate scores.
+  smoke gate.
+- If images are missing, **build them** with `bench/official/terminal-bench/build-arm64-task.sh`
+  using proxy env (`HTTP_PROXY/HTTPS_PROXY=http://192.168.1.5:8899`) and the source task dir from
+  `~/.cache/harbor/tasks/packages/terminal-bench/<task>/<hash>`. Overlay `tb-dsh-base` onto each env
+  image with `/opt/node` + `/opt/dsh` and `ENV PATH=/opt/node/bin:/opt/dsh/bin:$PATH`. Retry known
+  failures; report blockers instead of fabricating scores.
 - Check disk: `colima ssh -- df -h /var/lib/docker`; prune only dangling images.
 
 ## Gate
