@@ -20,11 +20,16 @@ features.
 
 ## In progress / next
 
-- [ ] **product20**: Terminal-Bench easy10 + medium10, stock vs graph. Defined; image builds and
-      trials are in progress. First real task `html-js-filter`: 0.0/0.0 — not an aggregate.
+- [ ] **product20**: Terminal-Bench easy10 + medium10, stock vs graph. The tracked 2026-11-08
+      partial run (`bench/official/results/2026-11-08-product20-partial/`) attempted **19/20** tasks
+      (`formal-crypto` has no verifier image): **11 graph / 3 stock** valid trials, only
+      **2 paired-valid** tasks (`bun-sourcemap-leak`, `cargo-flight-dispatch`), all **0.0**. Invalid
+      as a product aggregate; the instrument is unvalidated for the full suite. A three-task oracle
+      control (`bench/official/results/2026-11-08-oracle-control/`) passes **1.0** (task
+      image/verifier path, not the DSH arm), so those zeros are not a blanket harness artifact.
 - [ ] Durable checkpoints: `MemoryCheckpointer` only; the read/replay consumer is not designed.
 - [ ] Kernel breadth: parallel fan-out and subagent batches still use `FrontierTopology`.
-- [ ] Product claim: none until product20 has an aggregate.
+- [ ] Product claim: none. No accuracy, parity or cost number from the partial run is citable.
 
 ## Known debt
 

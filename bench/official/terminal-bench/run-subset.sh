@@ -8,19 +8,30 @@
 #   - DEEPSEEK_API_KEY in the DSH credential store
 #
 # Usage: bash bench/official/terminal-bench/run-subset.sh [tasks-dir] [out-dir]
+#
+# TASKS defaults to the fixed product20 manifest; do not carry a mutable ad-hoc
+# default. Pass a space-separated TASKS env var only for a declared diagnostic.
+# OUT_DIR defaults to the product20 results directory.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+MANIFEST="$ROOT/bench/official/subsets/product20.json"
 TASKS_DIR="${1:-${TASKS_DIR:-/tmp/tb-arm-dsh}}"
-OUT_DIR="${2:-${OUT_DIR:-$ROOT/bench/official/results/terminal-bench-subset}}"
+OUT_DIR="${2:-${OUT_DIR:-$ROOT/bench/official/results/terminal-bench-product20}}"
 JOBS_DIR="$OUT_DIR/jobs"
-mkdir -p "$JOBS_DIR"
+RAW_DIR="$OUT_DIR/raw"
+mkdir -p "$JOBS_DIR" "$RAW_DIR"
 export PATH="$HOME/.local/bin:$PATH"
 export PYTHONPATH="$ROOT/bench/official/terminal-bench${PYTHONPATH:+:$PYTHONPATH}"
 export DSH_PLUGIN_TARBALL="${DSH_PLUGIN_TARBALL:-$ROOT/dist/dsh-graph-loop-bench.tgz}"
-export DSH_AGENT_TIMEOUT_SEC="${DSH_AGENT_TIMEOUT_SEC:-900}"
 export TASKS_DIR OUT_DIR JOBS_DIR
+export GIT_COMMIT="$(git -C "$ROOT" rev-parse HEAD)"
 
-TASKS="${TASKS:-bun-sourcemap-leak foodstuff-beta-activity interleaved-vigenere medical-claims-processing music-harmony payments-pipeline-fix protein-autointerp-disulfide}"
+TASKS="${TASKS:-$(python3 - "$MANIFEST" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+print(' '.join(t['task'] for t in d['easy'] + d['medium']))
+PY
+)}"
 
 if [ "${SKIP_SMOKE:-0}" != "1" ]; then
   echo "== smoke gate (set SKIP_SMOKE=1 to bypass)"
@@ -46,6 +57,9 @@ with open(sys.argv[1], 'rb') as fh:
 print(int(float(data.get('agent', {}).get('timeout_sec', 900))))
 PY
 )
+  # Honor the task's [agent].timeout_sec. DSH_AGENT_TIMEOUT_CAP is an operator
+  # fail-fast override; it is the only way to shorten the task budget. A
+  # timeout is an infrastructure failure, not a score.
   export DSH_AGENT_TIMEOUT_SEC="${DSH_AGENT_TIMEOUT_CAP:-$TASK_TIMEOUT}"
   echo "agent timeout: ${DSH_AGENT_TIMEOUT_SEC}s"
   for arm in graph stock; do
@@ -61,10 +75,10 @@ PY
       --agent-setup-timeout-multiplier 5 --yes > "$OUT_DIR/${arm}-${task}.log" 2>&1
     status=$?
     set -e
-    python3 - "$JOBS_DIR/$job/result.json" "$task" "$arm" "$status" "$ROWS" <<'PY'
-import json, sys
+    python3 - "$JOBS_DIR/$job/result.json" "$task" "$arm" "$status" "$ROWS" "$task_dir" "$RAW_DIR/$job.json" <<'PY'
+import json, os, shutil, sys, tomllib
 from pathlib import Path
-result_path, task, arm, status, rows = sys.argv[1:]
+result_path, task, arm, status, rows, task_dir, raw_path = sys.argv[1:]
 score = None
 trials = 0
 errors = 0
@@ -79,7 +93,32 @@ if Path(result_path).exists():
             score = metrics[0].get('mean')
         trials = first.get('n_trials', 0)
         errors = first.get('n_errors', 0)
-row = {'task': task, 'arm': arm, 'score': score, 'n_trials': trials, 'n_errors': errors, 'exit': int(status), 'result': result_path}
+images = {}
+toml_path = Path(task_dir) / 'task.toml'
+if toml_path.exists():
+    data = tomllib.loads(toml_path.read_text())
+    images = {
+        'image_env': (data.get('environment') or {}).get('docker_image'),
+        'image_verifier': (data.get('verifier', {}).get('environment') or {}).get('docker_image'),
+    }
+durable = raw_path
+if Path(result_path).exists():
+    shutil.copyfile(result_path, raw_path)
+row = {
+    'task': task,
+    'arm': arm,
+    'score': score,
+    'n_trials': trials,
+    'n_errors': errors,
+    'exit': int(status),
+    'commit': os.environ.get('GIT_COMMIT'),
+    'model': 'deepseek/deepseek-flash',
+    'agent_timeout_sec': int(os.environ.get('DSH_AGENT_TIMEOUT_SEC', '0')),
+    'agent_setup_timeout_multiplier': 5,
+    'image_env': images.get('image_env'),
+    'image_verifier': images.get('image_verifier'),
+    'result': durable,
+}
 with open(rows, 'a') as fh:
     fh.write(json.dumps(row) + '\n')
 print(f"{arm:5} {task:28} score={score} trials={trials} errors={errors} exit={status}")
@@ -88,7 +127,7 @@ PY
 done
 
 python3 - "$ROWS" "$OUT_DIR/summary.json" <<'PY'
-import json, statistics, sys
+import json, os, statistics, sys
 from pathlib import Path
 rows = [json.loads(line) for line in Path(sys.argv[1]).read_text().splitlines() if line.strip()]
 summary = {}
@@ -100,7 +139,13 @@ for arm in ('stock', 'graph'):
         'mean': statistics.mean(scores) if scores else None,
         'scores': {r['task']: r['score'] for r in arm_rows},
     }
-Path(sys.argv[2]).write_text(json.dumps({'rows': rows, 'summary': summary}, indent=2) + '\n')
+meta = {
+    'commit': os.environ.get('GIT_COMMIT'),
+    'model': 'deepseek/deepseek-flash',
+    'agent_setup_timeout_multiplier': 5,
+    'timeout_policy': "per-task [agent].timeout_sec; DSH_AGENT_TIMEOUT_CAP overrides; a timeout is an infrastructure failure, not a score",
+}
+Path(sys.argv[2]).write_text(json.dumps({'meta': meta, 'rows': rows, 'summary': summary}, indent=2) + '\n')
 print(json.dumps(summary, indent=2))
 PY
 echo "PASS subset finished: $OUT_DIR"

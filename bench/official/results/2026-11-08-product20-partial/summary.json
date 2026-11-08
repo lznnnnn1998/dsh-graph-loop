@@ -8,5 +8,25 @@
     "cargo-flight-dispatch"
   ],
   "all_scores_zero": true,
-  "note": "Partial/invalid product20: 19/20 tasks, formal-crypto missing; sidecar tasks ran qemu amd64; stock timeouts; all valid scores 0."
+  "product_claim": false,
+  "instrument_validated": false,
+  "instrument_note": "Only a three-task oracle control exists (html-js-filter, cargo-flight-dispatch, music-harmony: 1.0 each); the full suite has no oracle pass.",
+  "oracle_control": "bench/official/results/2026-11-08-oracle-control/README.md",
+  "model": "deepseek/deepseek-flash",
+  "agent_setup_timeout_multiplier": 5,
+  "agent_timeout_sec": 900,
+  "commit_at_run": null,
+  "commit_note": "not captured by the runner; HEAD during the run window (16:02-17:53) was d80d3b1. Do not infer an exact tree.",
+  "image_tags": "tb-arm64-<task>-env:latest / tb-arm64-<task>-verifier:latest",
+  "error_classes": {
+    "timeout_900s_jobs": 14,
+    "timeout_1800s_jobs": 1,
+    "docker_cpu_cap_jobs": 2,
+    "missing_image_or_tls_jobs": 1,
+    "mcp_unsupported_jobs": 2,
+    "npm_connect_timeout_jobs": 1,
+    "reward_file_missing_jobs": 1,
+    "old_node_node_sqlite_jobs": 2
+  },
+  "note": "Invalid product20 aggregate: 19/20 tasks (formal-crypto missing verifier image); 11 graph / 3 stock valid, only bun-sourcemap-leak and cargo-flight-dispatch paired-valid, all valid scores 0. No amd64/qemu evidence in any job log; see README.md for the corrected taxonomy and provenance gaps."
 }

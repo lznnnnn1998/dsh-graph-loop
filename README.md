@@ -11,18 +11,13 @@ resolution/approval waterfall, compaction and projections, and adds the graph-sp
 (turn-graph stepping, per-node tool admission, subagent batches, failure routing). LangGraph is the
 default kernel; `FrontierTopology` is the fallback for plan shapes the kernel does not own.
 
-## Kernel coverage (exact)
+## Kernel coverage
 
-| Plan shape | Engine |
-|---|---|
-| Linear chain (`always`/no condition, one control out-edge per node) | LangGraph (`KernelTopology`) |
-| Linear + one `callFailed` failure branch | LangGraph; `routeKernelPlan()` selects `state.next`, then a real conditional edge follows it. Both arms are unit-tested. |
-| Parallel fan-out / two-branch join | `FrontierTopology` |
-| Subagent batches | `FrontierTopology` |
-| `artifact` / `noArtifact` / `fact` / `budget` conditions | `FrontierTopology` |
-| Node ids with `:` or LangGraph-reserved names | `FrontierTopology` |
-
-No claim is made that LangGraph executes arbitrary graphs.
+The exact table (plan shape → engine → test) lives in
+[`docs/STATUS.md`](docs/STATUS.md#kernel-coverage-exact). Short version: linear chains and one
+`callFailed` failure branch run on **LangGraph**; parallel fan-out/join, subagent batches,
+`artifact`/`noArtifact`/`fact`/`budget` conditions and reserved node ids fall back to
+**`FrontierTopology`**. No claim is made that LangGraph executes arbitrary graphs.
 
 ## What 0.2 builds
 
@@ -40,11 +35,18 @@ No claim is made that LangGraph executes arbitrary graphs.
 
 - Unit suite, typecheck, and the release build gate are green:
   `npm test` (168 tests), `npm run typecheck`, `npm run build && npm run build:check`.
-- **No product benchmark aggregate yet.** Terminal-Bench easy10 + medium10 is defined in
-  [`bench/official/subsets/product20.json`](bench/official/subsets/product20.json) but not run to
-  completion. One member, `html-js-filter`, has a real tracked trial
-  ([result](bench/official/results/2026-11-08-html-js-filter/README.md)): **graph 0.0 / stock 0.0**
-  (one task, both arms completed; not an aggregate).
+- **No product benchmark aggregate.** Terminal-Bench easy10 + medium10 is defined in
+  [`bench/official/subsets/product20.json`](bench/official/subsets/product20.json). The tracked
+  2026-11-08 partial run
+  ([result](bench/official/results/2026-11-08-product20-partial/README.md)) attempted 19/20 tasks
+  (`formal-crypto` has no verifier image); 11 graph and 3 stock trials produced a valid score, only
+  two tasks (`bun-sourcemap-leak`, `cargo-flight-dispatch`) are paired-valid, and every valid score
+  is **0.0**. That run is **invalid as a product aggregate; the instrument is unvalidated for the
+  full suite.** A separate three-task oracle control
+  ([result](bench/official/results/2026-11-08-oracle-control/README.md)) scores 1.0 on
+  `html-js-filter`, `cargo-flight-dispatch` and `music-harmony`, so a 0.0 does not by itself measure
+  the loop; only the task image, verifier and scoring path are validated. Do not cite accuracy,
+  parity, token or cost from the partial run.
 - Checkpoints are **in-memory** (`MemoryCheckpointer`); `storageDomain` durability is not wired, so
   a restart cannot resume mid-turn.
 - The fork is maintenance debt. `scripts/diff-upstream.sh --check` pins the upstream commit and
@@ -102,7 +104,8 @@ for the image build and proxy notes.
 
 ## Requirements
 
-- DeepSeek Harness `^0.2.1-rc.3`.
+- DeepSeek Harness `0.2.2-rc.1` (the version the benchmark adapter installs and tests; workspace
+  packages still declare `^0.2.1-rc.3`).
 - `@langchain/langgraph@1.7.0` for the default kernel; `MinimalKernel` is the fallback.
 - Checkpoints are in-memory in 0.2.
 

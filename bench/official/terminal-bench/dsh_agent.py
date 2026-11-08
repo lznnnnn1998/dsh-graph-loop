@@ -3,7 +3,7 @@
 Usage (from the repo root, after building the plugin tarball):
 
   PYTHONPATH="$PWD/bench/official/terminal-bench" \
-  DSH_PLUGIN_TARBALL="$PWD/dist/dsh-graph-loop-0.1.2.tgz" \
+  DSH_PLUGIN_TARBALL="$PWD/dist/dsh-graph-loop-bench.tgz" \
   harbor run -d terminal-bench/terminal-bench@latest \
     --agent dsh_agent:DshAgent \
     --model deepseek/deepseek-flash \
@@ -30,6 +30,9 @@ from harbor.models.agent.context import AgentContext
 
 
 NODE_VERSION = "24.9.0"
+# DSH version installed in the task container. This is the tested version; it is
+# pinned exactly because npm prerelease ranges do not order across patch levels
+# (^0.2.1-rc.3 does not admit 0.2.2-rc.1).
 DSH_VERSION = "0.2.2-rc.1"
 NODE_BASE = f"https://nodejs.org/dist/v{NODE_VERSION}/node-v{NODE_VERSION}-linux"
 PROFILE = "tb"
@@ -51,6 +54,9 @@ class DshAgent(BaseAgent):
 
     capabilities = AgentCapabilities(windows=False)
     DEFAULT_SETUP_TIMEOUT_SEC = 1800.0
+    # Fallback for direct Harbor invocations. run-subset.sh always exports the
+    # task's [agent].timeout_sec (or DSH_AGENT_TIMEOUT_CAP), which overrides this.
+    DEFAULT_AGENT_TIMEOUT_SEC = 900.0
 
     @staticmethod
     @override
@@ -69,7 +75,9 @@ class DshAgent(BaseAgent):
         self.plugin_tarball = Path(tarball).resolve()
         if not self.plugin_tarball.is_file():
             raise RuntimeError(f"DSH_PLUGIN_TARBALL does not exist: {self.plugin_tarball}")
-        self.agent_timeout_sec = float(os.environ.get("DSH_AGENT_TIMEOUT_SEC", "1800"))
+        self.agent_timeout_sec = float(
+            os.environ.get("DSH_AGENT_TIMEOUT_SEC", str(self.DEFAULT_AGENT_TIMEOUT_SEC))
+        )
         self.stock = os.environ.get("DSH_STOCK") == "1"
 
     async def _exec(self, environment: BaseEnvironment, command: str, *, timeout: int = 1800, env: dict[str, str] | None = None):

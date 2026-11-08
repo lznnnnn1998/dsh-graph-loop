@@ -8,7 +8,9 @@ Harbor calls an agent class; it does not know about DSH. The adapter is the only
 2. Launch a profile that installs `dsh-graph-loop` (and optionally the Graph tab / Explore mode);
    do not edit DSH source.
 3. Set `agent-loop.toolPolicy: preset` for benchmark runs so the full benchmark tool set is visible.
-4. Pass the task instruction as a single non-interactive prompt with the benchmark timeout.
+4. Pass the task instruction as a single non-interactive prompt with `DSH_AGENT_TIMEOUT_SEC`
+   (task `[agent].timeout_sec` via the runner; 900 s adapter fallback). `DSH_AGENT_TIMEOUT_CAP` is
+   the only override. A timeout is a failed task, not a score.
 5. Let the benchmark verifier read the workspace after the agent exits; do not copy tests into the
    agent image.
 6. Capture the DSH session log for steps, tool calls and usage. The session log is the source of
@@ -22,7 +24,7 @@ Harbor calls an agent class; it does not know about DSH. The adapter is the only
 
 - installs Node + DSH (skipped when a prebaked image already has `dsh` on `PATH`);
 - installs the packed plugin into a throwaway profile and applies the tool policy patch;
-- runs one DSH turn in `/app`, downloads `/root/.dsh/sessions`;
+- runs one DSH turn in `/app` under `DSH_AGENT_TIMEOUT_SEC`, downloads `/root/.dsh/sessions`;
 - `DSH_STOCK=1` selects the stock control arm.
 
 `terminal-bench/preflight.sh` checks Docker, Harbor and the adapter.

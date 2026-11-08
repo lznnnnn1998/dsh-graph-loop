@@ -30,11 +30,23 @@ No claim is made that LangGraph executes arbitrary graphs.
 
 ## Evidence
 
-**Product evidence is not complete.** The active suite is Terminal-Bench easy10 + medium10
-([`bench/official/subsets/product20.json`](../bench/official/subsets/product20.json)). Image builds
-and trials are in progress. One member, `html-js-filter`, has a real tracked trial:
-**graph 0.0 / stock 0.0**, one task, both arms completed — not an aggregate and not a product claim
-([result](../bench/official/results/2026-11-08-html-js-filter/README.md)).
+**Product evidence is incomplete and its only aggregate is invalid.** The active suite is
+Terminal-Bench easy10 + medium10
+([`bench/official/subsets/product20.json`](../bench/official/subsets/product20.json)). The tracked
+2026-11-08 partial run
+([result](../bench/official/results/2026-11-08-product20-partial/README.md)) attempted **19/20**
+tasks (`formal-crypto` has no verifier image): **11 graph / 3 stock** valid trials, only **2
+paired-valid** tasks (`bun-sourcemap-leak`, `cargo-flight-dispatch`), and every valid score is
+**0.0**. It is invalid as a product aggregate, and the instrument is unvalidated for the full
+suite — no accuracy, parity, token or cost number from it is citable.
+
+A three-task oracle control
+([result](../bench/official/results/2026-11-08-oracle-control/README.md)) scores **1.0** on
+`html-js-filter`, `cargo-flight-dispatch` and `music-harmony`; the task harness (image, verifier,
+scoring) can produce a pass on those tasks, so a 0.0 is not by itself evidence about the loop. The earlier single-task
+[`2026-11-08-html-js-filter`](../bench/official/results/2026-11-08-html-js-filter/README.md) run and
+the partial run disagree on that task's stock arm (the partial stock attempt timed out at 900 s);
+both are task-level evidence, neither is an aggregate.
 
 The former local 20-task run is not part of this tree and is not citable as current evidence.
 
@@ -44,14 +56,21 @@ The former local 20-task run is not part of this tree and is not citable as curr
    The blocker is the consumer (replay/time-travel), not storage availability.
 2. **Kernel breadth**: parallel fan-out/join, subagent batches and non-`callFailed` conditions still
    use `FrontierTopology`.
-3. **Product20 not finished**: native arm64 task images and trials are still running.
+3. **Product20 blocked on the instrument, not the loop**: the 2026-11-08 run spent most stock arms on
+   a 900 s fixed timeout, and hit a 4-CPU compose cap (`shadow-relay`), image pull/TLS
+   (`heat-pump-warranty`), missing MCP startup (`medical-claims-processing`), npm bootstrap
+   (`intrastat-meldung`), and an old-Node `node:sqlite` import (`freight-dispatch-shift`). The
+   timeout policy is now per-task `[agent].timeout_sec` with `DSH_AGENT_TIMEOUT_CAP` as an override;
+   see [`EVALUATION.md`](EVALUATION.md).
 4. **Fork debt**: source copy of DSH's loop; enforced by `scripts/diff-upstream.sh --check`.
 5. **Benchmark heuristics off by default** (`benchGuards: false`); they are harness-specific.
 
 ## Next
 
-1. Finish product20 images and run stock vs graph for all 20 tasks.
-2. Report aggregate accuracy, prompt tokens, billed cost and steps.
+1. Fix or exclude the per-task harness blockers above (MCP, sidecar images/CPU, old-Node images) one
+   diagnostic at a time; do not spend a full product20 run on the current instrument.
+2. Only after the blockers are cleared: run product20 and report aggregate accuracy, prompt tokens,
+   billed cost and steps.
 3. Only after those numbers exist: decide whether the graph loop has a product claim.
 4. Then durable checkpoint consumer and kernel breadth.
 
