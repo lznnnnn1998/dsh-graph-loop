@@ -47,25 +47,26 @@ The instrument was repaired on 2026-11-09; see
   ([record](../bench/official/results/2026-11-09-smoke-prep/README.md)).
 - **MCP caveat**: `medical-claims-processing` uses an SSE Playwright MCP server. The adapter
   declares `mcp_servers=True` and exposes the config in the prompt, but DSH has no SSE MCP client
-  and does not register its tools natively. **Update 2026-11-09:** the trial never reaches the agent
-  in this environment — the task's `playwright-mcp` sidecar is a vendor **amd64** image, and under
-  qemu on the arm64 host Chrome never opens CDP 9222, so the compose healthcheck fails and
-  `_setup_agent_environment` aborts with `n_trials: 0` on both arms
-  (`bench/official/results/2026-11-09-prediag-0122/`). That is an **infrastructure blocker**, not
-  the expected-0.0 trial: fix the sidecar (arm64-native image or a different health gate) or block
-  it; do not record or backfill a valid 0.0 row.
+  and does not register its tools natively. The original vendor sidecar was amd64-only and never
+  became healthy under qemu; that was fixed on 2026-11-09 with an arm64-native sidecar built from
+  `mcr.microsoft.com/playwright:v1.56.0-noble` + `@playwright/mcp@0.0.64`. The prepared task compose
+  points `playwright-mcp` at `tb-arm64-medical-claims-sidecar:latest`. Both arms now have valid
+  trials (graph 2/27, stock 22/27); the reward is still expected 0 because DSH does not expose the
+  MCP tools natively, but it is a **valid trial, not infra**.
 - Historical 2026-11-08 blockers (900 s timeout, missing formal-crypto verifier, formal-crypto /
   shadow-relay CPUs=8, shadow overlay, sidecar TLS, old Node) are fixed; do not re-report them as
   current without checking. The 2026-11-09 diagnostic exercised the execution paths and found two
   infrastructure faults: `vpp-loss-divergence` (verifier image built by Docker's **legacy builder**,
   which drops `RUN python - <<'PYEOF'` heredoc bodies → empty `/opt/verifier_pristine`) and
-  `medical-claims-processing` (above). `intrastat-meldung` (in-container npm) and
-  `heat-pump-warranty` (sidecar/compose) produced valid trials, and the direct `formal-crypto`
-  verifier check passed. Note that `bench/official/terminal-bench/build-arm64-task.sh` still invokes
-  plain `docker build`, so a canonical vpp rebuild reproduces the heredoc defect.
+  `medical-claims-processing` (above, now fixed with the arm64 sidecar). `intrastat-meldung`
+  (in-container npm) and `heat-pump-warranty` (sidecar/compose) produced valid trials. Both vpp
+  images were patched and now score 4/5 both arms; `bench/official/terminal-bench/build-arm64-task.sh`
+  still invokes plain `docker build`, so a **canonical** vpp rebuild would reproduce the heredoc
+  defect — do not rebuild vpp from that script without forcing BuildKit/de-heredoc.
 
 A full product20 run is allowed **after the pre-run diagnostic gate below passes**. Do not start one
-if a Harbor container whose name contains `__env` is already live.
+if a Harbor container whose name contains `__env` is already live. The 2026-11-09 gate has already
+passed after the vpp/medical fixes; see the `2026-11-09-prediag-fixes` table below.
 
 ## Gate
 
@@ -73,6 +74,11 @@ if a Harbor container whose name contains `__env` is already live.
 - With environment ready, run `bash bench/official/terminal-bench/run-smoke.sh`.
 
 ## Pre-run diagnostic gate (required before a full product20)
+
+The 2026-11-09 gate is already complete: see
+[`bench/official/results/2026-11-09-prediag-fixes/README.md`](../bench/official/results/2026-11-09-prediag-fixes/README.md).
+If that file exists and every row has `n_trials >= 1`, **do not repeat the diagnostic**; start the
+full product20. Only run the block below when the table is missing or a row is `n_trials: 0`.
 
 The full run costs days and cannot resume, while four task paths have never executed under Harbor.
 Before starting all 20 tasks, run this bounded diagnostic and record `n_trials` and the criteria
@@ -104,15 +110,17 @@ docker run --rm --cpus 8 --entrypoint bash tb-arm64-formal-crypto-verifier:lates
 Adjust the interpreter path if the image differs; a full `test.sh` run through the runner is the
 stronger check. Either way the point is a recorded `n_trials`/verifier result, not the image tag.
 
-Result of the 2026-11-09 attempt: **FAILED** — `intrastat-meldung` and `heat-pump-warranty` produced
-valid 0.0 near-miss trials; `vpp-loss-divergence` and `medical-claims-processing` were `n_trials: 0`
-on both arms (`bench/official/results/2026-11-09-prediag-0122/`); the direct `formal-crypto` verifier
-check passed. No full product20 was started.
+Result of the 2026-11-09 attempt: the first run FAILED (`vpp-loss-divergence` and
+`medical-claims-processing` were `n_trials: 0`; `intrastat-meldung` and `heat-pump-warranty` were
+valid near-misses). The two faults were fixed and the four tasks rerun; final table
+`bench/official/results/2026-11-09-prediag-fixes/README.md`: vpp graph/stock 4/5, medical graph 2/27 /
+stock 22/27, plus the two earlier valid tasks. All eight rows have `n_trials: 1`, `n_errors: 0`; the
+gate PASSES and no full product20 has been started yet.
 
 Decision rule: a row with `n_trials: 0` is a real infrastructure failure — diagnose and fix it, or
 block and report it; **do not start the full 20**. A `0.0` with `n_trials >= 1` is a valid trial (a
-near-miss, not a pass) and does not block; `medical-claims-processing` currently cannot reach that
-state (see the MCP caveat). This gate is a readiness check: it is not scored, and its rows are not
+near-miss, not a pass) and does not block. `medical-claims-processing` now has valid 0.0 trials on
+the arm64 sidecar (2/27 graph, 22/27 stock). This gate is a readiness check: it is not scored, and its rows are not
 part of the product20 aggregate.
 
 Give the diagnostic its own `OUT_DIR` (`run-subset.sh` truncates `rows.jsonl` and has no resume); it

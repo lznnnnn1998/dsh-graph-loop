@@ -1,13 +1,13 @@
 # Evaluation — product20
 
-Status: **instrument repaired 2026-11-09, but the pre-run diagnostic gate FAILED; no full product20
-was started and no stock-vs-graph aggregate exists.** The 2026-11-09 diagnostic
-([result](../bench/official/results/2026-11-09-prediag-0122/README.md)) produced valid trials on
-2 of 4 tasks and `n_trials: 0` on the other two: `medical-claims-processing` (amd64
-`playwright-mcp` sidecar never healthy under qemu — an unresolved infrastructure blocker) and
-`vpp-loss-divergence` (the verifier image lost its heredoc patch under Docker's legacy builder;
-repaired out-of-band, stock retrial pending). No product claim until all 20 tasks have valid stock
-and graph trials, and an oracle control shows the harness can score a pass on the task. Readiness:
+Status: **instrument repaired and the pre-run diagnostic gate now PASSES; the full product20 run is
+pending and no stock-vs-graph aggregate exists.** The first 2026-11-09 diagnostic failed on two
+infrastructure faults; both were fixed and the four tasks were rerun
+([final table](../bench/official/results/2026-11-09-prediag-fixes/README.md)): all eight rows have
+`n_trials: 1` and `n_errors: 0`, including `vpp-loss-divergence` (4/5 both arms) and
+`medical-claims-processing` (2/27 graph, 22/27 stock) on an arm64 sidecar. No product claim until all
+20 tasks have valid stock and graph trials, and an oracle control shows the harness can score a pass
+on the task. Readiness:
 [`2026-11-09-product20-prep`](../bench/official/results/2026-11-09-product20-prep/README.md).
 
 ## Suite
@@ -66,13 +66,17 @@ That run's timeout class is therefore a harness-policy artifact, not a task outc
    run. A `0.0` with `n_trials >= 1` is a valid trial (a near-miss, not a pass) and does not block.
    This diagnostic is a readiness gate, not a new score.
 
-   **Result of the 2026-11-09 attempt: FAILED.** `intrastat-meldung` (graph 0/47, stock 42/47
-   criteria) and `heat-pump-warranty` (graph 1/21, stock 16/21) produced valid 0.0 trials;
-   `vpp-loss-divergence` (`n_trials: 0` both arms — the verifier image lost its heredoc patch to the
-   legacy builder) and `medical-claims-processing` (`n_trials: 0` both arms — amd64 sidecar never
-   healthy) did not ([result](../bench/official/results/2026-11-09-prediag-0122/README.md)). The
-   direct `formal-crypto` verifier check passed (Python 3.12.14, SageMath 10.7). No full product20
-   was started.
+   **Result of the 2026-11-09 attempt: the first run FAILED, then PASSED after fixes.** The first
+   run is at [`2026-11-09-prediag-0122`](../bench/official/results/2026-11-09-prediag-0122/README.md):
+   `intrastat-meldung` (graph 0/47, stock 42/47) and `heat-pump-warranty` (graph 1/21, stock 16/21)
+   were valid; `vpp-loss-divergence` had `n_trials: 0` (legacy-builder heredoc drop) and
+   `medical-claims-processing` had `n_trials: 0` (amd64 sidecar never healthy). Both were repaired
+   and rerun; the final table is
+   [`2026-11-09-prediag-fixes`](../bench/official/results/2026-11-09-prediag-fixes/README.md):
+   vpp graph/stock 4/5, medical graph 2/27 / stock 22/27, plus the two earlier valid tasks. All
+   eight rows have `n_trials: 1`, `n_errors: 0`; the gate passes. The direct `formal-crypto` verifier
+   check passed (Python 3.12.14, SageMath 10.7). No full product20 has been started yet.
+   If that final table exists, do not repeat the diagnostic; start the product20 run.
 4. Run `bash bench/official/subsets/run-product20.sh`; each task runs graph and stock.
    `run-subset.sh` now defaults `TASKS` to the product20 manifest and `OUT_DIR` to
    `bench/official/results/terminal-bench-product20/`. Do not pass an ad-hoc task list except for the

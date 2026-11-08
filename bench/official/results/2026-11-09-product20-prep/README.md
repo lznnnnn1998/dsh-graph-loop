@@ -88,3 +88,20 @@ verifier image had lost its heredoc patch to Docker's legacy builder, and the `p
 sidecar never turned healthy under qemu. See
 [`../2026-11-09-prediag-0122/README.md`](../2026-11-09-prediag-0122/README.md). The sections above
 remain the readiness snapshot taken before that run.
+
+## Postscript 2 (2026-11-09, after the fixes)
+
+Both diagnostic faults were repaired and the four tasks rerun. Final table:
+[`../2026-11-09-prediag-fixes/README.md`](../2026-11-09-prediag-fixes/README.md).
+
+| task | graph | stock |
+|---|---|---|
+| `vpp-loss-divergence` | 1 trial, **4/5** criteria | 1 trial, **4/5** (56m57s) |
+| `intrastat-meldung` | 1 trial, 0/47 | 1 trial, 42/47 |
+| `heat-pump-warranty` | 1 trial, 1/21 | 1 trial, 16/21 |
+| `medical-claims-processing` | 1 trial, 2/27 | 1 trial, 22/27 |
+
+All eight rows have `n_trials: 1`, `n_errors: 0`; the gate **passes**. The vpp images were patched
+out-of-band (the repo build script is still legacy-builder and would reproduce the defect), and the
+medical task's prepared compose points at a local arm64 sidecar tag. The full product20 is now
+allowed and has not been started; there is no aggregate.
