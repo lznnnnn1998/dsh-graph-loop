@@ -15,23 +15,31 @@ product source; your writes are limited to `bench/official/results/` and a short
   failures; report blockers instead of fabricating scores.
 - Check disk: `colima ssh -- df -h /var/lib/docker`; prune only dangling images.
 
-## Known blockers (do not rerun blindly)
+## Readiness snapshot (2026-11-09)
 
-- The 2026-11-08 partial run had 19/20 tasks, all valid scores 0, and only 2 paired-valid tasks.
-  The dominant error was the then-fixed 900 s timeout (most stock arms). Other concrete blockers,
-  from the job logs (there is **no qemu/amd64 evidence**): `shadow-relay` needs >4 CPUs
-  (`range of CPUs is from 0.01 to 4.00`), `heat-pump-warranty` missed sidecar images / Docker Hub
-  TLS, `medical-claims-processing` needs MCP servers the adapter does not start,
-  `intrastat-meldung` hit an npm connect timeout, `vpp-loss-divergence` lost its reward file, and
-  `freight-dispatch-shift` images ship Node 20.19.2 which cannot import `node:sqlite`. See
-  `bench/official/results/2026-11-08-product20-partial/README.md`.
-- The runner now honors `[agent].timeout_sec` per task (`DSH_AGENT_TIMEOUT_CAP` overrides); a
-  timeout remains an infrastructure failure, not a score.
-- A three-task oracle control scored 1.0 (html-js-filter, cargo-flight-dispatch, music-harmony), so
-  those tasks are solvable through the harness; use it as the validity baseline for a task before
-  interpreting a 0.0.
-- Do not start another full product20 until the MCP decision, CPU/image blockers and old-Node images
-  are fixed; report the blocker instead. A small diagnostic (one task) is allowed.
+The instrument was repaired on 2026-11-09; see
+`bench/official/results/2026-11-09-product20-prep/README.md`.
+
+- **20/20 env and 20/20 verifier images** are present, including `formal-crypto` (SageMath 10.7
+  verifier built and smoke-tested at `--cpus 8`).
+- Colima is **8 vCPU / 20 GiB / 150 GiB**; the old 4-CPU and 11-GB blockers are gone.
+- `shadow-relay` env now carries `/opt/node` (v24.9.0) and `/opt/dsh` (0.2.2-rc.1); freight's
+  Node 24 is first on PATH.
+- `tb-dsh-base:latest` and the plugin tarball are present. The tarball must be repacked from HEAD
+  before a run; record its sha256.
+- Heat-pump (6) and medical-claims (2) sidecar images are pulled.
+- Smoke: oracle 1.0 / graph 1.0 / stock 1.0.
+- **MCP caveat**: `medical-claims-processing` uses an SSE Playwright MCP server. The adapter
+  declares `mcp_servers=True` and exposes the config in the prompt, but DSH has no SSE MCP client
+  and does not register its tools natively. Treat that task as a valid but known-0 trial, not an
+  infrastructure error.
+- Historical 2026-11-08 blockers (900 s timeout, missing formal-crypto verifier, formal-crypto /
+  shadow-relay CPUs=8, shadow overlay, sidecar TLS, old Node) are fixed; do not re-report them as
+  current without checking. `vpp-loss-divergence` reward path and `intrastat-meldung` in-container
+  npm are still unverified end to end.
+
+A full product20 run is allowed now, subject to the Product20 rule below. Do not start one if a
+Harbor container whose name contains `__env` is already live.
 
 ## Gate
 

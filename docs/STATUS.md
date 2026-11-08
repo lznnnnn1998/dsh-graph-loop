@@ -77,17 +77,22 @@ scoring) can produce a pass on those tasks, so a 0.0 is not by itself evidence a
 the partial run disagree on that task's stock arm (the partial stock attempt timed out at 900 s);
 both are task-level evidence, neither is an aggregate.
 
-The latest evaluator pass
+The last pre-repair evaluator pass
 ([`2026-11-08-eval-1525`](../bench/official/results/2026-11-08-eval-1525/README.md), HEAD `f28de84`)
-records 20/20 env images, 19/20 verifier images (`formal-crypto` still missing), `ci-local.sh` PASS
-at **253/253** tests and a passing three-arm smoke
-([`2026-11-08-smoke-1525`](../bench/official/results/2026-11-08-smoke-1525/README.md): 1.0 oracle /
-1.0 graph / 1.0 stock on the `f28de84` tarball); product20 was not run, so no aggregate changed.
-A post-eval fix `63b5f20` narrows `verificationRan` to the node's planned verification tool (a
-verify step that ran only `read` now repairs) and is **256/256** at the cheap gate; it was not put
-through the evaluator's gate or smoke. `dist/dsh-graph-loop-bench.tgz` is still the `f28de84`
-tarball (223,372 B, sha256 `4893f934…`); `run-smoke.sh` and `run-subset.sh` do not rebuild it, so
-repack before any product20 run and re-run the smoke.
+recorded 20/20 env images, 19/20 verifier images (`formal-crypto` was still missing), `ci-local.sh`
+PASS at 253/253 tests and a passing smoke (1.0/1.0/1.0). A post-eval fix `63b5f20` narrowed
+`verificationRan` to the node's planned verification tool and is 256/256 at the cheap gate. That
+record is historical.
+
+On **2026-11-09** the instrument was repaired
+([readiness note](../bench/official/results/2026-11-09-product20-prep/README.md)): **20/20 env and
+20/20 verifier images** (the `formal-crypto` verifier was built and SageMath-smoked at `--cpus 8`),
+Colima **8 vCPU / 20 GiB / 150 GiB**, `shadow-relay` overlaid with Node v24.9.0 + DSH 0.2.2-rc.1,
+heat-pump and medical-claims sidecars pulled, and the Docker daemon proxy repointed to the current
+host IP. `dist/dsh-graph-loop-bench.tgz` is `f7a961a797ca5e17…` (223,458 B) and smoke is
+1.0/1.0/1.0. A full product20 run is now allowed and **pending**; there is still no aggregate.
+`medical-claims-processing` is a known DSH limitation (SSE MCP config is exposed to the prompt but
+not registered as native tools), not an infrastructure error.
 
 The former local 20-task run is not part of this tree and is not citable as current evidence.
 

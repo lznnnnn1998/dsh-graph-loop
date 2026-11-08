@@ -52,7 +52,12 @@ PROXY_ENV = {
 class DshAgent(BaseAgent):
     """Run one DSH graph-plugin turn inside the Terminal-Bench task container."""
 
-    capabilities = AgentCapabilities(windows=False)
+    # Harbor refuses to run a task with MCP servers unless the agent declares
+    # support. DSH has no SSE MCP client, so the servers are exposed to the
+    # prompt rather than registered as native tools; this keeps the task a
+    # scored trial instead of an infrastructure error. Report it as a known DSH
+    # limitation, not as harness breakage.
+    capabilities = AgentCapabilities(windows=False, mcp_servers=True)
     DEFAULT_SETUP_TIMEOUT_SEC = 1800.0
     # Fallback for direct Harbor invocations. run-subset.sh always exports the
     # task's [agent].timeout_sec (or DSH_AGENT_TIMEOUT_CAP), which overrides this.
@@ -152,6 +157,20 @@ class DshAgent(BaseAgent):
         env = {**PROXY_ENV, **self.extra_env}
         # DSH's headless profile reads DEEPSEEK_API_KEY from the environment.
         patch = "" if self.stock else f" --patch {PATCH}"
+        servers = getattr(self, 'mcp_servers', None) or []
+        mcp_note = ''
+        if servers:
+            lines = []
+            for server in servers:
+                name = getattr(server, 'name', 'mcp')
+                transport = getattr(server, 'transport', 'unknown')
+                url = getattr(server, 'url', None)
+                lines.append(f"- {name}: {transport} {url or ''}".rstrip())
+            mcp_note = (
+                "\n\nMCP servers configured for this task (config is visible, but DSH has no "
+                "SSE MCP client and does not register them as native tools):\n" + "\n".join(lines)
+            )
+        instruction = instruction + mcp_note
         command = (
             "set -e\n"
             "cd /app 2>/dev/null || cd /\n"

@@ -1,15 +1,16 @@
 # Evaluation — product20
 
-Status: **blocked on instrument validity.** The suite is fixed; no full stock-vs-graph aggregate
-exists. No product claim until all 20 tasks have valid stock and graph trials, and an oracle control
-shows the harness can score a pass on the task.
+Status: **instrument repaired 2026-11-09; full product20 run pending.** The suite is fixed; no
+full stock-vs-graph aggregate exists. No product claim until all 20 tasks have valid stock and graph
+trials, and an oracle control shows the harness can score a pass on the task. Readiness:
+[`2026-11-09-product20-prep`](../bench/official/results/2026-11-09-product20-prep/README.md).
 
 ## Suite
 
 - Terminal-Bench 4.0, 10 easy + 10 medium.
 - Manifest: [`bench/official/subsets/product20.json`](../bench/official/subsets/product20.json).
-- Fixed before running; do not swap tasks after seeing scores. `formal-crypto` stays in the manifest
-  until its verifier image exists.
+- Fixed before running; do not swap tasks after seeing scores. All 20 verifier images exist
+  (including `formal-crypto`); `medical-claims-processing` is a known MCP-SSE limitation.
 
 ## Arms
 
