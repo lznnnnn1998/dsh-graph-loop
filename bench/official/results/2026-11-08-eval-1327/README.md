@@ -31,8 +31,10 @@ sha256 `de483a673e4ee5f0cbb8df3fc2be0c10db95e13b04c7dabd1ceea73b945f2278`, and i
 **pre-increment** plugin. For this evaluation I packed `packages/loop` at HEAD into
 `/tmp/dsh-bench-tarball/dsh-graph-loop-0.2.0.tgz` (220,087 B, sha256
 `499d89acb96471b4d8425e0cb8048a02abc5ec3df1b9a1f7b970e44f075487ff`) and pointed the smoke at it;
-the packed `lib/index.js` is byte-identical to the fresh build. **Before any product20, `dist/`
-must be repacked from `packages/loop`.**
+the packed `lib/index.js` is code-identical to the fresh build (esbuild entry comments differ
+cosmetically), not byte-identical. `dist/` was repacked from `823aa68` after this evaluation:
+220,087 B at the same sha256, so a subsequent product20 run installs the current plugin. **Repack
+`dist/` from `packages/loop` whenever HEAD moves.**
 
 ## Cheap gate — PASS
 

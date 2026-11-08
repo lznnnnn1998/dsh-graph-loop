@@ -14,8 +14,9 @@ Running the default would have exercised pre-increment code, so this smoke used 
 
 - `/tmp/dsh-bench-tarball/dsh-graph-loop-0.2.0.tgz`, 220,087 B,
   sha256 `499d89acb96471b4d8425e0cb8048a02abc5ec3df1b9a1f7b970e44f075487ff`
-- packed after `bash scripts/ci-local.sh` rebuilt `lib/`; `package/lib/index.js` is byte-identical
-  to `packages/loop/lib/index.js` (verified with `diff -q`).
+- packed after `bash scripts/ci-local.sh` rebuilt `lib/`; `package/lib/index.js` is code-identical
+  to `packages/loop/lib/index.js`; esbuild entry comments differ cosmetically because `npm pack`
+  rebuilds with package-relative paths. The smoke passed on exactly this tarball sha.
 - `DSH_PLUGIN_TARBALL` was exported to the run; `run-smoke.sh` uses it in preference to
   `dist/`. No repo write outside this directory.
 
