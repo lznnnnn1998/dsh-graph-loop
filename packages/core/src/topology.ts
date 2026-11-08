@@ -478,8 +478,8 @@ export class FrontierTopology {
     for (const edge of fallback) {
       const target = edge.to
       if (!this.nodeById.has(target)) continue
-      const targetVisits = this.visits.get(target) ?? 0
-      if (this.completed.has(target) && targetVisits >= 2) continue
+      // Retries are bounded by maxSteps, not by a visit counter: a verify ->
+      // repair loop must be able to run until the budget is gone.
       this.pending.push(target)
     }
     return this.current()

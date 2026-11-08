@@ -17,6 +17,8 @@ export interface ObservedTool {
   readonly callId?: string
   readonly isError: boolean
   readonly arguments?: string
+  /** Rendered tool result, used only for the `[exit code: N]` verification marker. */
+  readonly output?: string
 }
 
 const MUTATION_TOOLS = new Set(['write', 'edit', 'str_replace_editor', 'multi_edit', 'apply_patch'])
@@ -58,12 +60,29 @@ function artifactTypeFor(path: string): ArtifactType {
 /**
  * Fold tool outcomes into JSON facts. The `tool.<name>.ok` keys are stable
  * enough for plan guards; the aggregate keys keep simple plans simple.
+ *
+ * A shell that exits non-zero is not a tool-invocation error: DSH returns a
+ * normal result whose text carries `[exit code: N]`. Treat that as a failed
+ * step so the verify -> repair exit actually fires on a failing test.
  */
 export function deriveStepFacts(tools: readonly ObservedTool[], ok: boolean, failedTool?: string): Record<string, Json> {
+  let exitFailure = false
+  for (const tool of tools) {
+    if (tool.isError || tool.output === undefined) continue
+    for (const match of tool.output.matchAll(/\[exit code:\s*(-?\d+)\]/gu)) {
+      if (Number(match[1]) !== 0) {
+        exitFailure = true
+        break
+      }
+    }
+    if (exitFailure) break
+  }
+  const effectiveOk = ok && !exitFailure
   const facts: Record<string, Json> = {
-    lastOk: ok,
+    lastOk: effectiveOk,
     hadToolCall: tools.length > 0,
     toolCount: tools.length,
+    verificationFailed: exitFailure,
   }
   if (failedTool !== undefined) facts['failedTool'] = failedTool
   let failed = 0
@@ -83,19 +102,35 @@ export function deriveStepFacts(tools: readonly ObservedTool[], ok: boolean, fai
   return facts
 }
 
-/** Artifact refs produced by successful filesystem mutations; never file bodies. */
-export function deriveStepArtifacts(tools: readonly ObservedTool[]): RoutingArtifact[] {
+/**
+ * Artifact refs produced by this step; never file bodies.
+ *
+ * Path extraction is a best-effort enrichment for the DSH filesystem tools. The
+ * authoritative source is the plan node's registered capability: any tool that
+ * declares `produces` (including third-party/MCP author tools) yields that
+ * artifact type when the step succeeds. Without this second source, a generic
+ * `artifact(...)` success guard can never fire for a craft/MCP author.
+ */
+export function deriveStepArtifacts(
+  tools: readonly ObservedTool[],
+  declaredTypes: readonly ArtifactType[] = [],
+  refPrefix = 'step',
+): RoutingArtifact[] {
   const seen = new Set<string>()
   const artifacts: RoutingArtifact[] = []
+  const add = (type: ArtifactType, ref: string): void => {
+    const key = `${type}:${ref}`
+    if (seen.has(key)) return
+    seen.add(key)
+    artifacts.push({ type, ref })
+  }
   for (const tool of tools) {
     if (tool.isError || !MUTATION_TOOLS.has(tool.name)) continue
     const path = pathFromArguments(parseArguments(tool.arguments))
-    if (path === undefined) continue
-    const type = artifactTypeFor(path)
-    const key = `${type}:${path}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    artifacts.push({ type, ref: path })
+    if (path !== undefined) add(artifactTypeFor(path), path)
+  }
+  if (tools.length > 0 && tools.some(tool => !tool.isError)) {
+    for (const type of declaredTypes) add(type, `${refPrefix}:${type}`)
   }
   return artifacts
 }

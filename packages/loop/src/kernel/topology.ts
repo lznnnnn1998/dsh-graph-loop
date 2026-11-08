@@ -274,7 +274,9 @@ export function routeKernelPlan(input: {
   const routingState: RoutingState = {
     facts: input.state.facts,
     artifacts: input.state.artifacts,
-    budget: { stepsRemaining: Math.max(0, input.plan.budget.maxSteps - input.state.superstep) },
+    // `superstep` counts completed nodes at route time; subtract the node that
+    // just ran so this matches the frontier's `maxSteps - completed` budget.
+    budget: { stepsRemaining: Math.max(0, input.plan.budget.maxSteps - (input.state.superstep + 1)) },
   }
   if (input.state.facts['lastOk'] === false) {
     const recovery = routeOrder(control)

@@ -111,6 +111,41 @@ test('step facts and artifacts are derived from observed tool calls', () => {
   ])
 })
 
+test('a registered third-party author produces its declared artifact', () => {
+  const artifacts = deriveStepArtifacts(
+    [{ name: 'acme_render', isError: false }],
+    ['file.image'],
+    'tool:acme_render',
+  )
+  assert.deepEqual(artifacts, [{ type: 'file.image', ref: 'tool:acme_render:file.image' }])
+})
+
+test('a non-zero shell exit is a failed verification even without isError', () => {
+  const facts = deriveStepFacts(
+    [{ name: 'bash', isError: false, output: 'FAIL tests/loader.test.ts\n[exit code: 1]' }],
+    true,
+  )
+  assert.equal(facts['lastOk'], false)
+  assert.equal(facts['verificationFailed'], true)
+  assert.equal(facts['allToolsFailed'], false)
+})
+
+test('a verify/repair loop runs until maxSteps, not two visits', () => {
+  const loop = plan([
+    { from: 'a', to: 'b', kind: 'control', when: { op: 'fact', key: 'lastOk', equals: false } },
+    { from: 'a', to: 'd', kind: 'control' },
+    { from: 'b', to: 'a', kind: 'control' },
+  ], 6)
+  const topology = new FrontierTopology(loop)
+  let advances = 0
+  while (topology.current() !== undefined && advances < 20) {
+    topology.advance({ ok: advances % 2 === 1 })
+    advances += 1
+  }
+  assert.equal(advances, 6)
+  assert.equal(topology.done(), true)
+})
+
 test('an exhausted plan continues while the model is still calling tools', async () => {
   const driver = createGraphTurnDriver({ mode: 'template', maxSteps: 4 })
   await driver.beginTurn({ text: 'keep working' })

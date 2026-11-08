@@ -571,7 +571,7 @@ export class ReactLoopAgent implements Agent {
         }
         let stepFailedTool: string | undefined
         let stepDsml = false
-        const stepTools: { name: string; callId: string; isError: boolean; arguments?: string }[] = []
+        const stepTools: { name: string; callId: string; isError: boolean; arguments?: string; output?: string }[] = []
         try {
           if (turnEnds && decision.messages.length === 0) break
           // A removed waking message or an enter decision rewritten to empty
@@ -599,7 +599,13 @@ export class ReactLoopAgent implements Agent {
             } else if (event.type === 'tool/result') {
               const name = toolNames.get(event.data.message.toolCallId)
               const entry = stepTools.find(tool => tool.callId === event.data.message.toolCallId)
-              if (entry !== undefined) entry.isError = event.data.message.isError === true
+              if (entry !== undefined) {
+                entry.isError = event.data.message.isError === true
+                const content = event.data.message.content
+                entry.output = Array.isArray(content)
+                  ? content.map(part => part.type === 'text' ? part.text : '').join('\n')
+                  : ''
+              }
               if (event.data.message.isError === true) {
                 const failed = shellFailureTool(name, this.shellTools)
                 if (failed !== undefined) stepFailedTool = failed

@@ -63,7 +63,7 @@ export interface GraphTurnSnapshot {
     readonly step: number
     readonly executor: string
     readonly status: 'ok' | 'failed'
-    readonly tools?: readonly { readonly name: string; readonly callId?: string; readonly isError: boolean; readonly arguments?: string }[]
+    readonly tools?: readonly { readonly name: string; readonly callId?: string; readonly isError: boolean; readonly arguments?: string; readonly output?: string }[]
   }[]
   readonly depth?: number
   readonly replans?: number
@@ -84,7 +84,7 @@ export interface GraphTurnDriver {
   advance(outcome: {
     readonly ok: boolean
     readonly failedTool?: string
-    readonly tools?: readonly { readonly name: string; readonly callId?: string; readonly isError: boolean; readonly arguments?: string }[]
+    readonly tools?: readonly { readonly name: string; readonly callId?: string; readonly isError: boolean; readonly arguments?: string; readonly output?: string }[]
   }): Promise<GraphTurnSnapshot>
   adopt(plan: TaskPlan): void
   /** Detach and return all queued subagent nodes (parallel batch). */
@@ -176,7 +176,7 @@ interface TurnTopology {
 interface NodeOutcome {
   readonly ok: boolean
   readonly failedTool?: string
-  readonly tools?: readonly { readonly name: string; readonly callId?: string; readonly isError: boolean; readonly arguments?: string }[]
+  readonly tools?: readonly { readonly name: string; readonly callId?: string; readonly isError: boolean; readonly arguments?: string; readonly output?: string }[]
 }
 
 /**
@@ -328,7 +328,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
    * settles its boundary, without inventing a trail row.
    */
   async function advanceNode(
-    record: { readonly id: string; readonly executor?: string } | undefined,
+    record: { readonly id: string; readonly executor?: string; readonly capabilityId?: string } | undefined,
     lastNodeId: string | undefined,
     outcome: NodeOutcome,
     adoptProposal: boolean,
@@ -338,7 +338,12 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     lastNode = lastNodeId ?? lastNode
     const observed = outcome.tools ?? []
     const facts = deriveStepFacts(observed, outcome.ok, outcome.failedTool)
-    const artifacts = deriveStepArtifacts(observed)
+    const graph = await liveGraph()
+    const capability = record?.capabilityId === undefined
+      ? undefined
+      : graph?.nodes.find(node => node.id === record.capabilityId)
+    const declaredTypes = capability?.produces.map(spec => spec.type) ?? []
+    const artifacts = deriveStepArtifacts(observed, declaredTypes, record?.capabilityId ?? record?.id ?? 'step')
     await Promise.resolve(topology.advance({
       ok: outcome.ok,
       ...(outcome.failedTool === undefined ? {} : { failedTool: outcome.failedTool }),
@@ -501,7 +506,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     async advance(outcome: {
     readonly ok: boolean
     readonly failedTool?: string
-    readonly tools?: readonly { readonly name: string; readonly callId?: string; readonly isError: boolean; readonly arguments?: string }[]
+    readonly tools?: readonly { readonly name: string; readonly callId?: string; readonly isError: boolean; readonly arguments?: string; readonly output?: string }[]
   }): Promise<GraphTurnSnapshot> {
       if (topology === undefined) return snapshot()
       const node = topology.current()
