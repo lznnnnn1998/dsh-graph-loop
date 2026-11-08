@@ -137,7 +137,7 @@ test('craft-like third-party tools fill author stages without any hardcoded name
   assert.ok(result.stages.some(stage => stage.capabilityId === 'tool:acme_render'))
   assert.ok(result.stages.some(stage => stage.capabilityId === 'tool:acme_deck'))
   assert.ok(!result.stages.some(stage => stage.toolName === 'write'))
-  const authorNodes = result.plan.nodes.filter(node => node.id.startsWith('n_author_'))
+  const authorNodes = result.plan.nodes.filter(node => node.id.startsWith('n_author_') && !node.id.endsWith('_repair'))
   assert.equal(authorNodes.length, 2)
   assert.deepEqual(authorNodes.map(node => node.id), ['n_author_0', 'n_author_1'])
   assert.equal(validateTaskPlan(graph, result.plan).ok, true)
@@ -224,11 +224,11 @@ test('the composed plan ends at a tool-enabled answer node and gives verify a re
   assert.equal(answer.kind, 'agent-step', 'an answer that can still act is an agent step, not a terminal')
   assert.equal(answer.toolAllow, undefined, 'the answer node must keep the tools needed to continue')
   const verifyOut = result.plan.edges.filter(edge => edge.from === 'n_verify')
-  assert.ok(verifyOut.some(edge => edge.to === 'n_repair'
+  assert.ok(verifyOut.some(edge => edge.to === 'n_verify_repair'
     && edge.when?.op === 'fact' && edge.when.key === 'lastOk' && edge.when.equals === false))
   assert.ok(verifyOut.some(edge => edge.to === 'n_answer'
     && edge.when?.op === 'fact' && edge.when.key === 'lastOk' && edge.when.equals === true))
-  assert.ok(result.plan.nodes.some(node => node.id === 'n_repair'))
+  assert.ok(result.plan.nodes.some(node => node.id === 'n_verify_repair'))
   assert.equal(validateTaskPlan(graph, result.plan).ok, true)
 })
 
@@ -279,6 +279,30 @@ test('the legacy top-level maxSteps is honoured by the cap and the plan budget a
   })
 
   assert.equal(result.plan.budget.maxSteps, 2)
-  assert.equal(result.plan.nodes.length, 2, 'one work stage plus the terminal answer')
+  assert.equal(result.plan.nodes.length, 3, 'one work stage, its repair exit, and the answer')
+  assert.equal(validateTaskPlan(graph, result.plan).ok, true)
+})
+
+test('every composed stage gets a real multi-exit table, not one hardcoded successor', () => {
+  const graph = graphOf({ tools: CORE_TOOLS })
+  const envelope = buildEnvelope({
+    roles: [role('workspace-read'), role('workspace-write'), role('shell'), role('verification')],
+  }, graph)
+  const result = synthesizeComposition({
+    fingerprint: fingerprint({ intent: 'code-change', mutating: true }),
+    graph,
+    envelope: envelope.envelope,
+  })
+  const stages = ['n_inspect', 'n_mutate', 'n_verify']
+  for (const stage of stages) {
+    const out = result.plan.edges.filter(edge => edge.from === stage)
+    assert.ok(out.some(edge => edge.when?.op === 'budget'), `${stage} must answer when the step budget is nearly gone`)
+    assert.ok(out.some(edge => edge.to === `${stage}_repair`
+      && edge.when?.op === 'fact' && edge.when.key === 'lastOk' && edge.when.equals === false), `${stage} must repair a failed step`)
+    assert.ok(out.some(edge => edge.when === undefined), `${stage} needs an unconditional fallback`)
+    assert.ok(out.some(edge => edge.when?.op === 'artifact'
+      || (edge.when?.op === 'fact' && (edge.when.key !== 'lastOk' || edge.when.equals === true))), `${stage} must have a stage-specific success guard`)
+    assert.ok(result.plan.edges.some(edge => edge.from === `${stage}_repair` && edge.to === stage), `${stage}_repair must return to ${stage}`)
+  }
   assert.equal(validateTaskPlan(graph, result.plan).ok, true)
 })

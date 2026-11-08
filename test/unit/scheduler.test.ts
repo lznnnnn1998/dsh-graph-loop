@@ -143,7 +143,7 @@ test('a failed verify node follows the composed repair exit without a replan', a
   assert.equal(driver.current()?.id, 'n_verify')
   await driver.advance({ ok: false, failedTool: 'bash' })
   assert.equal(driver.snapshot().replans, 0)
-  assert.equal(driver.current()?.id, 'n_repair')
+  assert.equal(driver.current()?.id, 'n_verify_repair')
   assert.equal(driver.snapshot().templateId, 't_compose')
 })
 
@@ -244,12 +244,14 @@ test('a failed subagent with no replan budget leaves the run failed', async () =
 })
 
 test('each turn gets its own replan allowance', async () => {
-  const driver = createGraphTurnDriver({ mode: 'dynamic', graphProvider: () => registry.graph })
+  // composition:false keeps the legacy dynamic topology, whose stages have no
+  // composed repair exit; that path still uses the scheduler replan allowance.
+  const driver = createGraphTurnDriver({ mode: 'dynamic', composition: false, graphProvider: () => registry.graph })
   for (let turn = 1; turn <= 3; turn += 1) {
     await driver.beginTurn({ text: 'fix the failing test in the loader' })
-    assert.equal(driver.current()?.id, 'n_inspect')
+    assert.equal(driver.current()?.id, 'd_read')
     await driver.advance({ ok: true })
-    assert.equal(driver.current()?.id, 'n_mutate')
+    assert.equal(driver.current()?.id, 'd_edit')
     await driver.advance({ ok: false, failedTool: 'bash' })
     assert.equal(driver.snapshot().replans, 1, `turn ${turn} must start with a fresh replan budget`)
     assert.equal(driver.current()?.id, 'r_diagnose', `turn ${turn} must install the recovery plan`)

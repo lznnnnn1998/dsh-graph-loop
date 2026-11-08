@@ -150,6 +150,8 @@ interface StagePlan {
   readonly stage: ComposeStage
   readonly tool: RegistryNode
   readonly reason: string
+  /** Author nodes declare the artifact they produce; it becomes their success guard. */
+  readonly artifact?: ArtifactType
 }
 
 /**
@@ -173,10 +175,10 @@ function planStages(input: ComposeInput): { stages: StagePlan[]; issues: Compose
     return { stages, issues, rationale }
   }
 
-  const add = (stage: ComposeStage, tool: RegistryNode | undefined, reason: string, unique = true): void => {
+  const add = (stage: ComposeStage, tool: RegistryNode | undefined, reason: string, unique = true, artifact?: ArtifactType): void => {
     if (tool === undefined) return
     if (unique && stages.some(existing => existing.stage === stage)) return
-    stages.push({ stage, tool, reason })
+    stages.push({ stage, tool, reason, ...(artifact === undefined ? {} : { artifact }) })
     rationale.push(`${stage}: ${tool.id} (${reason})`)
   }
 
@@ -215,10 +217,10 @@ function planStages(input: ComposeInput): { stages: StagePlan[]; issues: Compose
     }
     // One author node per requested artifact: a task may need a report, an
     // image and a deck, and each contract is resolved independently.
-    add('author', producer, `produces:${artifact}`, false)
+    add('author', producer, `produces:${artifact}`, false, artifact)
   }
   if (requested.length === 0 && input.fingerprint.intent === 'document' && !wantsMutation) {
-    add('author', firstProducing(tools, 'file.text') ?? firstProducing(tools, 'file.binary'), 'document intent')
+    add('author', firstProducing(tools, 'file.text') ?? firstProducing(tools, 'file.binary'), 'document intent', true, 'file.text')
   }
 
   if (wantsMutation || input.fingerprint.intent === 'test-failure' || input.fingerprint.intent === 'bug-fix') {
@@ -301,10 +303,18 @@ export function synthesizeComposition(input: ComposeInput): ComposeResult {
   const edges: PlanEdge[] = []
   const records: ComposeStageRecord[] = []
 
-  let previous: string | undefined
   let authorIndex = 0
+  const stageNodes: {
+    readonly stage: ComposeStage
+    readonly id: string
+    readonly toolName: string
+    readonly artifact?: ArtifactType
+    readonly repairId: string
+  }[] = []
   for (const planned of stages) {
     const nodeId = planned.stage === 'author' ? `n_author_${authorIndex++}` : `n_${planned.stage}`
+    const repairId = `${nodeId}_repair`
+    const toolName = planned.tool.tool?.name ?? planned.tool.id
     nodes.push({
       id: nodeId,
       kind: 'agent-step',
@@ -313,32 +323,32 @@ export function synthesizeComposition(input: ComposeInput): ComposeResult {
       instruction: instructionFor(planned.stage, planned.tool),
       budget: { maxSteps: 1 },
     })
-    if (previous !== undefined) edges.push({ from: previous, to: nodeId, kind: 'control' })
-    previous = nodeId
+    nodes.push({
+      id: repairId,
+      kind: 'agent-step',
+      executor: 'step',
+      capabilityId: planned.tool.id,
+      instruction: `The ${planned.stage} step failed. Diagnose the exact failure from the last output and retry the ${planned.stage} work with ${toolName}; do not repeat unrelated steps.`,
+      budget: { maxSteps: 1 },
+    })
+    stageNodes.push({
+      stage: planned.stage,
+      id: nodeId,
+      toolName,
+      ...(planned.artifact === undefined ? {} : { artifact: planned.artifact }),
+      repairId,
+    })
     records.push({
       stage: planned.stage,
       nodeId,
       capabilityId: planned.tool.id,
-      toolName: planned.tool.tool?.name ?? planned.tool.id,
+      toolName,
       reason: planned.reason,
     })
   }
 
   const answerId = 'n_answer'
   const generic = stages.length === 0
-  // A verification node gets a real failure branch: fail -> repair -> verify,
-  // bounded by the plan's step budget. This is a stage exit table, not a
-  // code-change special case: any task that composed a verify stage gets it.
-  const hasVerify = previous === 'n_verify'
-  if (hasVerify) {
-    nodes.push({
-      id: 'n_repair',
-      kind: 'agent-step',
-      executor: 'step',
-      instruction: 'The verification failed. Diagnose the exact failure from the last output and apply the smallest fix, then re-run the same verification.',
-      budget: { maxSteps: 1 },
-    })
-  }
   nodes.push({
     id: answerId,
     // A terminal node may not allow tools (P007), so this stays an agent step:
@@ -351,13 +361,44 @@ export function synthesizeComposition(input: ComposeInput): ComposeResult {
       : 'Summarize what was produced, what was verified, and any remaining risk. If the task still needs work, continue with the available tools; otherwise answer.',
     budget: { maxSteps: 1 },
   })
-  if (hasVerify) {
-    edges.push({ from: 'n_verify', to: 'n_repair', kind: 'control', when: { op: 'fact', key: 'lastOk', equals: false } })
-    edges.push({ from: 'n_repair', to: 'n_verify', kind: 'control' })
-    edges.push({ from: 'n_verify', to: answerId, kind: 'control', when: { op: 'fact', key: 'lastOk', equals: true } })
-    edges.push({ from: 'n_verify', to: answerId, kind: 'control' })
-  } else if (previous !== undefined) {
-    edges.push({ from: previous, to: answerId, kind: 'control' })
+
+  // Every stage gets a real exit table, not one hardcoded successor:
+  //   budget exhausted -> answer
+  //   step failed      -> stage repair -> stage (bounded by maxSteps)
+  //   stage-specific success guard -> next stage
+  //   always            -> next stage
+  // The guards are generic facts/artifacts the runtime folds from tool calls;
+  // no task-kind branch appears here.
+  const successGuard = (node: (typeof stageNodes)[number]): PlanEdge['when'] | undefined => {
+    switch (node.stage) {
+      case 'discover':
+        return { op: 'fact', key: `tool.${node.toolName}.ok`, equals: true }
+      case 'inspect':
+        return { op: 'fact', key: 'readFile', equals: true }
+      case 'mutate':
+        return { op: 'fact', key: 'wroteFile', equals: true }
+      case 'author':
+        return node.artifact === undefined ? undefined : { op: 'artifact', type: node.artifact }
+      case 'verify':
+        return { op: 'fact', key: 'lastOk', equals: true }
+      case 'deliver':
+        return undefined
+    }
+  }
+  for (const [index, node] of stageNodes.entries()) {
+    const next = stageNodes[index + 1]?.id ?? answerId
+    edges.push({ from: node.id, to: answerId, kind: 'control', when: { op: 'budget', axis: 'steps', remainingAtMost: 2 } })
+    edges.push({ from: node.id, to: node.repairId, kind: 'control', when: { op: 'callFailed', tool: node.toolName } })
+    edges.push({ from: node.id, to: node.repairId, kind: 'control', when: { op: 'fact', key: 'lastOk', equals: false } })
+    const success = successGuard(node)
+    if (success !== undefined) edges.push({ from: node.id, to: next, kind: 'control', when: success })
+    // A step can "succeed" and still produce nothing: the author's own artifact
+    // contract is the guard, not the tool exit code.
+    if (node.stage === 'author' && node.artifact !== undefined) {
+      edges.push({ from: node.id, to: node.repairId, kind: 'control', when: { op: 'noArtifact', type: node.artifact } })
+    }
+    edges.push({ from: node.id, to: next, kind: 'control' })
+    edges.push({ from: node.repairId, to: node.id, kind: 'control' })
   }
 
   const toolUniverse = [...input.envelope.tools.universe].sort()
