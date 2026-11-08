@@ -378,7 +378,9 @@ export function synthesizeComposition(input: ComposeInput): ComposeResult {
       case 'mutate':
         return { op: 'fact', key: 'wroteFile', equals: true }
       case 'author':
-        return node.artifact === undefined ? undefined : { op: 'artifact', type: node.artifact }
+        // Step-scoped: run-cumulative `artifact` would let an earlier stage's
+        // file satisfy this author's success guard.
+        return node.artifact === undefined ? undefined : { op: 'fact', key: 'producedArtifact', equals: true }
       case 'verify':
         return { op: 'fact', key: 'lastOk', equals: true }
       case 'deliver':
@@ -395,7 +397,7 @@ export function synthesizeComposition(input: ComposeInput): ComposeResult {
     // A step can "succeed" and still produce nothing: the author's own artifact
     // contract is the guard, not the tool exit code.
     if (node.stage === 'author' && node.artifact !== undefined) {
-      edges.push({ from: node.id, to: node.repairId, kind: 'control', when: { op: 'noArtifact', type: node.artifact } })
+      edges.push({ from: node.id, to: node.repairId, kind: 'control', when: { op: 'fact', key: 'producedArtifact', equals: false } })
     }
     edges.push({ from: node.id, to: next, kind: 'control' })
     edges.push({ from: node.repairId, to: node.id, kind: 'control' })

@@ -276,13 +276,21 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
    * Shared by model steps and subagent batch completions so a failed child can
    * trigger the same recovery a failed step can.
    */
-  function recoverAfterFailure(outcome: NodeOutcome): void {
+  async function recoverAfterFailure(outcome: NodeOutcome): Promise<void> {
     if (outcome.ok || topology === undefined || topology.status() !== 'failed') return
     const maxReplans = plan?.budget.maxReplans ?? 0
     if (replans >= maxReplans) return
     replans += 1
     const failedNode = lastNode ?? 'unknown'
-    const verifyFailure = /verify/i.test(failedNode)
+    const graph = await liveGraph()
+    const planNode = plan?.nodes.find(node => node.id === failedNode)
+    const capability = planNode?.capabilityId === undefined
+      ? undefined
+      : graph?.nodes.find(node => node.id === planNode.capabilityId)
+    // Classify by the registry capability, not by a node-id regex. Composed
+    // plans carry capabilityId; a plan without one keeps the readable fallback.
+    const verifyFailure = capability?.tags.includes('verification')
+      ?? /verify/i.test(failedNode)
     const next = verifyFailure
       ? repairTopology({
         taskHash: plan?.id ?? 'unknown',
@@ -344,13 +352,19 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       : graph?.nodes.find(node => node.id === record.capabilityId)
     const declaredTypes = capability?.produces.map(spec => spec.type) ?? []
     const artifacts = deriveStepArtifacts(observed, declaredTypes, record?.capabilityId ?? record?.id ?? 'step')
+    // `artifact` is run-cumulative by design; stage success must be step-scoped,
+    // otherwise an earlier stage's file can satisfy a later author's guard.
+    if (artifacts.length > 0) {
+      facts['producedArtifact'] = true
+      for (const artifact of artifacts) facts[`produced.${artifact.type}`] = true
+    }
     await Promise.resolve(topology.advance({
       ok: outcome.ok,
       ...(outcome.failedTool === undefined ? {} : { failedTool: outcome.failedTool }),
       facts,
       ...(artifacts.length === 0 ? {} : { artifacts }),
     }))
-    recoverAfterFailure(outcome)
+    await recoverAfterFailure(outcome)
     if (adoptProposal) adoptProposalAtBoundary()
     // The plan is a policy, not a script. If it runs out while the model is
     // still calling tools, extend it with one neutral continuation node instead
