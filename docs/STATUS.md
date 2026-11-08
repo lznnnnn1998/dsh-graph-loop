@@ -14,7 +14,7 @@ Architecture: **B**. `packages/loop` is a dedicated graph-loop plugin that repla
 | Composition | envelope / role resolution / capability composer live in dynamic mode |
 | UI | Graph tab + `/graph-chat`; installed e2e passes |
 | Packaging | tarball install + packed-loop runtime e2e passes; `build:check` reproducible |
-| Tests | `npm test` **253/253** (0 fail, 0 skipped) on the current tree; three engines in the transition matrix |
+| Tests | `npm test` **256/256** (0 fail, 0 skipped) on the current tree; three engines in the transition matrix |
 
 ## Kernel coverage (exact)
 
@@ -34,8 +34,10 @@ rejected by `validateTaskPlan` (`P022`) instead of silently never firing.
 
 A non-zero shell exit (`[exit code: N]`) is a normal DSH result, not a tool-invocation error. The
 runtime folds it into the step-scoped `verificationFailed` fact and a `verificationRan` fact; the
-composed verify stage repairs when verification failed **or** never ran, so an inspect/mutate step
-that runs `grep`/`diff` (exit 1) is not sent to repair and a no-tool verify is not read as a pass.
+composed verify stage repairs when verification failed **or** never ran. `verificationRan` requires
+the node's planned verification tool to have run, so a verify step filled by `read` (or any other
+non-verification tool) repairs, an inspect/mutate step that runs `grep`/`diff` (exit 1) is not sent
+to repair, and a no-tool verify is not read as a pass.
 `lastOk` stays about tool invocation. Every composed stage also classifies its own progress with a
 step-scoped fact (`hadToolCall` for discover, `readFile`, `wroteFile`, `produced.<artifact>` for the
 author's declared artifact type) and has a no-progress exit to its repair node, so no stage advances
@@ -76,15 +78,16 @@ the partial run disagree on that task's stock arm (the partial stock attempt tim
 both are task-level evidence, neither is an aggregate.
 
 The latest evaluator pass
-([`2026-11-08-eval-1327`](../bench/official/results/2026-11-08-eval-1327/README.md), HEAD `823aa68`)
+([`2026-11-08-eval-1525`](../bench/official/results/2026-11-08-eval-1525/README.md), HEAD `f28de84`)
 records 20/20 env images, 19/20 verifier images (`formal-crypto` still missing), `ci-local.sh` PASS
-at **204/204** tests (the figure at `823aa68`; the current tree runs 253/253, see the Tests row of
-"Works today") and a passing three-arm smoke
-([`2026-11-08-smoke-1327`](../bench/official/results/2026-11-08-smoke-1327/README.md): 1.0 oracle /
-1.0 graph / 1.0 stock on a fresh `823aa68` tarball); product20 was not run, so no aggregate changed.
-`dist/dsh-graph-loop-bench.tgz` was repacked from `packages/loop` at `823aa68` (220,087 B, sha256
-`499d89ac…`); `run-smoke.sh` and `run-subset.sh` do not rebuild it, so repack before any product20
-run.
+at **253/253** tests and a passing three-arm smoke
+([`2026-11-08-smoke-1525`](../bench/official/results/2026-11-08-smoke-1525/README.md): 1.0 oracle /
+1.0 graph / 1.0 stock on the `f28de84` tarball); product20 was not run, so no aggregate changed.
+A post-eval fix `63b5f20` narrows `verificationRan` to the node's planned verification tool (a
+verify step that ran only `read` now repairs) and is **256/256** at the cheap gate; it was not put
+through the evaluator's gate or smoke. `dist/dsh-graph-loop-bench.tgz` is still the `f28de84`
+tarball (223,372 B, sha256 `4893f934…`); `run-smoke.sh` and `run-subset.sh` do not rebuild it, so
+repack before any product20 run and re-run the smoke.
 
 The former local 20-task run is not part of this tree and is not citable as current evidence.
 

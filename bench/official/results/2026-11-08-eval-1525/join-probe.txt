@@ -1,0 +1,4 @@
+deep-diamond: nodes=["a","b","c","c2","d"] status=done trail=["a","b","c","c2","d"]
+inverted-join: nodes=["a","b","d","c"] status=done trail=["a","b","d","c"]
+join-cycle: nodes=["a","b","c","c2","d","e","a","b","c","c2","d","e"] status=done trail=["a","b","c","c2","d","e","a","b","c","c2","d","e"]
+fanout-retry: nodes=["entry","a","b","a","join","answer"] status=done trail=["entry","a","b","a","join","answer"]

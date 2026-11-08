@@ -17,14 +17,16 @@ was removed.
   `html-js-filter`, `cargo-flight-dispatch` and `music-harmony`, so a 0.0 is not by itself a product
   result. Never quote the partial rows as accuracy, parity or cost.
 
-Readiness (2026-11-08, HEAD `823aa68`): 20/20 env images, 19/20 verifier images (`formal-crypto`
-missing), `tb-dsh-base` present; `ci-local.sh` passes (204/204) and the smoke gate passes on a fresh
-`823aa68` tarball. The suite is **not runnable end to end**: `formal-crypto` and `shadow-relay`
-request `cpus = 8` in `task.toml` on this 4-CPU VM, and the MCP/sidecar/old-Node blockers are
-unchanged. See [`2026-11-08-eval-1327`](official/results/2026-11-08-eval-1327/README.md) and
-[`2026-11-08-smoke-1327`](official/results/2026-11-08-smoke-1327/README.md). The benchmark tarball
-was repacked from `packages/loop` at `823aa68` (220,087 B, sha256 `499d89ac…`); `run-smoke.sh` and
-`run-subset.sh` do not rebuild it, so repack before any product run.
+Readiness (2026-11-08, HEAD `f28de84`): 20/20 env images, 19/20 verifier images (`formal-crypto`
+missing), `tb-dsh-base` present; `ci-local.sh` passes (253/253) and the smoke gate passes (1.0 / 1.0 /
+1.0) on the `f28de84` tarball. The suite is **not runnable end to end**: `formal-crypto` and
+`shadow-relay` request `cpus = 8` in `task.toml` on this 4-CPU VM, and the MCP/sidecar/old-Node
+blockers are unchanged. See [`2026-11-08-eval-1525`](official/results/2026-11-08-eval-1525/README.md)
+and [`2026-11-08-smoke-1525`](official/results/2026-11-08-smoke-1525/README.md). Post-eval `63b5f20`
+narrows `verificationRan` to the planned verification tool and is 256/256 at the cheap gate; it has
+not been through the evaluator gate or smoke. The benchmark tarball is still the `f28de84` build
+(223,372 B, sha256 `4893f934…`) and was not repacked; `run-smoke.sh` and `run-subset.sh` do not
+rebuild it, so repack before any product run.
 
 ## Run
 

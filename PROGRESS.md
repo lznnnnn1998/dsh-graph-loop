@@ -22,7 +22,7 @@ features.
 - [x] Graph tab + `/graph-chat` API; SSE/tool-call inspector.
 - [x] Explore mode, one-command installer, profile verification.
 - [x] Fork guard: pinned upstream + patch budgets, enforced in `ci-local`/`verify-all`.
-- [x] 253 unit tests, typecheck, build:check, installed e2e, tarball e2e green.
+- [x] 256 unit tests, typecheck, build:check, installed e2e, tarball e2e green.
 
 ## In progress / next
 

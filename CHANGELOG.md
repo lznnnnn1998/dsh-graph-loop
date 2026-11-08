@@ -13,8 +13,9 @@
 - Per-stage classification: every composed stage (`discover`, `inspect`, `mutate`, `author`,
   `verify`) has a step-scoped success fact and its own no-progress repair exit. The author's success
   guard is the stage's declared artifact **type** (`produced.<artifact>`, reset every step) and the
-  verify guard requires `verificationRan`, so an author fed the wrong artifact type or a verify step
-  that never ran repairs instead of advancing.
+  verify guard requires `verificationRan` for the node's planned verification tool, so an author fed
+  the wrong artifact type or a verify step filled by a non-verification tool repairs instead of
+  advancing.
 - Graph tab with live topology, node → tool-call inspector and `/graph-chat` API.
 - Explore agent preset, one-command installer, default-mode wiring.
 - Per-node tool admission; the composed answer node keeps its tools so the turn can continue.

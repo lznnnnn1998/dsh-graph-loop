@@ -32,7 +32,8 @@ executes arbitrary graphs.
 - **Per-stage classification** — every composed stage (`discover`, `inspect`, `mutate`, `author`,
   `verify`) has a step-scoped success fact and its own no-progress exit back to a repair node, so a
   stage that did nothing repairs instead of advancing. The author's guard is the stage's artifact
-  *type*; the verify guard requires that verification actually ran. Failure exits are evaluated
+  *type*; the verify guard requires the node's planned verification tool to run. Failure exits are
+  evaluated
   before the answer reserve, so a failed stage repairs even at the step-budget boundary instead of
   becoming the answer. The boundary recovery graph covers failures outside a composed plan.
 - **Graph tab** — live topology, node → tool-call inspector, `/graph-chat` API.
@@ -41,7 +42,11 @@ executes arbitrary graphs.
 ## Status (honest)
 
 - Unit suite, typecheck, and the release build gate are green:
-  `npm test` (253 tests), `npm run typecheck`, `npm run build && npm run build:check`.
+  `npm test` (256 tests), `npm run typecheck`, `npm run build && npm run build:check`.
+- Latest evaluator record is `f28de84` (253/253 at the gate; smoke 1.0 oracle / 1.0 graph / 1.0
+  stock). Post-eval `63b5f20` narrows the verify signal to the planned verification tool and is
+  256/256 at the cheap gate, but it has not been through the evaluator gate or smoke. The packaged
+  tarball is still `f28de84` until the next repack.
 - **No product benchmark aggregate.** Terminal-Bench easy10 + medium10 is defined in
   [`bench/official/subsets/product20.json`](bench/official/subsets/product20.json). The tracked
   2026-11-08 partial run

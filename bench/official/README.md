@@ -15,10 +15,12 @@ so the task image/verifier path can pass; it does not validate the DSH arm. Do n
 rows as accuracy, parity or cost.
 
 The latest evaluator pass
-([`results/2026-11-08-eval-1327`](results/2026-11-08-eval-1327/README.md), HEAD `823aa68`) found
-20/20 env images and 19/20 verifier images, with the gate (204/204) and smoke passing; product20 was
-not run. `formal-crypto` and `shadow-relay` request 8 CPUs on the 4-CPU VM, so the suite is not
-runnable end to end. The benchmark tarball was repacked from `packages/loop` at `823aa68`.
+([`results/2026-11-08-eval-1525`](results/2026-11-08-eval-1525/README.md), HEAD `f28de84`) found
+20/20 env images and 19/20 verifier images, with the gate (253/253) and smoke (1.0 / 1.0 / 1.0)
+passing; product20 was not run. `formal-crypto` and `shadow-relay` request 8 CPUs on the 4-CPU VM,
+so the suite is not runnable end to end. Post-eval `63b5f20` narrows `verificationRan` to the
+planned verification tool (256/256 at the cheap gate) but is not in the evaluator gate or smoke.
+The benchmark tarball is still the `f28de84` build (223,372 B, sha256 `4893f934…`).
 
 ## Prerequisites
 
