@@ -78,6 +78,7 @@ PY
     python3 - "$JOBS_DIR/$job/result.json" "$task" "$arm" "$status" "$ROWS" "$task_dir" "$RAW_DIR/$job.json" <<'PY'
 import json, os, shutil, sys, tomllib
 from pathlib import Path
+from criteria import extract_criteria
 result_path, task, arm, status, rows, task_dir, raw_path = sys.argv[1:]
 score = None
 trials = 0
@@ -104,6 +105,11 @@ if toml_path.exists():
 durable = raw_path
 if Path(result_path).exists():
     shutil.copyfile(result_path, raw_path)
+# Reward is binary; keep the verifier's per-criterion/per-test result so a
+# near-miss is distinguishable from a no-op.
+criteria = extract_criteria(Path(result_path).parent) if Path(result_path).exists() else {
+    'criteria_passed': None, 'criteria_total': None, 'criteria_failed': [], 'criteria_source': 'unavailable',
+}
 row = {
     'task': task,
     'arm': arm,
@@ -118,10 +124,12 @@ row = {
     'image_env': images.get('image_env'),
     'image_verifier': images.get('image_verifier'),
     'result': durable,
+    'criteria': criteria,
 }
 with open(rows, 'a') as fh:
     fh.write(json.dumps(row) + '\n')
-print(f"{arm:5} {task:28} score={score} trials={trials} errors={errors} exit={status}")
+print(f"{arm:5} {task:28} score={score} trials={trials} errors={errors} exit={status} "
+      f"criteria={criteria.get('criteria_passed')}/{criteria.get('criteria_total')} ({criteria.get('criteria_source')})")
 PY
   done
 done
@@ -134,10 +142,22 @@ summary = {}
 for arm in ('stock', 'graph'):
     arm_rows = [r for r in rows if r['arm'] == arm and r['score'] is not None]
     scores = [r['score'] for r in arm_rows]
+    criteria_rows = [
+        r for r in arm_rows
+        if isinstance(r.get('criteria'), dict) and r['criteria'].get('criteria_total')
+    ]
+    criteria_passed = sum(int(r['criteria']['criteria_passed']) for r in criteria_rows)
+    criteria_total = sum(int(r['criteria']['criteria_total']) for r in criteria_rows)
     summary[arm] = {
         'n': len(arm_rows),
         'mean': statistics.mean(scores) if scores else None,
         'scores': {r['task']: r['score'] for r in arm_rows},
+        'criteria': {
+            'tasks_with_criteria': len(criteria_rows),
+            'passed': criteria_passed,
+            'total': criteria_total,
+            'micro_rate': (criteria_passed / criteria_total) if criteria_total else None,
+        },
     }
 meta = {
     'commit': os.environ.get('GIT_COMMIT'),

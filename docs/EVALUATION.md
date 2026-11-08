@@ -124,3 +124,12 @@ values.
 Per-task table plus aggregate, with `n_trials`, `n_errors`, prompt/billed tokens and steps. Report
 mean and median; identify task build failures separately. State the oracle control result for the
 tasks under discussion; a 0.0 without an oracle pass on that task proves nothing about the loop.
+
+Because reward is binary, also report **criteria-level correctness** for every trial: criteria
+passed/total, the failed criterion names, and the source (`reward-details.json`, `ctrf.json`,
+`pytest-stdout`, `playwright-report.json`, or `unavailable`). `run-subset.sh` writes a `criteria`
+object on each row; `bench/official/terminal-bench/criteria.py <job-dir>` extracts it manually.
+Report a micro criteria rate (`sum passed / sum total`) and call a 0.0 with high criteria a
+near-miss, not a pass. Do not turn criteria into a new score. For pytest tasks, report the rubric
+criteria and the `ctrf.json` test counts separately when they differ (a meta criterion such as
+`pytest_completed_successfully` is not a test).
