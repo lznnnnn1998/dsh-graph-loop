@@ -26,18 +26,27 @@ features.
 
 ## In progress / next
 
-- [ ] **product20**: Terminal-Bench easy10 + medium10, stock vs graph. The tracked 2026-11-08
-      partial run (`bench/official/results/2026-11-08-product20-partial/`) attempted **19/20** tasks
-      (`formal-crypto` has no verifier image): **11 graph / 3 stock** valid trials, only
-      **2 paired-valid** tasks (`bun-sourcemap-leak`, `cargo-flight-dispatch`), all **0.0**. Reward
-      is binary: stock passed **35/37** criteria on `bun-sourcemap-leak` (graph 18/37) and **33/40**
-      on `cargo-flight-dispatch` (graph 32/40). That run measured the **pre-fix** five-step plan,
-      whose `n_answer` removed every tool (80 vs 217 session records); the plan shape has since
-      changed, so a rerun is required before any stock-vs-graph statement. Invalid as a product
-      aggregate; the instrument is unvalidated for the full
-      suite. A three-task oracle control (`bench/official/results/2026-11-08-oracle-control/`) passes
-      **1.0** (task image/verifier path, not the DSH arm), so those zeros are not a blanket harness
-      artifact. **Rerun with the current composer before any stock-vs-graph statement.**
+- [ ] **product20**: Terminal-Bench easy10 + medium10, stock vs graph. The instrument was repaired on
+      2026-11-09 (8 vCPU / 20 GiB / 150 GiB, **20/20 env + 20/20 verifier** images including
+      `formal-crypto`, `tb-dsh-base` overlay on every env image, sidecars pulled, tarball
+      `f7a961a797ca5e17…`, smoke 1.0/1.0/1.0), so the full run is **pending, not blocked**. Gate
+      before it: the bounded four-task diagnostic (`vpp-loss-divergence`, `intrastat-meldung`,
+      `heat-pump-warranty`, `medical-claims-processing`) plus a direct `formal-crypto` verifier
+      check, both defined in `automation/evaluator.md`. **Historical:** the tracked 2026-11-08 partial
+      run (`bench/official/results/2026-11-08-product20-partial/`) was taken on the pre-repair
+      instrument and attempted **19/20** tasks: **11 graph / 3 stock** valid trials, only **2
+      paired-valid** tasks (`bun-sourcemap-leak`, `cargo-flight-dispatch`), all **0.0**. Reward is
+      binary: stock passed **35/37** criteria on `bun-sourcemap-leak` (graph 18/37) and **33/40** on
+      `cargo-flight-dispatch` (graph 32/40). That run measured the **pre-fix** five-step plan, whose
+      `n_answer` removed every tool (80 vs 217 session records); the plan shape has since changed, so
+      the partial run is invalid as a product aggregate and none of its numbers are citable. A
+      three-task oracle control (`bench/official/results/2026-11-08-oracle-control/`) passes **1.0**
+      (task image/verifier path, not the DSH arm), so those zeros are not a blanket harness artifact.
+      **Rerun on the repaired instrument before any stock-vs-graph statement.**
+- [ ] `medical-claims-processing` known limitation: its Playwright MCP server is exposed to the
+      prompt but not registered as native tools (no SSE MCP client in DSH). Expected 0.0, still a
+      valid trial and included in the aggregate; recorded so the first full run is not misread as an
+      infrastructure failure.
 - [ ] Graph termination, remaining part: the tool-stripping/forced-summary defect is fixed (the
       answer keeps tools and an exhausted plan gets a continuation step), but that continuation is a
       graph-to-stock hand-off bounded by the per-turn `maxSteps`, not graph routing. Decide whether

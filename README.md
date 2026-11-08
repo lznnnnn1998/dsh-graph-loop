@@ -43,28 +43,37 @@ executes arbitrary graphs.
 
 - Unit suite, typecheck, and the release build gate are green:
   `npm test` (256 tests), `npm run typecheck`, `npm run build && npm run build:check`.
-- Latest evaluator record is `f28de84` (253/253 at the gate; smoke 1.0 oracle / 1.0 graph / 1.0
-  stock). Post-eval `63b5f20` narrows the verify signal to the planned verification tool and is
-  256/256 at the cheap gate, but it has not been through the evaluator gate or smoke. The packaged
-  tarball is still `f28de84` until the next repack.
+- **Instrument ready, full run pending (2026-11-09).** Colima is **8 vCPU / 20 GiB / 150 GiB**;
+  **20/20 env and 20/20 verifier** images are present, `formal-crypto` included. Every env image
+  carries the `tb-dsh-base` overlay (`/opt/node` Node 24.9.0 + `/opt/dsh` DSH 0.2.2-rc.1), the
+  product20 sidecar images are pulled, and the Docker daemon proxy inside Colima points at the
+  current host LAN IP. `dist/dsh-graph-loop-bench.tgz` is 223,458 B, sha256
+  `f7a961a797ca5e17…`, and `npm pack` in `packages/loop` reproduces it byte for byte. Smoke is
+  **1.0 oracle / 1.0 graph / 1.0 stock**
+  ([2026-11-09 record](bench/official/results/2026-11-09-smoke-prep/README.md)). A full product20 run
+  is **pending, not blocked**: the readiness gate is the bounded four-task diagnostic plus a direct
+  `formal-crypto` verifier check in [`automation/evaluator.md`](automation/evaluator.md), then the
+  run itself.
+- `medical-claims-processing` is a known DSH limitation: the task's Playwright MCP server is exposed
+  to the prompt but DSH has no SSE MCP client, so the trial is expected to score 0.0. It is still a
+  valid trial, not an infrastructure error, and it stays in the aggregate.
 - **No product benchmark aggregate.** Terminal-Bench easy10 + medium10 is defined in
-  [`bench/official/subsets/product20.json`](bench/official/subsets/product20.json). The tracked
-  2026-11-08 partial run
-  ([result](bench/official/results/2026-11-08-product20-partial/README.md)) attempted 19/20 tasks
-  (`formal-crypto` has no verifier image); 11 graph and 3 stock trials produced a valid score, only
-  two tasks (`bun-sourcemap-leak`, `cargo-flight-dispatch`) are paired-valid, and every valid score
-  is **0.0**. The reward is binary, so read the criteria: stock passed **35/37** on
-  `bun-sourcemap-leak` (graph 18/37) and **33/40** on `cargo-flight-dispatch` (graph 32/40). The
-  graph arm in that run used the **pre-fix** five-step chain, whose `n_answer` removed all tools
-  (80 vs 217 session records): those graph scores measured premature termination, not a loop
-  comparison. That plan shape is historical — the composer now emits per-stage repair/budget exits
-  and a tool-enabled answer — so a rerun is required before any stock-vs-graph statement. The run
-  is **invalid as a product aggregate; the instrument is unvalidated for the full suite.** A
-  separate three-task oracle control
+  [`bench/official/subsets/product20.json`](bench/official/subsets/product20.json); no aggregate
+  exists for the current instrument. The **historical** 2026-11-08 partial run
+  ([result](bench/official/results/2026-11-08-product20-partial/README.md)) was taken on the
+  pre-repair instrument (4-CPU VM, 19/20 verifier images) and attempted 19/20 tasks; 11 graph and 3
+  stock trials produced a valid score, only two tasks (`bun-sourcemap-leak`, `cargo-flight-dispatch`)
+  are paired-valid, and every valid score is **0.0**. The reward is binary, so read the criteria:
+  stock passed **35/37** on `bun-sourcemap-leak` (graph 18/37) and **33/40** on
+  `cargo-flight-dispatch` (graph 32/40). The graph arm in that run used the **pre-fix** five-step
+  chain, whose `n_answer` removed all tools (80 vs 217 session records): those graph scores measured
+  premature termination, not a loop comparison. That plan shape is historical — the composer now
+  emits per-stage repair/budget exits and a tool-enabled answer — so a rerun with the current
+  instrument is required before any stock-vs-graph statement. The partial run is **invalid as a
+  product aggregate** and is not current evidence. A separate three-task oracle control
   ([result](bench/official/results/2026-11-08-oracle-control/README.md)) scores 1.0 on
   `html-js-filter`, `cargo-flight-dispatch` and `music-harmony`, so a 0.0 does not by itself measure
-  the loop; only the task image, verifier and scoring path are validated. Do not cite accuracy,
-  parity, token or cost from the partial run.
+  the loop. Do not cite accuracy, parity, token or cost from the partial run.
 - Checkpoints are **in-memory** (`MemoryCheckpointer`); `storageDomain` durability is not wired, so
   a restart cannot resume mid-turn.
 - The fork is maintenance debt. `scripts/diff-upstream.sh --check` pins the upstream commit and

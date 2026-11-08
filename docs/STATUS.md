@@ -1,4 +1,4 @@
-# Status — 2026-11-08
+# Status — 2026-11-09
 
 Architecture: **B**. `packages/loop` is a dedicated graph-loop plugin that replaces the stock
 `agent-loop` through `AgentFactory`. No DSH source file is modified.
@@ -50,15 +50,15 @@ No claim is made that LangGraph executes arbitrary graphs.
 
 ## Evidence
 
-**Product evidence is incomplete and its only aggregate is invalid.** The active suite is
-Terminal-Bench easy10 + medium10
+**Product evidence is incomplete: no aggregate exists for the repaired instrument.** The active suite
+is Terminal-Bench easy10 + medium10
 ([`bench/official/subsets/product20.json`](../bench/official/subsets/product20.json)). The tracked
-2026-11-08 partial run
-([result](../bench/official/results/2026-11-08-product20-partial/README.md)) attempted **19/20**
-tasks (`formal-crypto` has no verifier image): **11 graph / 3 stock** valid trials, only **2
-paired-valid** tasks (`bun-sourcemap-leak`, `cargo-flight-dispatch`), and every valid score is
-**0.0**. It is invalid as a product aggregate, and the instrument is unvalidated for the full
-suite — no accuracy, parity, token or cost number from it is citable.
+**historical** 2026-11-08 partial run
+([result](../bench/official/results/2026-11-08-product20-partial/README.md)) was taken on the
+pre-repair instrument and attempted **19/20** tasks (`formal-crypto` had no verifier image):
+**11 graph / 3 stock** valid trials, only **2 paired-valid** tasks (`bun-sourcemap-leak`,
+`cargo-flight-dispatch`), and every valid score is **0.0**. It is invalid as a product aggregate; no
+accuracy, parity, token or cost number from it is citable.
 
 The reward is binary, so 0.0 does not mean both arms did nothing: stock passed **35/37** verifier
 criteria on `bun-sourcemap-leak` (graph 18/37) and **33/40** on `cargo-flight-dispatch` (graph
@@ -86,13 +86,17 @@ record is historical.
 
 On **2026-11-09** the instrument was repaired
 ([readiness note](../bench/official/results/2026-11-09-product20-prep/README.md)): **20/20 env and
-20/20 verifier images** (the `formal-crypto` verifier was built and SageMath-smoked at `--cpus 8`),
-Colima **8 vCPU / 20 GiB / 150 GiB**, `shadow-relay` overlaid with Node v24.9.0 + DSH 0.2.2-rc.1,
-heat-pump and medical-claims sidecars pulled, and the Docker daemon proxy repointed to the current
-host IP. `dist/dsh-graph-loop-bench.tgz` is `f7a961a797ca5e17…` (223,458 B) and smoke is
-1.0/1.0/1.0. A full product20 run is now allowed and **pending**; there is still no aggregate.
-`medical-claims-processing` is a known DSH limitation (SSE MCP config is exposed to the prompt but
-not registered as native tools), not an infrastructure error.
+20/20 verifier images** — the `formal-crypto` verifier is built (build log: SageMath 10.7 /
+Python 3.12.14; its first direct `--cpus 8` run is part of the pre-run diagnostic) — Colima
+**8 vCPU / 20 GiB / 150 GiB**, every env image overlaid from `tb-dsh-base` with Node v24.9.0 + DSH
+0.2.2-rc.1, product20 sidecars pulled, and the Docker daemon proxy (inside Colima) repointed to the
+current host LAN IP. `dist/dsh-graph-loop-bench.tgz` is `f7a961a797ca5e17…` (223,458 B) and smoke is
+1.0/1.0/1.0 ([record](../bench/official/results/2026-11-09-smoke-prep/README.md)). A full product20
+run is **pending, not blocked**: run the bounded four-task diagnostic plus the direct `formal-crypto`
+verifier check from [`automation/evaluator.md`](../automation/evaluator.md) first, then the run.
+There is still no aggregate. `medical-claims-processing` is a known DSH limitation (SSE MCP config is
+exposed to the prompt but not registered as native tools), expected 0.0 and still a valid trial, not
+an infrastructure error.
 
 The former local 20-task run is not part of this tree and is not citable as current evidence.
 
@@ -108,26 +112,29 @@ The former local 20-task run is not part of this tree and is not citable as curr
 3. **Budget boundary**: the kernel adapter reserves one extra step for a budget-routed wrap-up node;
    the frontier stops at the plan's step cap. Composed plans target `ANSWER_RESERVE_STEPS` (2), so
    both engines have room in practice; one rule in both engines is still open.
-4. **Product20 blocked on the instrument and on the remaining termination work**: the 2026-11-08
-   run spent most stock arms on a 900 s fixed timeout; `formal-crypto` and `shadow-relay` request
-   `cpus = 8` in `task.toml` against this 4-CPU VM; it also hit image pull/TLS
-   (`heat-pump-warranty`), missing MCP startup (`medical-claims-processing`), npm bootstrap
-   (`intrastat-meldung`), and an old-Node `node:sqlite` import (`freight-dispatch-shift`). The
-   timeout policy is now per-task `[agent].timeout_sec` with `DSH_AGENT_TIMEOUT_CAP` as an override;
-   see [`EVALUATION.md`](EVALUATION.md). The pre-fix plan's tool-stripping is fixed: the composed
-   answer keeps its tools and an exhausted plan gets a continuation step. That continuation is a
-   graph-to-stock hand-off (one `fallbackPlan` node, `maxReplans: 0`) bounded by the per-turn
-   `maxSteps`, not graph routing; decide whether that is the intended contract before comparing
-   arms.
+4. **Product20 pending (not blocked) and the remaining termination work.** The instrument was
+   repaired on 2026-11-09 (above), so the historical 2026-11-08 blockers — 900 s fixed timeout,
+   missing `formal-crypto` verifier, `cpus = 8` requests on a 4-CPU VM, missing shadow overlay,
+   sidecar TLS, old-Node images — are fixed; do not re-report them as current without checking. What
+   remains before the full run is execution evidence, not images: the bounded four-task diagnostic
+   (`vpp-loss-divergence` reward path, `intrastat-meldung` in-container npm, `heat-pump-warranty`
+   sidecar/compose path, `medical-claims-processing` MCP trial) plus a direct `formal-crypto`
+   verifier check, per [`automation/evaluator.md`](../automation/evaluator.md). The pre-fix plan's
+   tool-stripping is fixed: the composed answer keeps its tools and an exhausted plan gets a
+   continuation step. That continuation is a graph-to-stock hand-off (one `fallbackPlan` node,
+   `maxReplans: 0`) bounded by the per-turn `maxSteps`, not graph routing; decide whether that is the
+   intended contract before comparing arms.
 5. **Fork debt**: source copy of DSH's loop; enforced by `scripts/diff-upstream.sh --check`.
 6. **Benchmark heuristics off by default** (`benchGuards: false`); they are harness-specific.
 
 ## Next
 
-1. Fix or exclude the per-task harness blockers above (MCP, sidecar images/CPU, old-Node images) one
-   diagnostic at a time; do not spend a full product20 run on the current instrument.
-2. Only after the blockers are cleared: run product20 and report aggregate accuracy, prompt tokens,
-   billed cost and steps.
+1. Run the pre-run diagnostic from [`automation/evaluator.md`](../automation/evaluator.md): the four
+   product tasks named above with a deliberate `DSH_AGENT_TIMEOUT_CAP`, plus the direct
+   `formal-crypto` verifier check. A task whose trial produced `n_trials: 0` is an infrastructure
+   failure to fix or block on, not a score.
+2. Then run product20 (background it; report status and the live result path) and report aggregate
+   accuracy, prompt tokens, billed cost and steps.
 3. Only after those numbers exist: decide whether the graph loop has a product claim.
 4. Then durable checkpoint consumer and kernel breadth.
 

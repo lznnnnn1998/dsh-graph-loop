@@ -1,8 +1,10 @@
 # Evaluation — product20
 
-Status: **instrument repaired 2026-11-09; full product20 run pending.** The suite is fixed; no
-full stock-vs-graph aggregate exists. No product claim until all 20 tasks have valid stock and graph
-trials, and an oracle control shows the harness can score a pass on the task. Readiness:
+Status: **instrument repaired 2026-11-09; full product20 run pending, not blocked.** The run is
+gated on the bounded four-task diagnostic plus a direct `formal-crypto` verifier check in
+[Run protocol](#run-protocol); no full stock-vs-graph aggregate exists yet. No product claim until
+all 20 tasks have valid stock and graph trials, and an oracle control shows the harness can score a
+pass on the task. Readiness:
 [`2026-11-09-product20-prep`](../bench/official/results/2026-11-09-product20-prep/README.md).
 
 ## Suite
@@ -10,7 +12,8 @@ trials, and an oracle control shows the harness can score a pass on the task. Re
 - Terminal-Bench 4.0, 10 easy + 10 medium.
 - Manifest: [`bench/official/subsets/product20.json`](../bench/official/subsets/product20.json).
 - Fixed before running; do not swap tasks after seeing scores. All 20 verifier images exist
-  (including `formal-crypto`); `medical-claims-processing` is a known MCP-SSE limitation.
+  (including `formal-crypto`); `medical-claims-processing` is a known MCP-SSE limitation (expected
+  0.0, still a valid trial and included in the aggregate, not an infrastructure error).
 
 ## Arms
 
@@ -42,12 +45,33 @@ That run's timeout class is therefore a harness-policy artifact, not a task outc
 
 1. `run-smoke.sh`: oracle/graph/stock must all be 1.0.
 2. Build native arm64 task env + verifier images (see [`bench/README.md`](../bench/README.md)).
-3. Run `bash bench/official/subsets/run-product20.sh`; each task runs graph and stock.
+3. **Pre-run diagnostic (required before a full product20).** Run exactly these four tasks with a
+   deliberate cap and a fresh output dir:
+
+   ```sh
+   TASKS="vpp-loss-divergence intrastat-meldung heat-pump-warranty medical-claims-processing" \
+   DSH_AGENT_TIMEOUT_CAP=3600 \
+   OUT_DIR=bench/official/results/$(date +%Y-%m-%d)-product20-diagnostic \
+   bash bench/official/terminal-bench/run-subset.sh /tmp/tb-arm-dsh
+   ```
+
+   Also run the `formal-crypto` verifier directly (or one bounded `formal-crypto` trial) and record
+   the command and output. Record `n_trials` and the criteria object for every diagnostic row.
+   `n_trials: 0` is a real infrastructure failure — fix it or block and do **not** start the full
+   run. A `0.0` with `n_trials >= 1` is a valid trial (that is the expected
+   `medical-claims-processing` outcome) and does not block. This diagnostic is a readiness gate, not
+   a new score.
+4. Run `bash bench/official/subsets/run-product20.sh`; each task runs graph and stock.
    `run-subset.sh` now defaults `TASKS` to the product20 manifest and `OUT_DIR` to
-   `bench/official/results/terminal-bench-product20/`. Do not pass an ad-hoc task list unless it is a
-   declared diagnostic.
-4. Keep `rows.jsonl` as the canonical rows; a `0.0` with `n_trials: 0` is an infrastructure error,
+   `bench/official/results/terminal-bench-product20/`. Do not pass an ad-hoc task list except for the
+   declared diagnostic above.
+5. Keep `rows.jsonl` as the canonical rows; a `0.0` with `n_trials: 0` is an infrastructure error,
    not a score.
+
+`run-subset.sh` truncates `<OUT_DIR>/rows.jsonl` at start and always iterates every task in `TASKS`:
+there is **no resume**, so give each invocation its own `OUT_DIR`. A long product20 may run in the
+background (see [`automation/evaluator.md`](../automation/evaluator.md)), but it is still one run,
+not a resumable one.
 
 ## Row schema
 
@@ -83,34 +107,34 @@ values.
 
 ## Current evidence
 
-- Current tree: `npm test` **256/256** (0 fail, 0 skipped), typecheck and `build:check` green; the
-  transition matrix drives the frontier, the minimal kernel and the default LangGraph kernel.
-- Readiness and gate (2026-11-08, HEAD `f28de84`): 20/20 env images, 19/20 verifier images
-  (`formal-crypto` missing), `ci-local.sh` PASS at **253/253** tests; product20 not run.
-  `formal-crypto` and `shadow-relay` request `cpus = 8` on a 4-CPU VM, so the suite is not runnable
-  end to end ([evaluation](../bench/official/results/2026-11-08-eval-1525/README.md)).
-- Post-eval fix (HEAD `63b5f20`, not yet through the evaluator gate or smoke): `verificationRan`
-  requires the node's planned verification tool, so a verify step that ran only `read` repairs;
-  **256/256** at the cheap gate (`npm run typecheck`, `npm test`).
-- Smoke (2026-11-08, `f28de84`): **1.0** oracle / **1.0** graph / **1.0** stock on the synthetic
-  `smoke/answer-42` task, run with the `f28de84` tarball packed from `packages/loop`
-  ([result](../bench/official/results/2026-11-08-smoke-1525/README.md)); harness plumbing only.
-  The smoke did **not** run on `63b5f20`.
-- Benchmark tarball: `packages/*/lib` matches a fresh build of the current `63b5f20` source
-  (`build:check` green), while `dist/dsh-graph-loop-bench.tgz` is still the `f28de84` tarball
-  (223,372 B, sha256 `4893f934…`); it was not repacked for `63b5f20`. `run-smoke.sh` and
-  `run-subset.sh` default to it without a rebuild step, so repack and re-run the smoke before any
-  product20 run.
-- 2026-11-08 product20 partial: 19/20 tasks attempted (`formal-crypto` has no verifier image);
-  11 graph / 3 stock valid; only 2 paired-valid (`bun-sourcemap-leak`, `cargo-flight-dispatch`); all
-  valid scores 0.0. **Invalid as a product aggregate; the instrument is unvalidated for the full
-  suite** ([result](../bench/official/results/2026-11-08-product20-partial/README.md)). Reward is
-  binary, so read criteria counts, not just reward: stock passed 35/37 on `bun-sourcemap-leak`
-  (graph 18/37) and 33/40 on `cargo-flight-dispatch` (graph 32/40). That run measured the **pre-fix**
-  five-step plan whose `n_answer` removed every tool (80 vs 217 session records), so those graph
-  scores measure premature termination, not loop quality. The plan shape has since changed
-  (per-stage repair/budget exits, tool-enabled answer), so a rerun is required before any arm
-  comparison; the partial numbers themselves remain invalid.
+- Current tree: `ci-local.sh` PASS, `npm test` **256/256** (0 fail, 0 skipped), typecheck and
+  `build:check` green; the transition matrix drives the frontier, the minimal kernel and the default
+  LangGraph kernel.
+- Readiness (2026-11-09): **20/20 env and 20/20 verifier** images, `formal-crypto` included (its
+  build log shows SageMath 10.7 / Python 3.12.14); the `tb-dsh-base` overlay (Node v24.9.0 + DSH
+  0.2.2-rc.1) is on every env image; product20 sidecars are pulled; Colima is **8 vCPU / 20 GiB /
+  150 GiB**; the daemon proxy inside Colima points at the current host LAN IP
+  ([readiness](../bench/official/results/2026-11-09-product20-prep/README.md)).
+- Smoke (2026-11-09, this tree): **1.0** oracle / **1.0** graph / **1.0** stock on the synthetic
+  `smoke/answer-42` task ([record](../bench/official/results/2026-11-09-smoke-prep/README.md));
+  harness plumbing only, not product evidence. The raw `result.json` files live in that run's
+  git-ignored `jobs/` dir. The 2026-11-08 smoke records are historical.
+- Benchmark tarball: `dist/dsh-graph-loop-bench.tgz` is 223,458 B, sha256 `f7a961a797ca5e17…`, and
+  `npm pack` in `packages/loop` reproduces it byte for byte at this HEAD — a repack is idempotent, so
+  verify the sha rather than treating the artifact as stale. `packages/*/lib` matches a fresh build
+  (`build:check` green). The tarball's `package/lib` differs from the checked-out `lib` only in
+  esbuild source-path comments (0 non-comment differences).
+- 2026-11-08 product20 partial (**historical**): 19/20 tasks attempted (`formal-crypto` had no
+  verifier image); 11 graph / 3 stock valid; only 2 paired-valid (`bun-sourcemap-leak`,
+  `cargo-flight-dispatch`); all valid scores 0.0. **Invalid as a product aggregate** — that run was
+  taken on the pre-repair 4-CPU / 19-verifier instrument
+  ([result](../bench/official/results/2026-11-08-product20-partial/README.md)). Reward is binary, so
+  read criteria counts, not just reward: stock passed 35/37 on `bun-sourcemap-leak` (graph 18/37) and
+  33/40 on `cargo-flight-dispatch` (graph 32/40). It also measured the **pre-fix** five-step plan
+  whose `n_answer` removed every tool (80 vs 217 session records), so those graph scores measure
+  premature termination, not loop quality. The plan shape has since changed (per-stage
+  repair/budget exits, tool-enabled answer), so a rerun on the repaired instrument is required before
+  any arm comparison; the partial numbers themselves remain historical and invalid.
 - 2026-11-08 oracle control: oracle scores **1.0** on `html-js-filter`, `cargo-flight-dispatch` and
   `music-harmony` ([result](../bench/official/results/2026-11-08-oracle-control/README.md)). The
   task image, verifier and scoring path can pass those tasks, so the partial zeros are not a

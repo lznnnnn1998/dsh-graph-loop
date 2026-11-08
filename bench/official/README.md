@@ -6,21 +6,27 @@ were removed; they are not current gates.
 
 ## Status
 
-No valid aggregate. The tracked
-[`results/2026-11-08-product20-partial`](results/2026-11-08-product20-partial/README.md) attempted
-19/20 tasks: 11 graph / 3 stock valid, 2 paired-valid, all 0.0; the instrument is unvalidated for the
-full suite. A three-task
-[`oracle control`](results/2026-11-08-oracle-control/README.md) scores 1.0 on three of those tasks,
-so the task image/verifier path can pass; it does not validate the DSH arm. Do not report the partial
-rows as accuracy, parity or cost.
+No aggregate; the full product20 run is **pending, not blocked**. Readiness (2026-11-09): 20/20 env
+and 20/20 verifier images including `formal-crypto`, Colima 8 vCPU / 20 GiB / 150 GiB, the
+`tb-dsh-base` overlay on every env image, product20 sidecars pulled, tarball `f7a961a797ca5e17…`,
+smoke 1.0 / 1.0 / 1.0 — see
+[`results/2026-11-09-product20-prep`](results/2026-11-09-product20-prep/README.md) and
+[`results/2026-11-09-smoke-prep`](results/2026-11-09-smoke-prep/README.md). The four-task pre-run
+diagnostic in [`automation/evaluator.md`](../../automation/evaluator.md) is the gate before the full
+run; it is a readiness check, not a new score.
 
-The latest evaluator pass
-([`results/2026-11-08-eval-1525`](results/2026-11-08-eval-1525/README.md), HEAD `f28de84`) found
-20/20 env images and 19/20 verifier images, with the gate (253/253) and smoke (1.0 / 1.0 / 1.0)
-passing; product20 was not run. `formal-crypto` and `shadow-relay` request 8 CPUs on the 4-CPU VM,
-so the suite is not runnable end to end. Post-eval `63b5f20` narrows `verificationRan` to the
-planned verification tool (256/256 at the cheap gate) but is not in the evaluator gate or smoke.
-The benchmark tarball is still the `f28de84` build (223,372 B, sha256 `4893f934…`).
+The tracked [`results/2026-11-08-product20-partial`](results/2026-11-08-product20-partial/README.md)
+run is **historical**: it was taken on the pre-repair instrument, attempted 19/20 tasks, produced 11
+graph / 3 stock valid trials and 2 paired-valid tasks, and every valid score is 0.0. A three-task
+[`oracle control`](results/2026-11-08-oracle-control/README.md) scores 1.0 on three of those tasks,
+so the task image/verifier path can pass; it does not validate the DSH arm. Do not report the
+partial rows as accuracy, parity or cost.
+
+The 2026-11-08 evaluator/readiness records
+([`results/2026-11-08-eval-1525`](results/2026-11-08-eval-1525/README.md)) are historical too: 20/20
+env but 19/20 verifier images, on the old 4-CPU VM. The benchmark tarball is now
+`f7a961a797ca5e17…` (223,458 B) and `npm pack` reproduces it from HEAD, so verify the sha — no repack
+is required.
 
 ## Prerequisites
 

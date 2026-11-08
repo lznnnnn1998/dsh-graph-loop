@@ -16,6 +16,9 @@ Rules:
 - Sequential: improver reads the audit; evaluator evaluates the post-improve commit; cleaner runs
   after evaluation.
 - If the environment is not ready, the evaluator reports readiness and does not fabricate scores.
-- One lock: `docs/audits/.running`.
+- One lock: `docs/audits/.running`, held for the four roles of a cycle. It is a **role** lock, not a
+  benchmark lock: a background product20 may outlive the cycle, and the next cycle's benchmark rule
+  (a live Harbor `__env` container) is what prevents a second benchmark, not the lock. A lock left in
+  place by a finished cycle is cleared by the Lead.
 - All four inherit the same non-negotiables: architecture B, no DSH source edits, local git only,
   no push/publish/tokens, no new benchmark or product line, preserve current evidence.

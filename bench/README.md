@@ -8,25 +8,27 @@ was removed.
 - Manifest: [`official/subsets/product20.json`](official/subsets/product20.json) — fixed before
   running, 10 easy + 10 medium.
 - Arms: `stock` (stock `agent-loop`) vs `graph` (this bundle), same model/tools/timeouts.
-- Gate: smoke task 1.0, then all 20 tasks; report accuracy, prompt tokens, billed cost and steps.
-- Status: **no aggregate; instrument unvalidated.** The tracked
-  [`2026-11-08-product20-partial`](official/results/2026-11-08-product20-partial/README.md) run
-  attempted 19/20 tasks (`formal-crypto` has no verifier image): 11 graph / 3 stock valid, only 2
-  paired-valid (`bun-sourcemap-leak`, `cargo-flight-dispatch`), all 0.0. The
+- Gate: smoke task 1.0, then the four-task pre-run diagnostic (see
+  [`automation/evaluator.md`](../automation/evaluator.md)), then all 20 tasks; report accuracy,
+  prompt tokens, billed cost and steps.
+- Status: **no aggregate; full product20 pending, not blocked.** The **historical** tracked
+  [`2026-11-08-product20-partial`](official/results/2026-11-08-product20-partial/README.md) run was
+  taken on the pre-repair instrument and attempted 19/20 tasks (`formal-crypto` had no verifier
+  image): 11 graph / 3 stock valid, only 2 paired-valid (`bun-sourcemap-leak`,
+  `cargo-flight-dispatch`), all 0.0. The
   [`2026-11-08-oracle-control`](official/results/2026-11-08-oracle-control/README.md) passes 1.0 on
   `html-js-filter`, `cargo-flight-dispatch` and `music-harmony`, so a 0.0 is not by itself a product
   result. Never quote the partial rows as accuracy, parity or cost.
 
-Readiness (2026-11-08, HEAD `f28de84`): 20/20 env images, 19/20 verifier images (`formal-crypto`
-missing), `tb-dsh-base` present; `ci-local.sh` passes (253/253) and the smoke gate passes (1.0 / 1.0 /
-1.0) on the `f28de84` tarball. The suite is **not runnable end to end**: `formal-crypto` and
-`shadow-relay` request `cpus = 8` in `task.toml` on this 4-CPU VM, and the MCP/sidecar/old-Node
-blockers are unchanged. See [`2026-11-08-eval-1525`](official/results/2026-11-08-eval-1525/README.md)
-and [`2026-11-08-smoke-1525`](official/results/2026-11-08-smoke-1525/README.md). Post-eval `63b5f20`
-narrows `verificationRan` to the planned verification tool and is 256/256 at the cheap gate; it has
-not been through the evaluator gate or smoke. The benchmark tarball is still the `f28de84` build
-(223,372 B, sha256 `4893f934…`) and was not repacked; `run-smoke.sh` and `run-subset.sh` do not
-rebuild it, so repack before any product run.
+Readiness (2026-11-09): **20/20 env and 20/20 verifier** images including `formal-crypto`, Colima
+**8 vCPU / 20 GiB / 150 GiB**, the `tb-dsh-base` overlay (Node 24.9.0 + DSH 0.2.2-rc.1) on every env
+image, product20 sidecars pulled, `ci-local.sh` and the smoke gate passing (1.0 / 1.0 / 1.0). The
+benchmark tarball is `f7a961a797ca5e17…` (223,458 B) and reproduces from HEAD, so verifying the sha
+is enough — no repack is required. What is untested is execution-level (`vpp-loss-divergence` reward
+file, `intrastat-meldung` in-container npm, the sidecar/compose path, the MCP trial, and the direct
+`formal-crypto` verifier check); the pre-run diagnostic covers exactly those. The 2026-11-08
+readiness records ([`2026-11-08-eval-1525`](official/results/2026-11-08-eval-1525/README.md),
+[`2026-11-08-smoke-1525`](official/results/2026-11-08-smoke-1525/README.md)) are historical.
 
 ## Run
 

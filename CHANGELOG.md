@@ -45,9 +45,10 @@
 ### Benchmark / docs
 
 - Terminal-Bench easy10 + medium10 product suite defined; smoke gate and DSH adapter added.
-- Terminal-Bench product20 attempted 19/20 tasks. The run is **not a valid aggregate** (2
-  paired-valid tasks, all 0.0); a three-task oracle control scores 1.0 and the smoke gate passes. No
-  product claim.
+- Terminal-Bench product20 attempted 19/20 tasks on 2026-11-08 (pre-repair instrument). The run is
+  **not a valid aggregate** (2 paired-valid tasks, all 0.0); a three-task oracle control scores 1.0
+  and the smoke gate passes. No product claim. The 2026-11-09 repair is readiness only; the full run
+  is pending.
 - Removed historical research, archived plans, old local benchmark artifacts and stale docs.
 
 ## 0.1.2
