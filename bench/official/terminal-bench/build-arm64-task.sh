@@ -59,12 +59,18 @@ s = replace_section_image(s, 'verifier.environment', verifier_tag)
 toml.write_text(s)
 PY
 
+PROXY_ARGS=()
+for name in HTTP_PROXY HTTPS_PROXY NO_PROXY; do
+  value="${!name:-}"
+  [ -n "$value" ] && PROXY_ARGS+=(--build-arg "$name=$value")
+done
+
 echo "== build environment (linux/arm64)"
-docker build --platform linux/arm64 -t "$ENV_TAG" "$OUT/environment"
+docker build --platform linux/arm64 "${PROXY_ARGS[@]}" -t "$ENV_TAG" "$OUT/environment"
 
 if [ -f "$OUT/tests/Dockerfile" ]; then
   echo "== build verifier (linux/arm64)"
-  docker build --platform linux/arm64 -t "$VERIFIER_TAG" "$OUT/tests"
+  docker build --platform linux/arm64 "${PROXY_ARGS[@]}" -t "$VERIFIER_TAG" "$OUT/tests"
 fi
 
 echo "PASS arm64 task built at $OUT"

@@ -36,6 +36,15 @@ PROFILE = "tb"
 PATCH = "/tmp/dsh-tool-policy.patch.yml"
 PLUGIN_TARBALL = "/tmp/dsh-graph-loop.tgz"
 
+# Host proxy configuration is required inside the task container: Docker does
+# not inherit the host environment, and the benchmark container needs npm plus
+# the model API. The values come from the harness process environment.
+PROXY_ENV = {
+    key: os.environ[key]
+    for key in ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "NODE_USE_ENV_PROXY")
+    if os.environ.get(key)
+}
+
 
 class DshAgent(BaseAgent):
     """Run one DSH graph-plugin turn inside the Terminal-Bench task container."""
@@ -64,7 +73,7 @@ class DshAgent(BaseAgent):
         self.stock = os.environ.get("DSH_STOCK") == "1"
 
     async def _exec(self, environment: BaseEnvironment, command: str, *, timeout: int = 1800, env: dict[str, str] | None = None):
-        result = await environment.exec(command=command, timeout_sec=timeout, env=env or {})
+        result = await environment.exec(command=command, timeout_sec=timeout, env={**PROXY_ENV, **(env or {})})
         if result.return_code != 0:
             raise RuntimeError(
                 f"DSH adapter command failed ({result.return_code}): {command}\n"
@@ -132,7 +141,7 @@ class DshAgent(BaseAgent):
         environment: BaseEnvironment,
         context: AgentContext,
     ) -> None:
-        env = dict(self.extra_env)
+        env = {**PROXY_ENV, **self.extra_env}
         # DSH's headless profile reads DEEPSEEK_API_KEY from the environment.
         patch = "" if self.stock else f" --patch {PATCH}"
         command = (
