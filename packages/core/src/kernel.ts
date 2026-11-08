@@ -6,8 +6,8 @@
  * whatever executes the graph. Two implementations are expected to satisfy it:
  *
  *   1. `LangGraphKernel`  — a thin adapter over `@langchain/langgraph@1.7.0`
- *                           (see `research/03-langgraph.md` §6).
- *   2. `MinimalKernel`    — the vendored fallback (research/03-langgraph.md §9),
+ *                           (§6).
+ *   2. `MinimalKernel`    — the vendored fallback (§9),
  *                           only built if the LangGraph kill criteria fire.
  *
  * Nothing here imports a third-party type. A graph author writes against this
@@ -61,7 +61,7 @@ import type { GraphState, Json, PlanNode, TaskPlan } from './graph-schema.js'
  * `runtime.ts` is being edited in parallel, and a type-only import would make
  * this file uncheckable whenever the sibling is mid-change. Instead the pieces
  * this file needs from that contract are re-declared below, structurally, and
- * `spikes/langgraph/kernel-conformance.ts` asserts the two shapes agree.
+ * The two shapes are kept in conformance by the kernel tests.
  */
 
 /* ========================================================================== *
@@ -478,7 +478,7 @@ export declare function createGraph<S extends StateObject>(
 ): GraphBuilder<S>
 
 /* ========================================================================== *
- * Adapter obligations (normative — see research/03-langgraph.md §7)
+ * Adapter obligations (normative — §7)
  * ========================================================================== *
  *
  * A kernel adapter MUST:
@@ -512,7 +512,7 @@ export declare function createGraph<S extends StateObject>(
  * (`LangGraphSurface`) instead of importing it: `design/` stays
  * dependency-free, the bundle performs the single
  * `await import('@langchain/langgraph')`, and
- * `spikes/langgraph/kernel-conformance.ts` type-checks that the real 1.7.0
+ * The KernelPort type checks that the real 1.7.0
  * module still satisfies this port. That file is the upgrade checklist.
  */
 
@@ -987,7 +987,7 @@ export function assertLangGraphSurface(candidate: unknown): asserts candidate is
   const missing = required.filter((name) => c[name] === undefined)
   if (missing.length > 0) {
     throw new KernelError(
-      `@langchain/langgraph is missing kernel symbols: ${missing.join(', ')} — see research/03-langgraph.md §9.4`,
+      `@langchain/langgraph is missing kernel symbols: ${missing.join(', ')} — see docs/MERGE-LANGGRAPH.md`,
       'INVALID_GRAPH',
     )
   }

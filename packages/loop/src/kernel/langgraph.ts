@@ -15,7 +15,7 @@
  * one LangGraph node per `PlanNode` and drives the compiled stream one chunk per
  * `next()` call, so a node boundary is observable before the next node runs.
  *
- * Measured LangGraph facts this adapter depends on (spikes/langgraph/output.txt):
+ * Measured LangGraph facts this adapter depends on:
  *  - `streamMode: 'updates'` yields one chunk per node: `{ nodeId: update }`;
  *  - `recursionLimit` exhaustion throws `GraphRecursionError`;
  *  - `Command`/`interrupt()` re-execute a node from the top (C4 — not used);
@@ -135,7 +135,7 @@ async function requireLangGraph(): Promise<LangGraphModule> {
   }
   if (!surfaceOk(lg)) {
     throw new KernelError(
-      '@langchain/langgraph no longer satisfies the kernel surface (see research/03-langgraph.md §9.4)',
+      '@langchain/langgraph no longer satisfies the kernel surface (see docs/MERGE-LANGGRAPH.md)',
       'INVALID_GRAPH',
     )
   }

@@ -212,7 +212,7 @@ export interface DshPort {
  * pairs tool calls/results inside a step, and `ToolCallRecovery` assumes that
  * enclosure. A delegation-only step is therefore step/start + synthetic tool calls +
  * step/end, with no `request/header` (nothing was requested). This is conformance
- * decision CD-3 in docs/archive/design/conformance.ts.
+ * the conformance decision CD-3.
  */
 export const SUPERSTEP_MAPPING = {
   runStart: ['turn/start', 'step/start'],

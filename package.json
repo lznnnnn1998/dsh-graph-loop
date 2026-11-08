@@ -15,13 +15,10 @@
     "e2e:propose": "bash scripts/e2e-propose.sh",
     "e2e:subagents": "bash scripts/e2e-subagents.sh",
     "e2e:replan": "bash scripts/e2e-replan.sh",
-    "preview": "node scripts/preview.mjs /tmp/dsh-graph-traces preview",
     "e2e:graph-chat": "bash scripts/e2e-graph-chat.sh",
     "e2e:graph-tab": "bash scripts/e2e-graph-tab.sh",
     "e2e:conformance": "bash scripts/e2e-conformance.sh",
-    "e2e:cross-loop": "bash scripts/e2e-cross-loop.sh",
-    "ab": "bash scripts/ab-structural.sh",
-    "test:compat": "bash compat/run.sh"
+    "e2e:cross-loop": "bash scripts/e2e-cross-loop.sh"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

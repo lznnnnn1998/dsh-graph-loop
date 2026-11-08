@@ -1,100 +1,71 @@
 # Status — 2026-11-08
 
-One-page snapshot of the repository. Architecture: **B** — the dedicated graph-loop plugin in
-`packages/loop` replaces the stock `agent-loop` through `AgentFactory`. Ownership map:
-[MERGE-LANGGRAPH.md](MERGE-LANGGRAPH.md). Historical decision records (superseded):
-[archive/COMPOSITION.md](archive/COMPOSITION.md), [archive/PRODUCT-LINE.md](archive/PRODUCT-LINE.md).
-
-## What this is
-
-A DSH-native graph loop, installed as a bundle: the stock `agent-loop` row is disabled, a graph
-driver plus a LangGraph kernel runs the turn, the Graph tab shows the topology, and the **Explore**
-mode is the default for new sessions. No DSH source files are modified.
+Architecture: **B**. `packages/loop` is a dedicated graph-loop plugin that replaces the stock
+`agent-loop` through `AgentFactory`. No DSH source file is modified.
 
 ## Works today
 
 | Layer | State |
 |---|---|
-| Install | `bash scripts/install-explore.sh [profile]` (default `web`) installs driver + Graph tab + Explore mode; verifies `agent-loop` disabled, `preset-explore` present, `agent-preset-registry.default = explore` |
-| Mode | Explore preset registered; new sessions default to it (explicit user selection still wins) |
-| Kernel | `createKernel()` / `runPlan()` default to **LangGraph**; `MinimalKernel` fallback when the optional dependency is absent |
-| Live driver | `KernelTopology` pauses the kernel before a node, DSH runs the step, the kernel resumes with the outcome. See the coverage table below |
-| Composition core | envelope / role resolution / capability composer **live in dynamic mode**; unit suite green |
+| Install | `bash scripts/install-explore.sh [profile]` (default `web`) installs driver + Graph tab + Explore mode; verifies `agent-loop` disabled and `preset-explore` default |
+| Mode | Explore preset registered; new sessions default to it |
+| Kernel | `createKernel()` / `runPlan()` default to **LangGraph**; `MinimalKernel` fallback |
+| Live driver | `KernelTopology` pauses before a node; DSH runs the step; kernel resumes. Coverage below |
+| Composition | envelope / role resolution / capability composer live in dynamic mode |
 | UI | Graph tab + `/graph-chat`; installed e2e passes |
-| Packaging | tarball install + packed-loop runtime e2e passes (`scripts/e2e-tarball.sh`); `npm run build && npm run build:check` green |
+| Packaging | tarball install + packed-loop runtime e2e passes; `build:check` reproducible |
 
 ## Kernel coverage (exact)
 
 | Plan shape | Engine | Evidence |
 |---|---|---|
-| Linear chain (`always`/no condition, one control out-edge per node) | **LangGraph** (`KernelTopology`) | `test/unit/kernel-topology.test.ts`, `test/unit/kernel-langgraph.test.ts` |
-| Linear + one `callFailed` failure branch (success edge + recovery edge) | **LangGraph** — `routeKernelPlan()` selects `state.next` before the superstep; the compiled conditional edge is a state-driven switch whose declared destinations are every node id + `END`, and only the selected arm runs | `test/unit/kernel-topology.test.ts` (`takes the callFailed branch`, `follows the success edge`) |
-| Parallel fan-out / two-branch join | `FrontierTopology` | `test/unit/topology.test.ts` |
+| Linear chain | **LangGraph** | `test/unit/kernel-topology.test.ts` |
+| Linear + one `callFailed` branch | **LangGraph** (real conditional edge; `routeKernelPlan` selects `state.next`) | `test/unit/kernel-topology.test.ts` |
+| Parallel fan-out / join | `FrontierTopology` | `test/unit/topology.test.ts` |
 | Subagent batches | `FrontierTopology` | `test/unit/scheduler.test.ts` |
-| `artifact` / `noArtifact` / `fact` / `budget` conditions; conditions on `data` edges | `FrontierTopology` | `canKernelDrive()` rejects them |
-| Node ids with `:` or LangGraph-reserved names | `FrontierTopology` | `canKernelDrive()` rejects them |
+| `artifact`/`noArtifact`/`fact`/`budget` conditions | `FrontierTopology` | `canKernelDrive()` rejects them |
+| Reserved node ids | `FrontierTopology` | `canKernelDrive()` rejects them |
 
-No claim is made that LangGraph executes arbitrary graphs: parallel branches, subagent fan-out and
-non-`callFailed` conditions are frontier features today.
+No claim is made that LangGraph executes arbitrary graphs.
 
 ## Evidence
 
-**Product evidence is absent.** The active suite is Terminal-Bench easy10 + medium10
-([`bench/official/subsets/product20.json`](../bench/official/subsets/product20.json)); it is
-**defined but not yet run**. One suite member, `html-js-filter`, has a standalone tracked trial that
-scored **0.0/0.0** for both arms
-([`bench/official/results/2026-11-07-html-js-filter`](../bench/official/results/2026-11-07-html-js-filter/README.md));
-one hard task is not a product aggregate. The earlier archived local 20-task run is
-**not reproducible**: it ran on a dirty worktree whose recorded commit contains no live composition
-code, and even there the billed total rose. Its prompt-token numbers are historical, not a product
-claim — see [`bench/archive/agent-eval/RESULTS.md`](../bench/archive/agent-eval/RESULTS.md) and the
-provenance note in the run manifest.
+**Product evidence is not complete.** The active suite is Terminal-Bench easy10 + medium10
+([`bench/official/subsets/product20.json`](../bench/official/subsets/product20.json)). Image builds
+and trials are in progress. One member, `html-js-filter`, has a real tracked trial:
+**graph 0.0 / stock 0.0**, one task, both arms completed — not an aggregate and not a product claim
+([result](../bench/official/results/2026-11-08-html-js-filter/README.md)).
 
-**Stress line:** Terminal-Bench hard subset 0.0 on clean trials; smoke 1.0. Not the product gate.
-See [`STRESS-LINE.md`](STRESS-LINE.md).
+The former local 20-task run is not part of this tree and is not citable as current evidence.
 
 ## Known gaps
 
-1. **Kernel coverage is partial**: parallel fan-out/join, subagent batches and non-`callFailed`
-   conditions still use `FrontierTopology`.
-2. **Checkpoints are in-memory** (`MemoryCheckpointer`); `storageDomain` persistence and
-   `getStateHistory` are not wired, so a restart cannot resume mid-turn.
-3. **The Terminal-Bench product suite is defined but not run**; it needs native builds for the 20
-   selected tasks (some have sidecars/desktop deps).
-4. **The stress line is 0.0 on hard tasks**; it is diagnostic, not the product gate.
-5. **Fork duplication** remains: `packages/loop` is a source copy of DSH's loop, re-diffed with
-   [`scripts/diff-upstream.sh`](../scripts/diff-upstream.sh). The guard is **enforced** by
-   `scripts/ci-local.sh` and `scripts/verify-all.sh` (`--check`): the upstream commit is pinned, the
-   expected patch surface (including per-file added/removed budgets for `agent.ts`/`index.ts`) is
-   documented in the script, and `--report` stays available for inspection.
-6. **Benchmark heuristics are gated off by default**: DSML-text detection and the forced mutation
-   retry now require `benchGuards: true` on the `graph-loop` row. They are harness-specific, not
-   graph semantics.
+1. **Durable checkpoints**: `MemoryCheckpointer` only; no `storageDomain` saver, no restart resume.
+   The blocker is the consumer (replay/time-travel), not storage availability.
+2. **Kernel breadth**: parallel fan-out/join, subagent batches and non-`callFailed` conditions still
+   use `FrontierTopology`.
+3. **Product20 not finished**: native arm64 task images and trials are still running.
+4. **Fork debt**: source copy of DSH's loop; enforced by `scripts/diff-upstream.sh --check`.
+5. **Benchmark heuristics off by default** (`benchGuards: false`); they are harness-specific.
 
-## Next, in order
+## Next
 
-1. Build and run the Terminal-Bench easy10 + medium10 product suite (stock vs composition) before
-   making any product claim.
-2. Keep the smoke gate; do not substitute hard stress tasks.
-3. Wire the `storageDomain` checkpoint saver and session-event node trail.
-4. Extend kernel coverage to one parallel shape only if the live loop gains a legitimate parallel
-   step (it has none today); otherwise keep the frontier capability and stop claiming LangGraph owns
-   arbitrary graphs.
+1. Finish product20 images and run stock vs graph for all 20 tasks.
+2. Report aggregate accuracy, prompt tokens, billed cost and steps.
+3. Only after those numbers exist: decide whether the graph loop has a product claim.
+4. Then durable checkpoint consumer and kernel breadth.
 
 ## Commands
 
 ```sh
-npm run typecheck                        # tsc --noEmit over packages/** + test/**
-npm test                                 # unit suite
-npm run build && npm run build:check     # release gate (lib reproducible from source)
-bash scripts/ci-local.sh                 # typecheck + tests + build + fork guard (no external services)
-bash scripts/install-explore.sh          # install into the web profile
-bash scripts/e2e-installed.sh            # installed bundle e2e (mock LLM)
-bash scripts/e2e-tarball.sh              # packed-tarball install path
-bash scripts/verify-all.sh               # typecheck + tests + fork guard + both e2e + links
-bash scripts/diff-upstream.sh --check    # assert the fork patch surface vs the pinned DSH checkout
-bash scripts/diff-upstream.sh --report   # same measurement, report-only (exit 0)
-bash bench/official/terminal-bench/preflight.sh  # Docker + Harbor + DSH adapter
-bash bench/official/terminal-bench/run-smoke.sh  # 1.0 oracle/graph/stock; run BEFORE subsets
-bash bench/official/terminal-bench/run-subset.sh /tmp/tb-arm-dsh   # product20, after native builds
+npm run typecheck
+npm test
+npm run build && npm run build:check
+bash scripts/ci-local.sh
+bash scripts/install-explore.sh
+bash scripts/verify-all.sh
+bash scripts/diff-upstream.sh --check
+bash bench/official/terminal-bench/preflight.sh
+bash bench/official/terminal-bench/run-smoke.sh
+TASKS_DIR=/tmp/tb-arm-dsh bash bench/official/subsets/run-product20.sh
 ```

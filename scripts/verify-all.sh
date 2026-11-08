@@ -48,6 +48,5 @@ PY
 
 echo "== official benchmark preflights (report only)"
 bash bench/official/terminal-bench/preflight.sh || true
-bash bench/official/nl2repo/preflight.sh || true
 
 echo "PASS  verify-all"

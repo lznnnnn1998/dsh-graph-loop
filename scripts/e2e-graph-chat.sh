@@ -74,7 +74,5 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 if [ -x "$CHROME" ]; then
   # The page needs the signed cookie, so the shot goes through the launch URL first.
   CHROME_PATH="$CHROME" node "$ROOT/scripts/graph-chat-shot.mjs" \
-    "http://127.0.0.1:$PORT" "$LAUNCH" "$ROOT/preview/graph-chat-live.png" || echo "screenshot skipped"
-  [ -f "$ROOT/preview/graph-chat-live.png" ] && echo "screenshot: preview/graph-chat-live.png"
 fi
 echo "PASS  e2e live graph-chat  (home: $HOME_DIR)"

@@ -1,55 +1,42 @@
-# DSH agent adapter contract for official benchmarks
+# DSH agent adapter contract (Terminal-Bench)
 
-Both official harnesses call an **agent**; neither knows about DSH. The adapter is the only piece
-that needs to change when moving from the official agent to this plugin.
+Harbor calls an agent class; it does not know about DSH. The adapter is the only bridge.
 
 ## Required behaviour
 
-1. **One task = one DSH process** in the benchmark's working directory (or a copy exposed to DSH).
-2. Launch with a profile that installs `dsh-graph-loop`, the Graph tab (optional for CLI) and the
-   Explore mode; do **not** edit DSH source.
-3. Set `agent-loop.toolPolicy: preset` so benchmark tools are not filtered by the synthesized plan.
-   Record the profile patch and `toolPolicy` in the run manifest.
-4. Pass the task instruction as the prompt. Use a non-interactive, single-turn invocation with a
-   hard timeout from the benchmark.
-5. The benchmark's verifier reads the workspace after the agent exits; do not copy the solution or
-   the tests into the agent image.
-6. Capture the DSH session log for metrics: steps, tool calls, prompt/output/cache tokens, wall
-   time. The session log is the source of truth; do not parse stdout for tokens.
-7. Return the benchmark's expected exit status/JSON. A model error, timeout or non-zero DSH exit is
-   a failed task, not a harness crash; record it distinctly.
+1. One task = one DSH process in the task working directory.
+2. Launch a profile that installs `dsh-graph-loop` (and optionally the Graph tab / Explore mode);
+   do not edit DSH source.
+3. Set `agent-loop.toolPolicy: preset` for benchmark runs so the full benchmark tool set is visible.
+4. Pass the task instruction as a single non-interactive prompt with the benchmark timeout.
+5. Let the benchmark verifier read the workspace after the agent exits; do not copy tests into the
+   agent image.
+6. Capture the DSH session log for steps, tool calls and usage. The session log is the source of
+   truth; do not parse stdout for tokens.
+7. A model error, timeout or non-zero DSH exit is a failed task, not a harness crash; record it
+   distinctly.
 
-## Harbor (Terminal-Bench)
+## Harbor implementation
 
-Harbor's `--agent <name>` resolves an agent class. A DSH adapter must:
+[`terminal-bench/dsh_agent.py`](terminal-bench/dsh_agent.py) implements the Harbor lifecycle:
 
-- implement Harbor's agent lifecycle (install/start/run/stop) for a container;
-- forward the task instruction and any follow-up messages;
-- expose the container workspace to DSH (shell/file tools run inside the task container);
-- return the final agent result to Harbor.
+- installs Node + DSH (skipped when a prebaked image already has `dsh` on `PATH`);
+- installs the packed plugin into a throwaway profile and applies the tool policy patch;
+- runs one DSH turn in `/app`, downloads `/root/.dsh/sessions`;
+- `DSH_STOCK=1` selects the stock control arm.
 
-This adapter **is implemented** in this repo: [`terminal-bench/dsh_agent.py`](terminal-bench/dsh_agent.py).
-`terminal-bench/preflight.sh` checks for it and prints READY when Docker, Harbor and the adapter are
-present. Two recorded caveats: the graph profile patch also sets
-`llm-deepseek.retryPolicy.maxRetries: 1` (the stock arm uses the default), and the dataset was fetched
-with `terminal-bench/terminal-bench@latest` (no digest pinned). Record and equalise both before a
-reportable run.
+`terminal-bench/preflight.sh` checks Docker, Harbor and the adapter.
 
-## OpenHands (NL2Repo-Bench)
+## Known asymmetries to record
 
-NL2Repo's `main.py` drives `openhands/openhands_app.py`. Options:
+- The graph profile patch sets `llm-deepseek.retryPolicy.maxRetries: 1`; the stock arm uses the
+  default.
+- Task images are rebuilt for linux/arm64; record the image tags with results.
+- A prebaked Node/DSH overlay changes setup time but not the agent prompt; record it.
 
-- replace the OpenHands app with a DSH app while keeping the task/workspace/result contract; or
-- run DSH behind an OpenHands-compatible adapter.
+## Reportability
 
-The repo uses OpenHands images `openhands:0.56` and `runtime:0.56-nikolaik`; the adapter must keep
-the Docker volume/workspace layout and write the same per-task result JSON. **Not implemented** —
-`nl2repo/preflight.sh` reports the missing DSH adapter.
-
-## Minimal acceptance before a score is reportable
-
-- [ ] Oracle/baseline run passes on the exact harness version and image digest.
-- [ ] One task runs with stock DSH and one with the graph plugin, both scored by the verifier.
-- [ ] `toolPolicy: preset` is recorded; the benchmark tool set is visible to the agent.
-- [ ] Model, harness commit, dataset digest, max steps, timeout and profile patch are recorded.
-- [ ] Raw session logs and result JSON are saved.
+- [ ] Smoke gate: oracle/graph/stock all 1.0.
+- [ ] Stock and graph arms run the same task image, model, tool policy and timeout.
+- [ ] Model, harness version, image tags, commit and profile patch recorded.
+- [ ] Raw session logs and result JSON saved; `n_trials: 0` is an infrastructure error.

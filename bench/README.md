@@ -1,110 +1,61 @@
-# bench/ — token & cache A/B harness for the DSH graph loop
+# Benchmarks
 
-> **0.2 product evaluation** uses the Terminal-Bench **easy10 + medium10** suite
-> ([`official/subsets/`](official/subsets/)); the old local 20-task harness is archived at
-> [`archive/agent-eval/`](archive/agent-eval/). The hard Terminal-Bench subset is a stress line. This file documents the 0.1.x token/cache
-> harness and remains useful for cost accounting.
+Only the current Terminal-Bench product suite is kept. Old local 20-task and stress-only material
+was removed.
 
-Status: **partially runnable**. The baseline arm runs end to end today; the two graph arms
-are specified but deliberately refuse to run until the plugin exists. Everything here prices
-*logged sessions*, so the same script works unchanged once graph mode exists.
+## Product suite: Terminal-Bench easy10 + medium10
 
-Numbers and conclusions live in [`../research/04-tokens.md`](../research/04-tokens.md). This
-README is the operator manual.
+- Manifest: [`official/subsets/product20.json`](official/subsets/product20.json) — fixed before
+  running, 10 easy + 10 medium.
+- Arms: `stock` (stock `agent-loop`) vs `graph` (this bundle), same model/tools/timeouts.
+- Gate: smoke task 1.0, then all 20 tasks; report accuracy, prompt tokens, billed cost and steps.
+- Status: **in progress**; one tracked task `html-js-filter` is graph 0.0 / stock 0.0. Not an
+  aggregate; do not quote it as a product result.
 
-## Layout
-
-```
-bench/
-  archive/agent-eval/        # legacy local 20-task harness (history; replaced by TB easy/medium)
-  official/                  # Terminal-Bench 4.0 / NL2Repo preflights + adapter contract
-  tasks/tasks.jsonl          # 8 tasks: single-tool, multi-tool edit, research, doc gen, bug fix,
-                             # long refactor, multi-agent, no-tool
-  schema/results.schema.json # one row per (arm, task, repetition)
-  scripts/
-    analyze-session.mjs      # session log -> results row (offline, no model calls)
-    catalog-bytes.mjs        # docs/tool-catalog.md -> per-tool schema bytes (default config)
-    cost-model.mjs           # billed-token decomposition, break-even, mode A/B model
-    aggregate.mjs            # per-arm medians + acceptance/kill rules
-    run-arm.mjs              # live runner skeleton (baseline/explore runnable)
-  baselines/
-    tool-bytes.json          # MEASURED per-tool schema bytes from a live request header (160 tools)
-    catalog-tools.json       # catalog-derived sizes, default config (proxy only)
-    system-prompt.web.txt    # MEASURED rendered system prompt of a live web-profile session
-  results/
-    measured-web-sessions.jsonl  # 5 real sessions priced with provider usage
-    smoke-baseline.jsonl         # end-to-end runner proof against the mock wire server
-```
-
-## Quick start
+## Run
 
 ```sh
-# 1. Price real sessions you already have (no API key, no model calls)
-node bench/scripts/analyze-session.mjs ~/.dsh/sessions/*/*/session.v4.jsonl.zstd --arm baseline > /tmp/rows.jsonl
-
-# 2. Decompose where the billed input goes + break-even + mode model
-node bench/scripts/cost-model.mjs --measured /tmp/rows.jsonl
-node bench/scripts/cost-model.mjs --what break-even
-node bench/scripts/cost-model.mjs --what modes
-
-# 3. Run the baseline arm on the task set (needs a provider endpoint, see below)
-DEEPSEEK_BASE_URL=http://127.0.0.1:8124 DEEPSEEK_API_KEY=mock \
-  node bench/scripts/run-arm.mjs --arm baseline --tasks T1,T8
-
-# 4. Score an arm against the thresholds
-node bench/scripts/aggregate.mjs bench/results/*.jsonl
+# prerequisites: Docker (arm64), Harbor, DSH credentials, proxy if needed
+bash official/terminal-bench/preflight.sh
+bash official/terminal-bench/run-smoke.sh
+TASKS_DIR=/tmp/tb-arm-dsh bash official/subsets/run-product20.sh
 ```
 
-Deterministic, free endpoint (Anthropic-Messages wire compatible, no key needed):
+Results default to `official/results/terminal-bench-product20/` (generated; not tracked).
+
+## Native arm64 images
+
+Terminal-Bench publishes amd64 images; DSH's Node crashes under qemu on Apple Silicon. Build each
+task natively:
 
 ```sh
-cd "${DSH_ROOT:-$HOME/deepseek-harness}"
-node --import tsx packages/test-support/llm-mock-server/src/bin.ts \
-  --sequence success --repeat-last --success-text "OK" --port 8124
+# source task dir from Harbor's cache, output dir, unique env/verifier tags
+bash official/terminal-bench/build-arm64-task.sh \
+  "$HOME/.cache/harbor/tasks/packages/terminal-bench/<task>/<hash>" \
+  "/tmp/tb-arm-dsh/<task>" "tb-arm64-<task>-env:latest" "tb-arm64-<task>-verifier:latest"
 ```
 
-Set `DSH_HOME` to a directory under this workspace so nothing is written into a user profile.
+The build script:
+- strips base-image digests so local arm64 tags are used;
+- sets `UV_HTTP_TIMEOUT=300` for verifier dependency installs;
+- passes `HTTP_PROXY/HTTPS_PROXY/NO_PROXY` as build args when exported.
 
-## What is measured vs estimated
+Prebake Node + DSH + pnpm once and overlay `/opt/node` and `/opt/dsh` into each task env image to
+avoid reinstalling DSH in every trial. The benchmark adapter skips `npm install` when `dsh` is on
+`PATH`.
 
-| Field | Source | Label |
-|---|---|---|
-| `toolSchemaBytes`, `tools` | `request/header.tools` JSON length in the session log | MEASURED |
-| `systemChars` | rendered `system/message` text | MEASURED |
-| `toolSchemaTokens`, `systemTokens` | `ceil(chars/4)` (+4 heuristic overheads) from `packages/llm/token-meter/src/estimate.ts` | MEASURED-DERIVED |
-| `promptTokens`, `cacheReadTokens`, `missTokens`, `outputTokens` | provider usage on `assistant/message` | MEASURED |
-| `billedInputUnits`, `billedCostUsd` | `miss + 0.02*hit`, list prices | DERIVED |
-| `toolSchemaTokens` in a mock/replay run | heuristic, `tokenSource: "heuristic"` | ESTIMATE |
-| preset surface numbers | measured per-tool bytes summed over preset membership | MEASURED bytes, ESTIMATE for unmounted tools |
+## Proxy
 
-## Honest gaps (do not paper over)
+Docker containers do not inherit the host network. If the host uses a TUN proxy, run an HTTP
+CONNECT proxy reachable from the Colima VM and configure:
 
-1. **`run-arm --arm baseline` measures the headless composition (24 tools), not the web
-   `standard` preset (33 tools).** The headless bundle mounts the base tool rows directly;
-   the web bundle composes tools through `agent-preset`. A preset-aware headless profile is
-   the missing piece. Until then, preset comparisons are analytic from `tool-bytes.json` and
-   the preset YAMLs, not from a live run.
-2. **No `explore` preset exists yet.** The runner accepts `--profile <explore>` but nothing
-   provides one. It must be a preset file (e.g. `bench/presets/explore.patch.yml` copied into
-   a profile) — a preset switch is a *new session*, which is exactly right for a cache-clean
-   comparison and wrong for a mid-session tool change.
-3. **Graph arms are not wired.** `--arm graph-control` needs a plugin mounted as a
-   `cordis.patch.yml` row replacing `agent-loop`; `--arm graph-node` needs a coordinator that
-   spawns one subagent session per node and records a parent id so `sessionCount` is real.
-   Both refuse to run rather than silently measuring a single session.
-4. **Mock runs have synthetic usage.** `llm-mock-server` reports `input_tokens: 3`, so token
-   columns fall back to the heuristic. Cache behaviour can only be measured against the real
-   provider (or `llm-replay`, which replays recorded streams and still yields no real usage).
-5. **Session logs are user data.** `analyze-session.mjs` reads them in place and emits only
-   metrics; do not commit raw session logs to this directory.
-6. **`aggregate.mjs` needs ≥3 tasks per arm** before medians mean anything; the shipped
-   `measured-web-sessions.jsonl` is 5 heterogeneous sessions, not an A/B.
+- the Docker daemon (`/etc/systemd/system/docker.service.d/http-proxy.conf` in the VM);
+- `HTTP_PROXY`/`HTTPS_PROXY` for builds (the build script passes them);
+- `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` in the harness process (the adapter injects them into
+  setup and run commands).
 
-## Adding an arm
+## Adapter
 
-1. Mount the arm (profile patch / plugin) and give it a profile name.
-2. `node bench/scripts/run-arm.mjs --arm <arm> --profile <profile> --tasks T1,T2,T6`.
-3. `node bench/scripts/aggregate.mjs bench/results/*.jsonl` — the verdicts apply the
-   pre-registered thresholds in `scripts/aggregate.mjs` (`ACCEPT`).
-4. If the arm changes tools or prompt *inside* a session, also report `cacheReadRatio`: a drop
-   of more than 20 points means the prefix cache was destroyed (see research/04-tokens.md §4).
+[`official/terminal-bench/dsh_agent.py`](official/terminal-bench/dsh_agent.py) installs DSH in the
+task container (or uses a prebaked image), installs the packed plugin, runs one headless turn and
+downloads session logs. `DSH_STOCK=1` selects the control arm.

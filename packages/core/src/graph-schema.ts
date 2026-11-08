@@ -347,7 +347,7 @@ export interface PlanNode {
   readonly toolAllow?: readonly string[]
   /** Advisory node: a failed tool does not fail the step (e.g. read-before-write). */
   readonly optional?: boolean
-  /** Hard gating removes schemas from the request: see docs/archive/design/replan.ts gate policy. */
+  /** Hard gating removes schemas from the request: see the replan gate policy. */
   readonly hardGate?: boolean
   /**
    * In-session nodes only: the model this node's step requests. Applying a different
