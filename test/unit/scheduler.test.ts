@@ -275,3 +275,32 @@ test('a batch node superseded by a recovery replan does not advance the recovery
   assert.equal(driver.snapshot().replans, 1)
   assert.deepEqual(driver.snapshot().trail.map(entry => entry.id), ['p', 's1'])
 })
+
+test('a budget-guarded wrap-up node is not discarded by the kernel step cap', async () => {
+  const plan: TaskPlan = {
+    id: 'budget-wrap',
+    templateId: 'test',
+    version: 1,
+    entry: 'a',
+    terminals: ['b'],
+    nodes: [
+      { id: 'a', kind: 'agent-step', executor: 'step', instruction: 'work' },
+      { id: 'b', kind: 'terminal', executor: 'step', instruction: 'answer', toolAllow: [] },
+    ],
+    edges: [{ from: 'a', to: 'b', kind: 'control', when: { op: 'budget', axis: 'steps', remainingAtMost: 1 } }],
+    budget: { maxNodes: 2, maxSteps: 2, maxTokens: 1_000, maxWallMs: 60_000, maxReplans: 0 },
+    toolUniverse: [],
+    gatePolicy: 'cold',
+    fallback: false,
+    confidence: 1,
+    compiledDigest: 'budget-wrap',
+  }
+  const driver = createGraphTurnDriver({ kernel: 'minimal' })
+  driver.adopt(plan)
+  assert.equal(driver.current()?.id, 'a')
+  await driver.advance({ ok: true })
+  assert.equal(driver.current()?.id, 'b')
+  await driver.advance({ ok: true })
+  assert.equal(driver.done(), true)
+  assert.deepEqual(driver.snapshot().trail.map(row => row.id), ['a', 'b'])
+})

@@ -250,9 +250,18 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     adoptedAtStep = undefined
     plan = next
     const kernelMode = options.kernel ?? 'langgraph'
+    // A budget-guarded exit may route to a wrap-up node on the last planned
+    // step. The kernel's own pre-execution cap would discard that node, so
+    // reserve one extra kernel step when such an exit exists; the plan budget
+    // still decides routing, not the reserve.
+    const hasBudgetExit = next.edges.some(edge => edge.when?.op === 'budget')
     try {
       topology = kernelMode !== 'off' && canKernelDrive(next)
-        ? new KernelTopology(next, { kind: kernelMode, taskHash: next.id, maxSteps: next.budget.maxSteps })
+        ? new KernelTopology(next, {
+            kind: kernelMode,
+            taskHash: next.id,
+            maxSteps: next.budget.maxSteps + (hasBudgetExit ? 1 : 0),
+          })
         : new FrontierTopology(next)
     } catch {
       topology = new FrontierTopology(next)
