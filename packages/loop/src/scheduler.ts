@@ -373,6 +373,14 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     // the tool-name heuristics in `deriveStepFacts` give the core tools, so a
     // composed inspect/mutate stage is classifiable whatever fills it.
     Object.assign(facts, deriveCapabilityFacts(observed, capability))
+    // A verify node has a planned verification capability. "Something ran" is
+    // not enough: a read/glob/explore call must not count as a verification.
+    if (capability?.tags.includes('verification')) {
+      const verificationTool = capability.tool?.name
+      facts['verificationRan'] = verificationTool === undefined
+        ? observed.length > 0
+        : observed.some(tool => tool.name === verificationTool && !tool.isError)
+    }
     // `artifact` stays run-cumulative by design; stage success must be
     // step-scoped, otherwise an earlier stage's file can satisfy a later
     // author's guard. The boolean is always written so an author's

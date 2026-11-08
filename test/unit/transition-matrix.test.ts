@@ -910,3 +910,18 @@ test('a model-authored proposal with a token/wall budget guard is rejected', () 
   assert.equal(result.ok, false)
   assert.ok(result.errors.some(error => error.includes('not a supported condition')), result.errors.join('; '))
 })
+
+for (const engine of ENGINES) {
+  engineTest(`a composed verify step that ran only read repairs instead of answering [${engine}]`, engine, async () => {
+    const { graph, plan } = coreComposition()
+    const driver = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
+    driver.adopt(plan)
+    await driver.advance({ ok: true, tools: [{ name: 'read', isError: false }] })
+    await driver.advance({ ok: true, tools: [{ name: 'edit', isError: false }] })
+    assert.equal(driver.current()?.id, 'n_verify')
+    // "A tool ran" is not "the verification ran": the planned capability is
+    // `bash`, so a read-only step must repair rather than pass.
+    await driver.advance({ ok: true, tools: [{ name: 'read', isError: false }] })
+    assert.equal(driver.current()?.id, 'n_verify_repair')
+  })
+}
