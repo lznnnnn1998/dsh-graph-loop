@@ -47,8 +47,14 @@
 - Terminal-Bench easy10 + medium10 product suite defined; smoke gate and DSH adapter added.
 - Terminal-Bench product20 attempted 19/20 tasks on 2026-11-08 (pre-repair instrument). The run is
   **not a valid aggregate** (2 paired-valid tasks, all 0.0); a three-task oracle control scores 1.0
-  and the smoke gate passes. No product claim. The 2026-11-09 repair is readiness only; the full run
-  is pending.
+  and the smoke gate passes. No product claim.
+- 2026-11-09: the instrument was repaired (20/20 env + verifier images, 8 vCPU / 20 GiB) and the
+  bounded four-task pre-run diagnostic ran. The gate **failed**, so no full product20 was started and
+  there is still no aggregate: `intrastat-meldung` and `heat-pump-warranty` produced valid 0.0
+  near-miss trials, while `vpp-loss-divergence` (verifier image lost its heredoc patch to Docker's
+  legacy builder) and `medical-claims-processing` (amd64 `playwright-mcp` sidecar never healthy under
+  qemu) returned `n_trials: 0` on both arms. Evidence:
+  `bench/official/results/2026-11-09-prediag-0122/`.
 - Removed historical research, archived plans, old local benchmark artifacts and stale docs.
 
 ## 0.1.2

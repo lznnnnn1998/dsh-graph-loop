@@ -11,7 +11,8 @@ was removed.
 - Gate: smoke task 1.0, then the four-task pre-run diagnostic (see
   [`automation/evaluator.md`](../automation/evaluator.md)), then all 20 tasks; report accuracy,
   prompt tokens, billed cost and steps.
-- Status: **no aggregate; full product20 pending, not blocked.** The **historical** tracked
+- Status: **no aggregate; product20 is blocked by the failed 2026-11-09 pre-run diagnostic.** The
+  **historical** tracked
   [`2026-11-08-product20-partial`](official/results/2026-11-08-product20-partial/README.md) run was
   taken on the pre-repair instrument and attempted 19/20 tasks (`formal-crypto` had no verifier
   image): 11 graph / 3 stock valid, only 2 paired-valid (`bun-sourcemap-leak`,
@@ -24,10 +25,19 @@ Readiness (2026-11-09): **20/20 env and 20/20 verifier** images including `forma
 **8 vCPU / 20 GiB / 150 GiB**, the `tb-dsh-base` overlay (Node 24.9.0 + DSH 0.2.2-rc.1) on every env
 image, product20 sidecars pulled, `ci-local.sh` and the smoke gate passing (1.0 / 1.0 / 1.0). The
 benchmark tarball is `f7a961a797ca5e17…` (223,458 B) and reproduces from HEAD, so verifying the sha
-is enough — no repack is required. What is untested is execution-level (`vpp-loss-divergence` reward
-file, `intrastat-meldung` in-container npm, the sidecar/compose path, the MCP trial, and the direct
-`formal-crypto` verifier check); the pre-run diagnostic covers exactly those. The 2026-11-08
-readiness records ([`2026-11-08-eval-1525`](official/results/2026-11-08-eval-1525/README.md),
+is enough — no repack is required.
+
+The four-task pre-run diagnostic then ran at HEAD `5cae65c` and **failed**
+([`2026-11-09-prediag-0122`](official/results/2026-11-09-prediag-0122/README.md)):
+`intrastat-meldung` (graph 0/47, stock 42/47 criteria) and `heat-pump-warranty` (graph 1/21, stock
+16/21) are valid 0.0 near-misses; `vpp-loss-divergence` and `medical-claims-processing` are
+`n_trials: 0` on both arms. `medical-claims-processing` cannot start (its `playwright-mcp` sidecar is
+a vendor amd64 image and under qemu the CDP 9222 healthcheck never passes — an unresolved
+infrastructure blocker). The vpp verifier image was repaired out-of-band because
+[`build-arm64-task.sh`](official/terminal-bench/build-arm64-task.sh) still uses Docker's legacy
+builder, which drops the heredoc patches (the graph retest scores criteria 4/5; the stock retrial is
+pending). No product20 was started. The 2026-11-08 readiness records
+([`2026-11-08-eval-1525`](official/results/2026-11-08-eval-1525/README.md),
 [`2026-11-08-smoke-1525`](official/results/2026-11-08-smoke-1525/README.md)) are historical.
 
 ## Run

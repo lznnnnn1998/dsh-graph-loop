@@ -43,20 +43,25 @@ executes arbitrary graphs.
 
 - Unit suite, typecheck, and the release build gate are green:
   `npm test` (256 tests), `npm run typecheck`, `npm run build && npm run build:check`.
-- **Instrument ready, full run pending (2026-11-09).** Colima is **8 vCPU / 20 GiB / 150 GiB**;
-  **20/20 env and 20/20 verifier** images are present, `formal-crypto` included. Every env image
-  carries the `tb-dsh-base` overlay (`/opt/node` Node 24.9.0 + `/opt/dsh` DSH 0.2.2-rc.1), the
-  product20 sidecar images are pulled, and the Docker daemon proxy inside Colima points at the
-  current host LAN IP. `dist/dsh-graph-loop-bench.tgz` is 223,458 B, sha256
-  `f7a961a797ca5e17…`, and `npm pack` in `packages/loop` reproduces it byte for byte. Smoke is
-  **1.0 oracle / 1.0 graph / 1.0 stock**
-  ([2026-11-09 record](bench/official/results/2026-11-09-smoke-prep/README.md)). A full product20 run
-  is **pending, not blocked**: the readiness gate is the bounded four-task diagnostic plus a direct
-  `formal-crypto` verifier check in [`automation/evaluator.md`](automation/evaluator.md), then the
-  run itself.
-- `medical-claims-processing` is a known DSH limitation: the task's Playwright MCP server is exposed
-  to the prompt but DSH has no SSE MCP client, so the trial is expected to score 0.0. It is still a
-  valid trial, not an infrastructure error, and it stays in the aggregate.
+- **Instrument exercised, product20 gated (2026-11-09).** Colima is **8 vCPU / 20 GiB / 150 GiB**;
+  **20/20 env and 20/20 verifier** images are present, `formal-crypto` included; every env image
+  carries the `tb-dsh-base` overlay (Node 24.9.0 + DSH 0.2.2-rc.1);
+  `dist/dsh-graph-loop-bench.tgz` reproduces from HEAD; smoke is **1.0 oracle / 1.0 graph / 1.0
+  stock** ([2026-11-09 record](bench/official/results/2026-11-09-smoke-prep/README.md)). The bounded
+  four-task pre-run diagnostic then **failed the gate**
+  ([result](bench/official/results/2026-11-09-prediag-0122/README.md)): `intrastat-meldung` (graph
+  0/47, stock 42/47 criteria) and `heat-pump-warranty` (graph 1/21, stock 16/21) produced valid 0.0
+  near-miss trials, while `vpp-loss-divergence` and `medical-claims-processing` produced
+  `n_trials: 0` on both arms. The instrument executes **19 of 20** tasks, but **no full product20 was
+  started**.
+- **Two infrastructure blockers.** `medical-claims-processing` cannot start: its `playwright-mcp`
+  sidecar is a vendor amd64 image and under qemu Chrome never opens CDP 9222, so the compose
+  healthcheck fails before a trial exists — an unresolved blocker, and not the "MCP tools unavailable
+  → expected 0.0" case (no trial ran, so there is no valid 0.0 row). `vpp-loss-divergence`'s verifier
+  image was built by Docker's legacy builder, which drops heredoc `RUN` bodies, so
+  `/opt/verifier_pristine` was empty; the images were patched out-of-band (graph retest criteria 4/5),
+  but `bench/official/terminal-bench/build-arm64-task.sh` still uses the legacy builder and a
+  canonical rebuild reproduces the defect.
 - **No product benchmark aggregate.** Terminal-Bench easy10 + medium10 is defined in
   [`bench/official/subsets/product20.json`](bench/official/subsets/product20.json); no aggregate
   exists for the current instrument. The **historical** 2026-11-08 partial run

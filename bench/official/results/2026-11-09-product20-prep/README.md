@@ -52,12 +52,13 @@ stock  1.0
 
 This task should be reported as a known DSH limitation with an **expected** 0.0, not as a harness
 failure, and it stays in the aggregate. It is a valid trial with criteria whatever it scores, not an
-`n_trials: 0` row.
+`n_trials: 0` row. (The 2026-11-09 diagnostic found the trial cannot currently start at all — the
+sidecar never turns healthy; see the postscript below.)
 
 ## Run policy
 
-The full product20 is **pending, not blocked**: run the bounded four-task diagnostic from
-[`automation/evaluator.md`](../../../../automation/evaluator.md) first
+The full product20 was **pending, not blocked** when this note was written: run the bounded four-task
+diagnostic from [`automation/evaluator.md`](../../../../automation/evaluator.md) first
 (`vpp-loss-divergence`, `intrastat-meldung`, `heat-pump-warranty`, `medical-claims-processing`, with
 `DSH_AGENT_TIMEOUT_CAP=3600`), plus the direct `formal-crypto` verifier `--cpus 8` check, and record
 `n_trials`/criteria for each. A diagnostic row with `n_trials: 0` is a real infrastructure failure to
@@ -77,3 +78,13 @@ the cycle lock.
 - No direct `formal-crypto` verifier `--cpus 8` run is recorded (`/private/tmp/formal-verifier-build.log`
   is the build log, not a runtime check); the diagnostic records one.
 - No product aggregate; no accuracy/parity/token/cost claim.
+
+## Postscript (2026-11-09, after the pre-run diagnostic)
+
+The diagnostic gate was run at HEAD `5cae65c` later on 2026-11-09 and **failed**, so no product20 was
+started. `intrastat-meldung` and `heat-pump-warranty` produced valid 0.0 near-miss trials, but
+`vpp-loss-divergence` and `medical-claims-processing` returned `n_trials: 0` on both arms: the vpp
+verifier image had lost its heredoc patch to Docker's legacy builder, and the `playwright-mcp`
+sidecar never turned healthy under qemu. See
+[`../2026-11-09-prediag-0122/README.md`](../2026-11-09-prediag-0122/README.md). The sections above
+remain the readiness snapshot taken before that run.

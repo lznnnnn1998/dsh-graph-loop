@@ -1,19 +1,24 @@
 # Evaluation — product20
 
-Status: **instrument repaired 2026-11-09; full product20 run pending, not blocked.** The run is
-gated on the bounded four-task diagnostic plus a direct `formal-crypto` verifier check in
-[Run protocol](#run-protocol); no full stock-vs-graph aggregate exists yet. No product claim until
-all 20 tasks have valid stock and graph trials, and an oracle control shows the harness can score a
-pass on the task. Readiness:
+Status: **instrument repaired 2026-11-09, but the pre-run diagnostic gate FAILED; no full product20
+was started and no stock-vs-graph aggregate exists.** The 2026-11-09 diagnostic
+([result](../bench/official/results/2026-11-09-prediag-0122/README.md)) produced valid trials on
+2 of 4 tasks and `n_trials: 0` on the other two: `medical-claims-processing` (amd64
+`playwright-mcp` sidecar never healthy under qemu — an unresolved infrastructure blocker) and
+`vpp-loss-divergence` (the verifier image lost its heredoc patch under Docker's legacy builder;
+repaired out-of-band, stock retrial pending). No product claim until all 20 tasks have valid stock
+and graph trials, and an oracle control shows the harness can score a pass on the task. Readiness:
 [`2026-11-09-product20-prep`](../bench/official/results/2026-11-09-product20-prep/README.md).
 
 ## Suite
 
 - Terminal-Bench 4.0, 10 easy + 10 medium.
 - Manifest: [`bench/official/subsets/product20.json`](../bench/official/subsets/product20.json).
-- Fixed before running; do not swap tasks after seeing scores. All 20 verifier images exist
-  (including `formal-crypto`); `medical-claims-processing` is a known MCP-SSE limitation (expected
-  0.0, still a valid trial and included in the aggregate, not an infrastructure error).
+- Fixed before running; do not swap tasks after seeing scores. All 20 env and verifier images exist
+  (including `formal-crypto`). `medical-claims-processing` cannot currently start in this environment
+  (amd64 `playwright-mcp` sidecar under qemu; the compose healthcheck never passes), so it is an
+  infrastructure blocker, not the separate "MCP tools unavailable → expected 0.0" limitation. Do not
+  backfill an expected-0.0 row for it.
 
 ## Arms
 
@@ -58,9 +63,16 @@ That run's timeout class is therefore a harness-policy artifact, not a task outc
    Also run the `formal-crypto` verifier directly (or one bounded `formal-crypto` trial) and record
    the command and output. Record `n_trials` and the criteria object for every diagnostic row.
    `n_trials: 0` is a real infrastructure failure — fix it or block and do **not** start the full
-   run. A `0.0` with `n_trials >= 1` is a valid trial (that is the expected
-   `medical-claims-processing` outcome) and does not block. This diagnostic is a readiness gate, not
-   a new score.
+   run. A `0.0` with `n_trials >= 1` is a valid trial (a near-miss, not a pass) and does not block.
+   This diagnostic is a readiness gate, not a new score.
+
+   **Result of the 2026-11-09 attempt: FAILED.** `intrastat-meldung` (graph 0/47, stock 42/47
+   criteria) and `heat-pump-warranty` (graph 1/21, stock 16/21) produced valid 0.0 trials;
+   `vpp-loss-divergence` (`n_trials: 0` both arms — the verifier image lost its heredoc patch to the
+   legacy builder) and `medical-claims-processing` (`n_trials: 0` both arms — amd64 sidecar never
+   healthy) did not ([result](../bench/official/results/2026-11-09-prediag-0122/README.md)). The
+   direct `formal-crypto` verifier check passed (Python 3.12.14, SageMath 10.7). No full product20
+   was started.
 4. Run `bash bench/official/subsets/run-product20.sh`; each task runs graph and stock.
    `run-subset.sh` now defaults `TASKS` to the product20 manifest and `OUT_DIR` to
    `bench/official/results/terminal-bench-product20/`. Do not pass an ad-hoc task list except for the
@@ -110,11 +122,21 @@ values.
 - Current tree: `ci-local.sh` PASS, `npm test` **256/256** (0 fail, 0 skipped), typecheck and
   `build:check` green; the transition matrix drives the frontier, the minimal kernel and the default
   LangGraph kernel.
-- Readiness (2026-11-09): **20/20 env and 20/20 verifier** images, `formal-crypto` included (its
-  build log shows SageMath 10.7 / Python 3.12.14); the `tb-dsh-base` overlay (Node v24.9.0 + DSH
-  0.2.2-rc.1) is on every env image; product20 sidecars are pulled; Colima is **8 vCPU / 20 GiB /
-  150 GiB**; the daemon proxy inside Colima points at the current host LAN IP
+- Readiness (2026-11-09): **20/20 env and 20/20 verifier** images, `formal-crypto` included (SageMath
+  10.7 / Python 3.12.14; its direct `--cpus 8` check passed); the `tb-dsh-base` overlay (Node v24.9.0
+  + DSH 0.2.2-rc.1) is on every env image; product20 sidecars are pulled; Colima is **8 vCPU /
+  20 GiB / 150 GiB**; the daemon proxy inside Colima points at the current host LAN IP
   ([readiness](../bench/official/results/2026-11-09-product20-prep/README.md)).
+- Pre-run diagnostic (2026-11-09, HEAD `5cae65c`): **gate FAILED**, no product20 started
+  ([result](../bench/official/results/2026-11-09-prediag-0122/README.md)). Valid trials:
+  `intrastat-meldung` graph 0/47 / stock 42/47 criteria and `heat-pump-warranty` graph 1/21 / stock
+  16/21, all reward 0.0 — near-misses, not passes, and not part of any aggregate. Infrastructure
+  failures, both arms `n_trials: 0`: `vpp-loss-divergence` (legacy-builder heredoc drop left
+  `/opt/verifier_pristine` empty → `RewardFileNotFoundError`; images patched out-of-band, graph retest
+  criteria 4/5, stock retrial pending) and `medical-claims-processing` (amd64 `playwright-mcp` sidecar
+  under qemu never opens CDP 9222, so the compose healthcheck fails before a trial exists). The repo's
+  `build-arm64-task.sh` still uses the legacy builder, so the vpp image repair is not reproducible
+  from this tree.
 - Smoke (2026-11-09, this tree): **1.0** oracle / **1.0** graph / **1.0** stock on the synthetic
   `smoke/answer-42` task ([record](../bench/official/results/2026-11-09-smoke-prep/README.md));
   harness plumbing only, not product evidence. The raw `result.json` files live in that run's

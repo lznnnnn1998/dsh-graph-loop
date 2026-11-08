@@ -86,17 +86,48 @@ record is historical.
 
 On **2026-11-09** the instrument was repaired
 ([readiness note](../bench/official/results/2026-11-09-product20-prep/README.md)): **20/20 env and
-20/20 verifier images** — the `formal-crypto` verifier is built (build log: SageMath 10.7 /
-Python 3.12.14; its first direct `--cpus 8` run is part of the pre-run diagnostic) — Colima
-**8 vCPU / 20 GiB / 150 GiB**, every env image overlaid from `tb-dsh-base` with Node v24.9.0 + DSH
-0.2.2-rc.1, product20 sidecars pulled, and the Docker daemon proxy (inside Colima) repointed to the
-current host LAN IP. `dist/dsh-graph-loop-bench.tgz` is `f7a961a797ca5e17…` (223,458 B) and smoke is
-1.0/1.0/1.0 ([record](../bench/official/results/2026-11-09-smoke-prep/README.md)). A full product20
-run is **pending, not blocked**: run the bounded four-task diagnostic plus the direct `formal-crypto`
-verifier check from [`automation/evaluator.md`](../automation/evaluator.md) first, then the run.
-There is still no aggregate. `medical-claims-processing` is a known DSH limitation (SSE MCP config is
-exposed to the prompt but not registered as native tools), expected 0.0 and still a valid trial, not
-an infrastructure error.
+20/20 verifier images** including a built `formal-crypto` verifier (SageMath 10.7 / Python 3.12.14;
+its direct `--cpus 8` check passed), Colima **8 vCPU / 20 GiB / 150 GiB**, every env image overlaid
+from `tb-dsh-base` (Node v24.9.0 + DSH 0.2.2-rc.1), product20 sidecars pulled, the Docker daemon
+proxy (inside Colima) repointed to the current host LAN IP, `dist/dsh-graph-loop-bench.tgz` at
+`f7a961a797ca5e17…` (223,458 B), and smoke 1.0/1.0/1.0
+([record](../bench/official/results/2026-11-09-smoke-prep/README.md)).
+
+The bounded four-task pre-run diagnostic then ran at HEAD `5cae65c`
+([result](../bench/official/results/2026-11-09-prediag-0122/README.md), 01:46 → 03:22) and the gate
+**FAILED**; **no full product20 was started and there is still no aggregate.**
+
+| diagnostic task | graph | stock | verdict |
+|---|---|---|---|
+| `intrastat-meldung` | 1 trial, 0/47 criteria | 1 trial, 42/47 | valid trials, both reward 0.0 |
+| `heat-pump-warranty` | 1 trial, 1/21 | 1 trial, 16/21 | valid trials, both reward 0.0 |
+| `vpp-loss-divergence` | **`n_trials: 0`** | **`n_trials: 0`** | verifier image fault |
+| `medical-claims-processing` | **`n_trials: 0`** | **`n_trials: 0`** | amd64-sidecar blocker |
+
+The two valid tasks are near-misses, not passes: reward is binary, so a 0.0 with 42/47 or 16/21
+criteria is not a pass.
+
+`vpp-loss-divergence`'s verifier image had an empty `/opt/verifier_pristine`: the images were built
+by Docker's **legacy builder**, which silently drops `RUN python - <<'PYEOF'` heredoc bodies, and the
+pristine snapshot and CPU/gloo shim live in that heredoc. Both arms therefore ended
+`RewardFileNotFoundError` (`n_trials: 0`). The two vpp images were patched out-of-band at 02:34
+(Lead-side ad-hoc Dockerfiles, no repo change); the graph retest scored criteria **4/5**
+(`bench/official/results/2026-11-09-vpp-fix2/`, ad-hoc Lead evidence, not a tracked run). The stock
+retest hit its 1800 s cap, and a 3600 s retest was still running when this note was written. The repo
+build script is **unfixed**: `build-arm64-task.sh` still invokes plain `docker build`, so a canonical
+rebuild reproduces the defect; the repaired vpp images are local artifacts, not reproducible from this
+repo.
+
+`medical-claims-processing` never reaches a trial: its `playwright-mcp` sidecar is a vendor **amd64**
+image, and under qemu on the arm64 host Chrome never opens CDP 9222, so the compose healthcheck fails
+and `_setup_agent_environment` aborts before the agent runs. This is an **unresolved infrastructure
+blocker**, not the "MCP tools unavailable → expected 0.0" case: no trial ran, so there is no valid
+0.0 row for this task. The sidecar/compose path itself works — `heat-pump-warranty` (7 services) and
+`intrastat-meldung` (6 services) started all sidecars healthy on arm64.
+
+Net state: the instrument is repaired and executes **19 of 20** tasks, but product20 is **blocked**
+on the medical sidecar and on a valid stock `vpp` trial under a reproducible image. There is no
+aggregate; do not cite accuracy, parity, token or cost.
 
 The former local 20-task run is not part of this tree and is not citable as current evidence.
 
@@ -112,31 +143,36 @@ The former local 20-task run is not part of this tree and is not citable as curr
 3. **Budget boundary**: the kernel adapter reserves one extra step for a budget-routed wrap-up node;
    the frontier stops at the plan's step cap. Composed plans target `ANSWER_RESERVE_STEPS` (2), so
    both engines have room in practice; one rule in both engines is still open.
-4. **Product20 pending (not blocked) and the remaining termination work.** The instrument was
-   repaired on 2026-11-09 (above), so the historical 2026-11-08 blockers — 900 s fixed timeout,
+4. **Product20 blocked (the 2026-11-09 diagnostic gate failed) and the remaining termination work.**
+   The instrument is repaired (above), so the historical 2026-11-08 blockers — 900 s fixed timeout,
    missing `formal-crypto` verifier, `cpus = 8` requests on a 4-CPU VM, missing shadow overlay,
-   sidecar TLS, old-Node images — are fixed; do not re-report them as current without checking. What
-   remains before the full run is execution evidence, not images: the bounded four-task diagnostic
-   (`vpp-loss-divergence` reward path, `intrastat-meldung` in-container npm, `heat-pump-warranty`
-   sidecar/compose path, `medical-claims-processing` MCP trial) plus a direct `formal-crypto`
-   verifier check, per [`automation/evaluator.md`](../automation/evaluator.md). The pre-fix plan's
-   tool-stripping is fixed: the composed answer keeps its tools and an exhausted plan gets a
-   continuation step. That continuation is a graph-to-stock hand-off (one `fallbackPlan` node,
-   `maxReplans: 0`) bounded by the per-turn `maxSteps`, not graph routing; decide whether that is the
-   intended contract before comparing arms.
+   sidecar TLS, old-Node images — are fixed; do not re-report them as current without checking. Two
+   blockers remain, both infrastructure: `medical-claims-processing` cannot start because its
+   `playwright-mcp` sidecar is amd64 under qemu and never turns healthy (it needs an arm64-native
+   sidecar or a different health gate, not a DSH change), and `vpp-loss-divergence` needs a
+   reproducible verifier image — the canonical `build-arm64-task.sh` still uses the legacy builder,
+   which drops the heredoc patches, so the repaired images are local only. The diagnostic's other two
+   tasks (`intrastat-meldung`, `heat-pump-warranty`) produced valid near-miss trials on the repaired
+   instrument. The pre-fix plan's tool-stripping is fixed: the composed answer keeps its tools and an
+   exhausted plan gets a continuation step. That continuation is a graph-to-stock hand-off (one
+   `fallbackPlan` node, `maxReplans: 0`) bounded by the per-turn `maxSteps`, not graph routing;
+   decide whether that is the intended contract before comparing arms.
 5. **Fork debt**: source copy of DSH's loop; enforced by `scripts/diff-upstream.sh --check`.
 6. **Benchmark heuristics off by default** (`benchGuards: false`); they are harness-specific.
 
 ## Next
 
-1. Run the pre-run diagnostic from [`automation/evaluator.md`](../automation/evaluator.md): the four
-   product tasks named above with a deliberate `DSH_AGENT_TIMEOUT_CAP`, plus the direct
-   `formal-crypto` verifier check. A task whose trial produced `n_trials: 0` is an infrastructure
-   failure to fix or block on, not a score.
-2. Then run product20 (background it; report status and the live result path) and report aggregate
-   accuracy, prompt tokens, billed cost and steps.
-3. Only after those numbers exist: decide whether the graph loop has a product claim.
-4. Then durable checkpoint consumer and kernel breadth.
+1. Unblock `medical-claims-processing`: an arm64-native Playwright/Chromium sidecar image (or a
+   compose health gate that does not require CDP 9222), so a trial can exist at all. The separate
+   MCP-adapter limitation only matters once a trial runs.
+2. Make the vpp repair reproducible: force BuildKit/`docker buildx` (or convert the heredoc patch) in
+   `bench/official/terminal-bench/build-arm64-task.sh`, rebuild both vpp images, and get a valid
+   stock trial (the graph retest is already criteria 4/5).
+3. Re-run the four-task diagnostic from [`automation/evaluator.md`](../automation/evaluator.md) — the
+   gate is `n_trials >= 1` on every row. Only then run product20 (background it; report status and
+   the live result path) and report aggregate accuracy, prompt tokens, billed cost and steps.
+4. Only after those numbers exist: decide whether the graph loop has a product claim.
+5. Then durable checkpoint consumer and kernel breadth.
 
 ## Commands
 

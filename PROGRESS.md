@@ -26,13 +26,15 @@ features.
 
 ## In progress / next
 
-- [ ] **product20**: Terminal-Bench easy10 + medium10, stock vs graph. The instrument was repaired on
-      2026-11-09 (8 vCPU / 20 GiB / 150 GiB, **20/20 env + 20/20 verifier** images including
-      `formal-crypto`, `tb-dsh-base` overlay on every env image, sidecars pulled, tarball
-      `f7a961a797ca5e17…`, smoke 1.0/1.0/1.0), so the full run is **pending, not blocked**. Gate
-      before it: the bounded four-task diagnostic (`vpp-loss-divergence`, `intrastat-meldung`,
-      `heat-pump-warranty`, `medical-claims-processing`) plus a direct `formal-crypto` verifier
-      check, both defined in `automation/evaluator.md`. **Historical:** the tracked 2026-11-08 partial
+- [ ] **product20 — blocked by the failed 2026-11-09 pre-run diagnostic.** Terminal-Bench easy10 +
+      medium10, stock vs graph. The instrument was repaired on 2026-11-09 (8 vCPU / 20 GiB / 150 GiB,
+      **20/20 env + 20/20 verifier** images including `formal-crypto`, `tb-dsh-base` overlay on every
+      env image, sidecars pulled, tarball `f7a961a797ca5e17…`, smoke 1.0/1.0/1.0). The bounded
+      four-task diagnostic then ran at HEAD `5cae65c` and **failed**
+      (`bench/official/results/2026-11-09-prediag-0122/`): `intrastat-meldung` (graph 0/47, stock
+      42/47 criteria) and `heat-pump-warranty` (graph 1/21, stock 16/21) are valid 0.0 near-misses,
+      while `vpp-loss-divergence` and `medical-claims-processing` are `n_trials: 0` on both arms. No
+      full run was started and there is no aggregate. **Historical:** the tracked 2026-11-08 partial
       run (`bench/official/results/2026-11-08-product20-partial/`) was taken on the pre-repair
       instrument and attempted **19/20** tasks: **11 graph / 3 stock** valid trials, only **2
       paired-valid** tasks (`bun-sourcemap-leak`, `cargo-flight-dispatch`), all **0.0**. Reward is
@@ -43,10 +45,16 @@ features.
       three-task oracle control (`bench/official/results/2026-11-08-oracle-control/`) passes **1.0**
       (task image/verifier path, not the DSH arm), so those zeros are not a blanket harness artifact.
       **Rerun on the repaired instrument before any stock-vs-graph statement.**
-- [ ] `medical-claims-processing` known limitation: its Playwright MCP server is exposed to the
-      prompt but not registered as native tools (no SSE MCP client in DSH). Expected 0.0, still a
-      valid trial and included in the aggregate; recorded so the first full run is not misread as an
-      infrastructure failure.
+- [ ] `medical-claims-processing` **infrastructure blocker** (separate from the MCP-adapter
+      limitation): its `playwright-mcp` sidecar is a vendor amd64 image, and under qemu on arm64
+      Chrome never opens CDP 9222, so the compose healthcheck fails and no trial is created. It needs
+      an arm64-native sidecar (or a different health gate) before it can produce a valid expected-0.0
+      trial or enter the aggregate; do not backfill a 0.0 row for it.
+- [ ] `vpp-loss-divergence` image reproducibility: the two images were patched out-of-band because
+      Docker's legacy builder silently drops `RUN python - <<'PYEOF'` heredoc bodies (the CPU/gloo
+      shim and the `/opt/verifier_pristine` snapshot live there). `build-arm64-task.sh` still uses
+      plain `docker build`, so a canonical rebuild reproduces the defect; force BuildKit/`docker
+      buildx` (or convert the heredoc), rebuild both images, and finish the stock trial.
 - [ ] Graph termination, remaining part: the tool-stripping/forced-summary defect is fixed (the
       answer keeps tools and an exhausted plan gets a continuation step), but that continuation is a
       graph-to-stock hand-off bounded by the per-turn `maxSteps`, not graph routing. Decide whether

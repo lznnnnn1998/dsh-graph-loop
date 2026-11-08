@@ -6,14 +6,23 @@ were removed; they are not current gates.
 
 ## Status
 
-No aggregate; the full product20 run is **pending, not blocked**. Readiness (2026-11-09): 20/20 env
-and 20/20 verifier images including `formal-crypto`, Colima 8 vCPU / 20 GiB / 150 GiB, the
-`tb-dsh-base` overlay on every env image, product20 sidecars pulled, tarball `f7a961a797ca5e17…`,
-smoke 1.0 / 1.0 / 1.0 — see
+No aggregate; **product20 is blocked by the failed 2026-11-09 pre-run diagnostic.** Readiness
+(2026-11-09): 20/20 env and 20/20 verifier images including `formal-crypto`, Colima 8 vCPU / 20 GiB /
+150 GiB, the `tb-dsh-base` overlay on every env image, product20 sidecars pulled, tarball
+`f7a961a797ca5e17…`, smoke 1.0 / 1.0 / 1.0 — see
 [`results/2026-11-09-product20-prep`](results/2026-11-09-product20-prep/README.md) and
-[`results/2026-11-09-smoke-prep`](results/2026-11-09-smoke-prep/README.md). The four-task pre-run
-diagnostic in [`automation/evaluator.md`](../../automation/evaluator.md) is the gate before the full
-run; it is a readiness check, not a new score.
+[`results/2026-11-09-smoke-prep`](results/2026-11-09-smoke-prep/README.md).
+
+The four-task pre-run diagnostic then ran at HEAD `5cae65c` and **failed**
+([`results/2026-11-09-prediag-0122`](results/2026-11-09-prediag-0122/README.md)):
+`intrastat-meldung` (graph 0/47, stock 42/47 criteria) and `heat-pump-warranty` (graph 1/21, stock
+16/21) are valid 0.0 near-misses, while `vpp-loss-divergence` and `medical-claims-processing` are
+`n_trials: 0` on both arms. `medical-claims-processing` never starts: its `playwright-mcp` sidecar is
+a vendor amd64 image and its compose healthcheck (CDP 9222) never passes under qemu on arm64. The
+vpp images were repaired out-of-band because
+[`terminal-bench/build-arm64-task.sh`](terminal-bench/build-arm64-task.sh) still invokes Docker's
+legacy builder, which silently drops heredoc `RUN` bodies; a canonical rebuild reproduces the defect.
+No full product20 was started; the diagnostic is a readiness gate, not a new score.
 
 The tracked [`results/2026-11-08-product20-partial`](results/2026-11-08-product20-partial/README.md)
 run is **historical**: it was taken on the pre-repair instrument, attempted 19/20 tasks, produced 11
