@@ -41,8 +41,12 @@ The exact table (plan shape → engine → test) lives in
   ([result](bench/official/results/2026-11-08-product20-partial/README.md)) attempted 19/20 tasks
   (`formal-crypto` has no verifier image); 11 graph and 3 stock trials produced a valid score, only
   two tasks (`bun-sourcemap-leak`, `cargo-flight-dispatch`) are paired-valid, and every valid score
-  is **0.0**. That run is **invalid as a product aggregate; the instrument is unvalidated for the
-  full suite.** A separate three-task oracle control
+  is **0.0**. The reward is binary, so read the criteria: stock passed **35/37** on
+  `bun-sourcemap-leak` (graph 18/37) and **33/40** on `cargo-flight-dispatch` (graph 32/40). The
+  graph arm's fixed five-step plan ends at `n_answer` with all tools removed (80 vs 217 session
+  records), so those graph scores are premature termination, not a loop comparison. That run is
+  **invalid as a product aggregate; the instrument is unvalidated for the full suite.** A separate
+  three-task oracle control
   ([result](bench/official/results/2026-11-08-oracle-control/README.md)) scores 1.0 on
   `html-js-filter`, `cargo-flight-dispatch` and `music-harmony`, so a 0.0 does not by itself measure
   the loop; only the task image, verifier and scoring path are validated. Do not cite accuracy,

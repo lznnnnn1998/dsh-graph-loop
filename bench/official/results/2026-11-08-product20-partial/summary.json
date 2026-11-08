@@ -8,6 +8,12 @@
     "cargo-flight-dispatch"
   ],
   "all_scores_zero": true,
+  "score_semantics": "Terminal-Bench reward is binary: 1.0 only when every verifier criterion passes; 35/37 still scores 0.0.",
+  "near_miss": {
+    "bun-sourcemap-leak": { "graph": "18/37 criteria", "stock": "35/37 criteria" },
+    "cargo-flight-dispatch": { "graph": "32/40 criteria", "stock": "33/40 criteria" }
+  },
+  "graph_termination": "Composed plans are linear five-step chains (n_inspect -> n_mutate -> n_mutate -> n_verify -> n_answer); n_answer has toolAllow [] and the runtime removes all tools, ending the turn after one step (80 session records vs 217 stock). Do not read graph scores as a loop comparison until this is fixed.",
   "product_claim": false,
   "instrument_validated": false,
   "instrument_note": "Only a three-task oracle control exists (html-js-filter, cargo-flight-dispatch, music-harmony: 1.0 each); the full suite has no oracle pass.",

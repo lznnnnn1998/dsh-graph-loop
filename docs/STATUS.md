@@ -40,6 +40,14 @@ paired-valid** tasks (`bun-sourcemap-leak`, `cargo-flight-dispatch`), and every 
 **0.0**. It is invalid as a product aggregate, and the instrument is unvalidated for the full
 suite — no accuracy, parity, token or cost number from it is citable.
 
+The reward is binary, so 0.0 does not mean both arms did nothing: stock passed **35/37** verifier
+criteria on `bun-sourcemap-leak` (graph 18/37) and **33/40** on `cargo-flight-dispatch` (graph
+32/40). The graph arm's composed plan is a **five-step linear chain** (`n_inspect -> n_mutate ->
+n_mutate -> n_verify -> n_answer`); `n_answer` removes every tool and ends the turn after one step.
+The graph session has 80 records versus 217 for stock, so the graph scores are dominated by
+premature termination, not by model capability. That defect is the first thing to fix; see the
+partial-run README for the node sequence and counts.
+
 A three-task oracle control
 ([result](../bench/official/results/2026-11-08-oracle-control/README.md)) scores **1.0** on
 `html-js-filter`, `cargo-flight-dispatch` and `music-harmony`; the task harness (image, verifier,
@@ -56,12 +64,14 @@ The former local 20-task run is not part of this tree and is not citable as curr
    The blocker is the consumer (replay/time-travel), not storage availability.
 2. **Kernel breadth**: parallel fan-out/join, subagent batches and non-`callFailed` conditions still
    use `FrontierTopology`.
-3. **Product20 blocked on the instrument, not the loop**: the 2026-11-08 run spent most stock arms on
-   a 900 s fixed timeout, and hit a 4-CPU compose cap (`shadow-relay`), image pull/TLS
-   (`heat-pump-warranty`), missing MCP startup (`medical-claims-processing`), npm bootstrap
+3. **Product20 blocked on the instrument and on graph termination**: the 2026-11-08 run spent most
+   stock arms on a 900 s fixed timeout, and hit a 4-CPU compose cap (`shadow-relay`), image
+   pull/TLS (`heat-pump-warranty`), missing MCP startup (`medical-claims-processing`), npm bootstrap
    (`intrastat-meldung`), and an old-Node `node:sqlite` import (`freight-dispatch-shift`). The
    timeout policy is now per-task `[agent].timeout_sec` with `DSH_AGENT_TIMEOUT_CAP` as an override;
-   see [`EVALUATION.md`](EVALUATION.md).
+   see [`EVALUATION.md`](EVALUATION.md). Separately, the composed five-step plan ends at `n_answer`
+   with `toolAllow: []`, so the graph arm stops before the stock loop would; fix termination and
+   rerun before comparing arms.
 4. **Fork debt**: source copy of DSH's loop; enforced by `scripts/diff-upstream.sh --check`.
 5. **Benchmark heuristics off by default** (`benchGuards: false`); they are harness-specific.
 

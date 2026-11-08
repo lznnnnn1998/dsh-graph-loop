@@ -86,7 +86,11 @@ values.
 - 2026-11-08 product20 partial: 19/20 tasks attempted (`formal-crypto` has no verifier image);
   11 graph / 3 stock valid; only 2 paired-valid (`bun-sourcemap-leak`, `cargo-flight-dispatch`); all
   valid scores 0.0. **Invalid as a product aggregate; the instrument is unvalidated for the full
-  suite** ([result](../bench/official/results/2026-11-08-product20-partial/README.md)).
+  suite** ([result](../bench/official/results/2026-11-08-product20-partial/README.md)). Reward is
+  binary, so read criteria counts, not just reward: stock passed 35/37 on `bun-sourcemap-leak`
+  (graph 18/37) and 33/40 on `cargo-flight-dispatch` (graph 32/40). The graph arm's fixed five-step
+  plan ends at `n_answer` with every tool removed (80 vs 217 session records), so those graph scores
+  measure premature termination, not loop quality. Fix that before any arm comparison.
 - 2026-11-08 oracle control: oracle scores **1.0** on `html-js-filter`, `cargo-flight-dispatch` and
   `music-harmony` ([result](../bench/official/results/2026-11-08-oracle-control/README.md)). The
   task image, verifier and scoring path can pass those tasks, so the partial zeros are not a

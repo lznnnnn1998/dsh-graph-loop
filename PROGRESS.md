@@ -23,10 +23,16 @@ features.
 - [ ] **product20**: Terminal-Bench easy10 + medium10, stock vs graph. The tracked 2026-11-08
       partial run (`bench/official/results/2026-11-08-product20-partial/`) attempted **19/20** tasks
       (`formal-crypto` has no verifier image): **11 graph / 3 stock** valid trials, only
-      **2 paired-valid** tasks (`bun-sourcemap-leak`, `cargo-flight-dispatch`), all **0.0**. Invalid
-      as a product aggregate; the instrument is unvalidated for the full suite. A three-task oracle
-      control (`bench/official/results/2026-11-08-oracle-control/`) passes **1.0** (task
-      image/verifier path, not the DSH arm), so those zeros are not a blanket harness artifact.
+      **2 paired-valid** tasks (`bun-sourcemap-leak`, `cargo-flight-dispatch`), all **0.0**. Reward
+      is binary: stock passed **35/37** criteria on `bun-sourcemap-leak` (graph 18/37) and **33/40**
+      on `cargo-flight-dispatch` (graph 32/40). The graph arm's fixed five-step plan ends at
+      `n_answer` with every tool removed (80 vs 217 session records), so it terminates before the
+      model is done. Invalid as a product aggregate; the instrument is unvalidated for the full
+      suite. A three-task oracle control (`bench/official/results/2026-11-08-oracle-control/`) passes
+      **1.0** (task image/verifier path, not the DSH arm), so those zeros are not a blanket harness
+      artifact. **Fix graph termination before any stock-vs-graph rerun.**
+- [ ] Graph termination: terminal `n_answer` must not strip finishing tools, and an exhausted plan
+      must fall back to the stock loop instead of forcing a summary.
 - [ ] Durable checkpoints: `MemoryCheckpointer` only; the read/replay consumer is not designed.
 - [ ] Kernel breadth: parallel fan-out and subagent batches still use `FrontierTopology`.
 - [ ] Product claim: none. No accuracy, parity or cost number from the partial run is citable.
