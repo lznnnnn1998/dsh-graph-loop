@@ -82,7 +82,12 @@ values.
 
 ## Current evidence
 
-- Smoke: 1.0 oracle/graph/stock on the synthetic smoke task.
+- Readiness (2026-11-08): 20/20 env images, 19/20 verifier images (`formal-crypto` missing), local
+  gate 168/168; product20 not run. `formal-crypto` and `shadow-relay` request `cpus = 8` on a 4-CPU
+  VM, so the suite is not runnable end to end
+  ([result](../bench/official/results/2026-11-08-readiness/README.md)).
+- Smoke (2026-11-08): **1.0** oracle / **1.0** graph / **1.0** stock on the synthetic `smoke/answer-42`
+  task ([result](../bench/official/results/2026-11-08-smoke/README.md)); harness plumbing only.
 - 2026-11-08 product20 partial: 19/20 tasks attempted (`formal-crypto` has no verifier image);
   11 graph / 3 stock valid; only 2 paired-valid (`bun-sourcemap-leak`, `cargo-flight-dispatch`); all
   valid scores 0.0. **Invalid as a product aggregate; the instrument is unvalidated for the full

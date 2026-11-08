@@ -100,5 +100,5 @@ built loop bundle and is therefore declared as an optional peer — a DSH host a
 - `0.1.1` — Graph tab + `/graph-chat`; Explore mode bundle. The loop `0.1.1` was staged by npm but
   did not finalize.
 - `0.1.2` — first reliably resolvable loop version after 0.1.0.
-- `0.2.0` — live envelope/composition, LangGraph kernel default, Explore mode default, benchmark
-  split (product/stress), and the 2026-11-07 reliability/security fixes.
+- `0.2.0` — live envelope/composition, LangGraph kernel default, Explore mode default, Terminal-Bench
+  product20 suite (easy10 + medium10), and the 2026-11-07 reliability/security fixes.

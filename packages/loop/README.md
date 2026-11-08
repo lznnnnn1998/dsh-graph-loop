@@ -59,9 +59,9 @@ it. Injected subagent batch results use their own `subagent-result` source
 (`{ kind: 'subagent-result', nodeId }`), and the benchmark-only retry corrections use `bench-retry`;
 no synthetic producer claims the human source. Node-level tool admission narrows each step to the
 plan's tool universe plus a small safe floor.
-The archived local-20 run attributed a prompt-token reduction to that narrowing, but the run is
-**not reproducible** (dirty worktree) and is not a product claim. Because node directives enter
-history, a multi-node turn adds prompt bytes compared with a single stock step.
+No prompt-token reduction from that narrowing is claimed: the earlier local-suite measurement was not
+reproducible and is not in this tree. Because node directives enter history, a multi-node turn adds
+prompt bytes compared with a single stock step.
 
 ## Known Limitations
 

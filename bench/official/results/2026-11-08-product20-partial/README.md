@@ -86,7 +86,7 @@ trials:
 |---|---|---|---|
 | `Command timed out after 900 seconds` | 14 (13 stock, 1 graph) | foodstuff, html, interleaved, intrastat, legacy, music, nextjs, photonic (both), pretrain, protein, risk, roy, vpp | fixed runner timeout (pre-HEAD policy) |
 | `Command timed out after 1800 seconds` | 1 | legacy-utility-triage graph | longer command/setup budget |
-| `range of CPUs is from 0.01 to 4.00` | 2 | shadow-relay (both arms) | compose CPU request > Colima's 4-CPU VM |
+| `range of CPUs is from 0.01 to 4.00` | 2 | shadow-relay (both arms) | the task's `task.toml` requests `cpus = 8`; the Colima VM has 4 (not a compose request) |
 | `No such image: harborframework/terminal-bench:…` + `TLS handshake timeout` to `registry-1.docker.io` | 1 | heat-pump-warranty graph | sidecar image never pulled/built |
 | `does not support MCP servers; … capabilities.mcp_servers = True` | 2 | medical-claims-processing (both) | **real adapter gap** |
 | `UND_ERR_CONNECT_TIMEOUT` to `registry.npmjs.org` | 1 | intrastat-meldung graph | in-container bootstrap network |

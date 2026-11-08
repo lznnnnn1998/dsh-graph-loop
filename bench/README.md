@@ -17,6 +17,12 @@ was removed.
   `html-js-filter`, `cargo-flight-dispatch` and `music-harmony`, so a 0.0 is not by itself a product
   result. Never quote the partial rows as accuracy, parity or cost.
 
+Readiness (2026-11-08): 20/20 env images, 19/20 verifier images (`formal-crypto` missing),
+`tb-dsh-base` and the benchmark tarball present; the local gate and the smoke gate pass. The suite
+is **not runnable end to end**: `formal-crypto` and `shadow-relay` request `cpus = 8` in `task.toml`
+on this 4-CPU VM. See [`2026-11-08-readiness`](official/results/2026-11-08-readiness/README.md) and
+[`2026-11-08-smoke`](official/results/2026-11-08-smoke/README.md).
+
 ## Run
 
 ```sh
@@ -28,8 +34,8 @@ TASKS_DIR=/tmp/tb-arm-dsh bash official/subsets/run-product20.sh
 
 `run-subset.sh` defaults `TASKS` to the product20 manifest and `OUT_DIR` to
 `official/results/terminal-bench-product20/`. Tracked evidence lives under
-`official/results/<date>-<name>/` (only `rows.jsonl`, `summary.json` and `raw/` should be committed;
-Harbor `jobs/` is git-ignored).
+`official/results/<date>-<name>/` (commit the run `README.md`; add `rows.jsonl`, `summary.json` and
+`raw/` where the run produced them; Harbor `jobs/` is git-ignored).
 
 ## Native arm64 images
 

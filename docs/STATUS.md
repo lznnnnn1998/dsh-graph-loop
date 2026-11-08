@@ -56,6 +56,13 @@ scoring) can produce a pass on those tasks, so a 0.0 is not by itself evidence a
 the partial run disagree on that task's stock arm (the partial stock attempt timed out at 900 s);
 both are task-level evidence, neither is an aggregate.
 
+The latest evaluator readiness pass
+([`2026-11-08-readiness`](../bench/official/results/2026-11-08-readiness/README.md)) records 20/20
+env images, 19/20 verifier images (`formal-crypto` still missing), a passing local gate (168/168
+tests) and a passing three-arm smoke
+([`2026-11-08-smoke`](../bench/official/results/2026-11-08-smoke/README.md)); product20 was not run,
+so no aggregate changed.
+
 The former local 20-task run is not part of this tree and is not citable as current evidence.
 
 ## Known gaps
@@ -65,9 +72,10 @@ The former local 20-task run is not part of this tree and is not citable as curr
 2. **Kernel breadth**: parallel fan-out/join, subagent batches and non-`callFailed` conditions still
    use `FrontierTopology`.
 3. **Product20 blocked on the instrument and on graph termination**: the 2026-11-08 run spent most
-   stock arms on a 900 s fixed timeout, and hit a 4-CPU compose cap (`shadow-relay`), image
-   pull/TLS (`heat-pump-warranty`), missing MCP startup (`medical-claims-processing`), npm bootstrap
-   (`intrastat-meldung`), and an old-Node `node:sqlite` import (`freight-dispatch-shift`). The
+   stock arms on a 900 s fixed timeout; `formal-crypto` and `shadow-relay` request `cpus = 8` in
+   `task.toml` against this 4-CPU VM; it also hit image pull/TLS (`heat-pump-warranty`), missing MCP
+   startup (`medical-claims-processing`), npm bootstrap (`intrastat-meldung`), and an old-Node
+   `node:sqlite` import (`freight-dispatch-shift`). The
    timeout policy is now per-task `[agent].timeout_sec` with `DSH_AGENT_TIMEOUT_CAP` as an override;
    see [`EVALUATION.md`](EVALUATION.md). Separately, the composed five-step plan ends at `n_answer`
    with `toolAllow: []`, so the graph arm stops before the stock loop would; fix termination and

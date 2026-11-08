@@ -14,6 +14,11 @@ full suite. A three-task
 so the task image/verifier path can pass; it does not validate the DSH arm. Do not report the partial
 rows as accuracy, parity or cost.
 
+The latest readiness pass
+([`results/2026-11-08-readiness`](results/2026-11-08-readiness/README.md)) found 20/20 env images and
+19/20 verifier images, with the gate and smoke passing; product20 was not run. `formal-crypto` and
+`shadow-relay` request 8 CPUs on the 4-CPU VM, so the suite is not runnable end to end.
+
 ## Prerequisites
 
 - Docker (arm64 on Apple Silicon), Harbor, DSH credentials.
@@ -35,9 +40,9 @@ TASKS_DIR=/tmp/tb-arm-dsh bash subsets/run-product20.sh
 ```
 
 Results default to `results/terminal-bench-product20/`. Tracked runs are committed under
-`results/<date>-<name>/` with `rows.jsonl`, `summary.json` and `raw/` copies of Harbor results;
-`jobs/` stays git-ignored. Keep `rows.jsonl` as canonical; a row with `n_trials: 0` is an
-infrastructure error, not a score.
+`results/<date>-<name>/` with a `README.md`, plus `rows.jsonl`, `summary.json` and `raw/` copies of
+Harbor results where the run produced them; `jobs/` stays git-ignored. Keep `rows.jsonl` as
+canonical; a row with `n_trials: 0` is an infrastructure error, not a score.
 
 ## Adapter
 
