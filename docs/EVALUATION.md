@@ -1,24 +1,27 @@
 # Evaluation — product20
 
-Status: **instrument repaired and the pre-run diagnostic gate now PASSES; the full product20 run is
-pending and no stock-vs-graph aggregate exists.** The first 2026-11-09 diagnostic failed on two
+Status: **instrument repaired, the pre-run diagnostic gate passes, and the full product20 is
+running; no stock-vs-graph aggregate exists yet.** The first 2026-11-09 diagnostic failed on two
 infrastructure faults; both were fixed and the four tasks were rerun
 ([final table](../bench/official/results/2026-11-09-prediag-fixes/README.md)): all eight rows have
 `n_trials: 1` and `n_errors: 0`, including `vpp-loss-divergence` (4/5 both arms) and
-`medical-claims-processing` (2/27 graph, 22/27 stock) on an arm64 sidecar. No product claim until all
-20 tasks have valid stock and graph trials, and an oracle control shows the harness can score a pass
-on the task. Readiness:
-[`2026-11-09-product20-prep`](../bench/official/results/2026-11-09-product20-prep/README.md).
+`medical-claims-processing` (2/27 graph, 22/27 stock) on an arm64 sidecar. The full run started
+2026-11-09 04:18:32 +08 as PID `38616` with OUT_DIR
+`bench/official/results/2026-11-09-product20/`; its `rows.jsonl` grows per trial and is the canonical
+partial record. Do not start a second run or run the smoke gate while it is live. No product claim
+until all 20 tasks have valid stock and graph trials, and an oracle control shows the harness can
+score a pass on the task. Readiness:
+[`2026-11-09-product20-prep`](../bench/official/results/2026-11-09-product20-prep/README.md)
+(historical snapshot from before the run).
 
 ## Suite
 
 - Terminal-Bench 4.0, 10 easy + 10 medium.
 - Manifest: [`bench/official/subsets/product20.json`](../bench/official/subsets/product20.json).
 - Fixed before running; do not swap tasks after seeing scores. All 20 env and verifier images exist
-  (including `formal-crypto`). `medical-claims-processing` cannot currently start in this environment
-  (amd64 `playwright-mcp` sidecar under qemu; the compose healthcheck never passes), so it is an
-  infrastructure blocker, not the separate "MCP tools unavailable → expected 0.0" limitation. Do not
-  backfill an expected-0.0 row for it.
+  (including `formal-crypto`). `medical-claims-processing` now runs on an arm64-native
+  `playwright-mcp` sidecar, so it produces valid `n_trials: 1` trials (expected 0 reward: DSH has no
+  native SSE MCP client). Do not treat it as an infrastructure blocker; do not backfill a row for it.
 
 ## Arms
 
@@ -75,8 +78,10 @@ That run's timeout class is therefore a harness-policy artifact, not a task outc
    [`2026-11-09-prediag-fixes`](../bench/official/results/2026-11-09-prediag-fixes/README.md):
    vpp graph/stock 4/5, medical graph 2/27 / stock 22/27, plus the two earlier valid tasks. All
    eight rows have `n_trials: 1`, `n_errors: 0`; the gate passes. The direct `formal-crypto` verifier
-   check passed (Python 3.12.14, SageMath 10.7). No full product20 has been started yet.
-   If that final table exists, do not repeat the diagnostic; start the product20 run.
+   check passed (Python 3.12.14, SageMath 10.7). The full product20 has since been started
+   (2026-11-09 04:18:32 +08, PID `38616`, OUT_DIR `bench/official/results/2026-11-09-product20/`) and
+   is live. If that final table exists, do not repeat the diagnostic; if a benchmark is live, report
+   "benchmark in progress" instead of starting another run.
 4. Run `bash bench/official/subsets/run-product20.sh`; each task runs graph and stock.
    `run-subset.sh` now defaults `TASKS` to the product20 manifest and `OUT_DIR` to
    `bench/official/results/terminal-bench-product20/`. Do not pass an ad-hoc task list except for the
@@ -113,6 +118,15 @@ values.
 - Secondary: billed input/output/total, output tokens, wall time, errors.
 - Record model, commit, harness and image tags with every result.
 
+Rows do not carry token or step counts, and Harbor's `result.json` stats are null
+(`n_input_tokens`, `n_output_tokens`, `cost_usd`). Extract them from each trial's session log
+`<jobs-dir>/<job>/<task>__*/agent/dsh-sessions/**/session.v4.jsonl.zstd`:
+`assistant/message.data.usage` carries `inputTokens`, `outputTokens`, `cacheReadTokens`,
+`cacheWriteTokens` and `totalTokens`; `step/start` and `tool/call` records give step/tool counts, and
+`turn/end` gives the terminal status. Cost is not in the session log: report it as unavailable or
+compute it from the recorded token counts and a stated price basis, labelled as computed (not
+measured).
+
 ## Success criteria
 
 1. Accuracy parity with stock on the 20 tasks.
@@ -131,16 +145,24 @@ values.
   + DSH 0.2.2-rc.1) is on every env image; product20 sidecars are pulled; Colima is **8 vCPU /
   20 GiB / 150 GiB**; the daemon proxy inside Colima points at the current host LAN IP
   ([readiness](../bench/official/results/2026-11-09-product20-prep/README.md)).
-- Pre-run diagnostic (2026-11-09, HEAD `5cae65c`): **gate FAILED**, no product20 started
-  ([result](../bench/official/results/2026-11-09-prediag-0122/README.md)). Valid trials:
-  `intrastat-meldung` graph 0/47 / stock 42/47 criteria and `heat-pump-warranty` graph 1/21 / stock
-  16/21, all reward 0.0 — near-misses, not passes, and not part of any aggregate. Infrastructure
-  failures, both arms `n_trials: 0`: `vpp-loss-divergence` (legacy-builder heredoc drop left
-  `/opt/verifier_pristine` empty → `RewardFileNotFoundError`; images patched out-of-band, graph retest
-  criteria 4/5, stock retrial pending) and `medical-claims-processing` (amd64 `playwright-mcp` sidecar
-  under qemu never opens CDP 9222, so the compose healthcheck fails before a trial exists). The repo's
-  `build-arm64-task.sh` still uses the legacy builder, so the vpp image repair is not reproducible
-  from this tree.
+- Pre-run diagnostic (2026-11-09, HEAD `5cae65c`): the first run **FAILED**
+  ([result](../bench/official/results/2026-11-09-prediag-0122/README.md)) with valid trials for
+  `intrastat-meldung` (graph 0/47 / stock 42/47 criteria) and `heat-pump-warranty` (graph 1/21 /
+  stock 16/21), and `n_trials: 0` on both arms for `vpp-loss-divergence` (legacy-builder heredoc drop
+  left `/opt/verifier_pristine` empty) and `medical-claims-processing` (amd64 `playwright-mcp`
+  sidecar never healthy under qemu). Both faults were repaired and the four tasks reran
+  ([final table](../bench/official/results/2026-11-09-prediag-fixes/README.md)): vpp 4/5 both arms
+  (stock 56m57s), medical 2/27 / 22/27, all eight rows `n_trials: 1` / `n_errors: 0`; **the gate
+  passes**. The repairs are local-only: `build-arm64-task.sh` still uses the legacy builder, so a
+  canonical vpp rebuild reproduces the defect, and the medical compose tag is a local edit. Do not
+  rebuild or reset either while the run is live; the code fixes and retests are deferred until the
+  runner exits.
+- Full product20 (live, 2026-11-09): started 04:18:32 +08, PID `38616`, OUT_DIR
+  `bench/official/results/2026-11-09-product20/`, log `/tmp/product20-2026-11-09.log`, marker
+  `/tmp/product20-shard-full.log` without `_EXIT`. `rows.jsonl` grows per trial; each row carries
+  `commit 11fe18f…`, model, image tags, timeout, criteria and a durable `raw/` result. **No aggregate
+  yet**; partial rows are not citable. A watcher appends `_EXIT` to the marker when the PID exits; if
+  it is absent, append `_EXIT` by hand after confirming the PID is dead (see the run README).
 - Smoke (2026-11-09, this tree): **1.0** oracle / **1.0** graph / **1.0** stock on the synthetic
   `smoke/answer-42` task ([record](../bench/official/results/2026-11-09-smoke-prep/README.md));
   harness plumbing only, not product evidence. The raw `result.json` files live in that run's

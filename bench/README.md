@@ -8,11 +8,15 @@ was removed.
 - Manifest: [`official/subsets/product20.json`](official/subsets/product20.json) — fixed before
   running, 10 easy + 10 medium.
 - Arms: `stock` (stock `agent-loop`) vs `graph` (this bundle), same model/tools/timeouts.
-- Gate: smoke task 1.0, then the four-task pre-run diagnostic (see
-  [`automation/evaluator.md`](../automation/evaluator.md)), then all 20 tasks; report accuracy,
-  prompt tokens, billed cost and steps.
-- Status: **no aggregate; product20 is blocked by the failed 2026-11-09 pre-run diagnostic.** The
-  **historical** tracked
+- Gate: smoke task 1.0, then the four-task pre-run diagnostic (passed 2026-11-09 after the
+  vpp/medical fixes; see [`automation/evaluator.md`](../automation/evaluator.md)), then all 20 tasks;
+  report accuracy, prompt tokens, billed cost and steps.
+- Status: **the full product20 is live (2026-11-09); no aggregate yet.** PID `38616`, started
+  04:18:32 +08, OUT_DIR `official/results/2026-11-09-product20/` (`runner.pid`, `rows.jsonl` growing
+  per trial), log `/tmp/product20-2026-11-09.log`, marker `/tmp/product20-shard-full.log` without
+  `_EXIT`. Do not start a second run and do not run the smoke gate while it is live. Canonical
+  state: [`docs/STATUS.md`](../docs/STATUS.md#current-benchmark-state).
+- The **historical** tracked
   [`2026-11-08-product20-partial`](official/results/2026-11-08-product20-partial/README.md) run was
   taken on the pre-repair instrument and attempted 19/20 tasks (`formal-crypto` had no verifier
   image): 11 graph / 3 stock valid, only 2 paired-valid (`bun-sourcemap-leak`,
@@ -27,16 +31,17 @@ image, product20 sidecars pulled, `ci-local.sh` and the smoke gate passing (1.0 
 benchmark tarball is `f7a961a797ca5e17…` (223,458 B) and reproduces from HEAD, so verifying the sha
 is enough — no repack is required.
 
-The four-task pre-run diagnostic then ran at HEAD `5cae65c` and **failed**
+The four-task pre-run diagnostic first **failed** on two infrastructure faults
 ([`2026-11-09-prediag-0122`](official/results/2026-11-09-prediag-0122/README.md)):
 `intrastat-meldung` (graph 0/47, stock 42/47 criteria) and `heat-pump-warranty` (graph 1/21, stock
-16/21) are valid 0.0 near-misses; `vpp-loss-divergence` and `medical-claims-processing` are
-`n_trials: 0` on both arms. `medical-claims-processing` cannot start (its `playwright-mcp` sidecar is
-a vendor amd64 image and under qemu the CDP 9222 healthcheck never passes — an unresolved
-infrastructure blocker). The vpp verifier image was repaired out-of-band because
-[`build-arm64-task.sh`](official/terminal-bench/build-arm64-task.sh) still uses Docker's legacy
-builder, which drops the heredoc patches (the graph retest scores criteria 4/5; the stock retrial is
-pending). No product20 was started. The 2026-11-08 readiness records
+16/21) were valid 0.0 near-misses, while `vpp-loss-divergence` and `medical-claims-processing` were
+`n_trials: 0` on both arms. Both faults were repaired and the four tasks reran
+([`2026-11-09-prediag-fixes`](official/results/2026-11-09-prediag-fixes/README.md)): vpp 4/5 both
+arms, medical 2/27 graph / 22/27 stock, all eight rows `n_trials: 1` / `n_errors: 0`; the gate
+passes and the full run is live. The repairs are **local**: `build-arm64-task.sh` still uses Docker's
+legacy builder (a canonical vpp rebuild reproduces the heredoc defect), and medical's compose points
+at the local `tb-arm64-medical-claims-sidecar:latest` tag (a task-dir reset loses it). Do not rebuild
+or reset either while the run is live; the code fix is deferred. The 2026-11-08 readiness records
 ([`2026-11-08-eval-1525`](official/results/2026-11-08-eval-1525/README.md),
 [`2026-11-08-smoke-1525`](official/results/2026-11-08-smoke-1525/README.md)) are historical.
 

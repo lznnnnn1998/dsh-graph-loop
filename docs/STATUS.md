@@ -3,6 +3,20 @@
 Architecture: **B**. `packages/loop` is a dedicated graph-loop plugin that replaces the stock
 `agent-loop` through `AgentFactory`. No DSH source file is modified.
 
+## Current benchmark state
+
+**The full product20 is live; no aggregate exists yet.** The bounded four-task pre-run diagnostic
+first failed on two infrastructure faults and then **passed after the vpp/medical fixes**
+([final table](../bench/official/results/2026-11-09-prediag-fixes/README.md)); all eight rows have
+`n_trials: 1` and `n_errors: 0`. The full run started on **2026-11-09 04:18:32 +08** as PID `38616`
+in `bench/official/results/2026-11-09-product20/` (`runner.pid`, `rows.jsonl` growing per trial,
+log `/tmp/product20-2026-11-09.log`, marker `/tmp/product20-shard-full.log` without `_EXIT`). Do not
+start a second product20 and do not run the smoke gate while any of those live signals says the
+benchmark is in progress. The live `rows.jsonl` is the canonical partial record; **no aggregate,
+accuracy, parity, token or cost number is citable** until all 20 tasks have `n_trials >= 1` and the
+runner exits. vpp/medical are repaired locally for this run (see Known gaps 4) — do not rebuild
+either or reset the task dirs now.
+
 ## Works today
 
 | Layer | State |
@@ -50,8 +64,8 @@ No claim is made that LangGraph executes arbitrary graphs.
 
 ## Evidence
 
-**Product evidence is incomplete: no aggregate exists for the repaired instrument.** The active suite
-is Terminal-Bench easy10 + medium10
+**Product evidence is incomplete: the full product20 is running and no aggregate exists for the
+repaired instrument.** The active suite is Terminal-Bench easy10 + medium10
 ([`bench/official/subsets/product20.json`](../bench/official/subsets/product20.json)). The tracked
 **historical** 2026-11-08 partial run
 ([result](../bench/official/results/2026-11-08-product20-partial/README.md)) was taken on the
@@ -85,12 +99,12 @@ PASS at 253/253 tests and a passing smoke (1.0/1.0/1.0). A post-eval fix `63b5f2
 record is historical.
 
 On **2026-11-09** the instrument was repaired
-([readiness note](../bench/official/results/2026-11-09-product20-prep/README.md)): **20/20 env and
-20/20 verifier images** including a built `formal-crypto` verifier (SageMath 10.7 / Python 3.12.14;
-its direct `--cpus 8` check passed), Colima **8 vCPU / 20 GiB / 150 GiB**, every env image overlaid
-from `tb-dsh-base` (Node v24.9.0 + DSH 0.2.2-rc.1), product20 sidecars pulled, the Docker daemon
-proxy (inside Colima) repointed to the current host LAN IP, `dist/dsh-graph-loop-bench.tgz` at
-`f7a961a797ca5e17…` (223,458 B), and smoke 1.0/1.0/1.0
+([historical readiness snapshot](../bench/official/results/2026-11-09-product20-prep/README.md)):
+**20/20 env and 20/20 verifier images** including a built `formal-crypto` verifier (SageMath 10.7 /
+Python 3.12.14; its direct `--cpus 8` check passed), Colima **8 vCPU / 20 GiB / 150 GiB**, every env
+image overlaid from `tb-dsh-base` (Node v24.9.0 + DSH 0.2.2-rc.1), product20 sidecars pulled, the
+Docker daemon proxy (inside Colima) repointed to the current host LAN IP,
+`dist/dsh-graph-loop-bench.tgz` at `f7a961a797ca5e17…` (223,458 B), and smoke 1.0/1.0/1.0
 ([record](../bench/official/results/2026-11-09-smoke-prep/README.md)).
 
 The bounded four-task pre-run diagnostic first ran at HEAD `5cae65c`
@@ -115,8 +129,9 @@ All eight rows have `n_trials: 1` and `n_errors: 0`; **the readiness gate now pa
 still 0.0 because reward is binary, so the criteria are the diagnostic. The vpp images were patched
 out-of-band (the repo build script still uses the legacy builder and would reproduce the heredoc
 defect on a canonical rebuild), and the medical task's prepared compose points at a local arm64
-sidecar tag. The full product20 run is now allowed but has **not been started**; there is no product
-aggregate.
+sidecar tag. The full product20 run started at **04:18:32 +08** (PID `38616`; see Current benchmark
+state); it is **live**, and there is no product aggregate yet. The vpp/medical repairs are local to
+this environment and are deferred code debt.
 
 The former local 20-task run is not part of this tree and is not citable as current evidence.
 
@@ -132,34 +147,42 @@ The former local 20-task run is not part of this tree and is not citable as curr
 3. **Budget boundary**: the kernel adapter reserves one extra step for a budget-routed wrap-up node;
    the frontier stops at the plan's step cap. Composed plans target `ANSWER_RESERVE_STEPS` (2), so
    both engines have room in practice; one rule in both engines is still open.
-4. **Product20 blocked (the 2026-11-09 diagnostic gate failed) and the remaining termination work.**
-   The instrument is repaired (above), so the historical 2026-11-08 blockers — 900 s fixed timeout,
-   missing `formal-crypto` verifier, `cpus = 8` requests on a 4-CPU VM, missing shadow overlay,
-   sidecar TLS, old-Node images — are fixed; do not re-report them as current without checking. Two
-   blockers remain, both infrastructure: `medical-claims-processing` cannot start because its
-   `playwright-mcp` sidecar is amd64 under qemu and never turns healthy (it needs an arm64-native
-   sidecar or a different health gate, not a DSH change), and `vpp-loss-divergence` needs a
-   reproducible verifier image — the canonical `build-arm64-task.sh` still uses the legacy builder,
-   which drops the heredoc patches, so the repaired images are local only. The diagnostic's other two
-   tasks (`intrastat-meldung`, `heat-pump-warranty`) produced valid near-miss trials on the repaired
-   instrument. The pre-fix plan's tool-stripping is fixed: the composed answer keeps its tools and an
-   exhausted plan gets a continuation step. That continuation is a graph-to-stock hand-off (one
-   `fallbackPlan` node, `maxReplans: 0`) bounded by the per-turn `maxSteps`, not graph routing;
-   decide whether that is the intended contract before comparing arms.
+4. **Product20 live, aggregate pending; repair debt deferred.** The instrument is repaired (above),
+   so the historical 2026-11-08 blockers — 900 s fixed timeout, missing `formal-crypto` verifier,
+   `cpus = 8` requests on a 4-CPU VM, missing shadow overlay, sidecar TLS, old-Node images — are
+   fixed; do not re-report them as current without checking. The 2026-11-09 diagnostic found two
+   infrastructure faults, both repaired **locally only**: `medical-claims-processing` now runs on an
+   arm64-native Playwright sidecar, but its compose image tag is a local edit that a task-dir reset
+   loses; `vpp-loss-divergence` images were patched out-of-band, but the canonical
+   `build-arm64-task.sh` still uses the legacy builder, which drops the heredoc patches. Both code
+   fixes (a scripted medical compose patch, BuildKit/de-heredoc plus rebuild and re-verify) are
+   deferred until the live runner exits. The pre-fix plan's tool-stripping is fixed: the composed
+   answer keeps its tools and an exhausted plan gets a continuation step. That continuation is a
+   graph-to-stock hand-off (one `fallbackPlan` node, `maxReplans: 0`) bounded by the per-turn
+   `maxSteps`, not graph routing; decide whether that is the intended contract before comparing arms.
 5. **Fork debt**: source copy of DSH's loop; enforced by `scripts/diff-upstream.sh --check`.
 6. **Benchmark heuristics off by default** (`benchGuards: false`); they are harness-specific.
 
 ## Next
 
-1. Unblock `medical-claims-processing`: an arm64-native Playwright/Chromium sidecar image (or a
-   compose health gate that does not require CDP 9222), so a trial can exist at all. The separate
-   MCP-adapter limitation only matters once a trial runs.
-2. Make the vpp repair reproducible: force BuildKit/`docker buildx` (or convert the heredoc patch) in
-   `bench/official/terminal-bench/build-arm64-task.sh`, rebuild both vpp images, and get a valid
-   stock trial (the graph retest is already criteria 4/5).
-3. Re-run the four-task diagnostic from [`automation/evaluator.md`](../automation/evaluator.md) — the
-   gate is `n_trials >= 1` on every row. Only then run product20 (background it; report status and
-   the live result path) and report aggregate accuracy, prompt tokens, billed cost and steps.
+1. Wait for the live full product20 (PID `38616`, OUT_DIR
+   `bench/official/results/2026-11-09-product20/`) to finish. Its watcher appends `_EXIT` to
+   `/tmp/product20-shard-full.log` when the PID exits; if the watcher is gone, append it by hand after
+   confirming the PID is dead:
+
+   ```sh
+   ps -p "$(cat bench/official/results/2026-11-09-product20/runner.pid)" || \
+     echo "_EXIT" >> /tmp/product20-shard-full.log
+   ```
+
+   Verify every task has `n_trials >= 1`; a `n_trials: 0` row is infrastructure, not a score. Do not
+   start a second run and do not run the smoke gate while it is live.
+2. Produce the aggregate from `bench/official/results/2026-11-09-product20/rows.jsonl` and the trial
+   session logs: accuracy parity, prompt/billed tokens, steps, and criteria-level near-misses
+   (`docs/EVALUATION.md` has the extraction paths). No claim from partial rows.
+3. After the runner exits: make the vpp repair reproducible (BuildKit/`docker buildx` or
+   de-heredoc), rebuild and re-verify both arms, and script/re-apply the medical arm64 sidecar
+   compose patch before any task-dir reset. Do not rebuild either while the run is live.
 4. Only after those numbers exist: decide whether the graph loop has a product claim.
 5. Then durable checkpoint consumer and kernel breadth.
 

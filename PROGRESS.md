@@ -26,35 +26,39 @@ features.
 
 ## In progress / next
 
-- [ ] **product20 — blocked by the failed 2026-11-09 pre-run diagnostic.** Terminal-Bench easy10 +
+- [ ] **product20 — full run live (2026-11-09), no aggregate yet.** Terminal-Bench easy10 +
       medium10, stock vs graph. The instrument was repaired on 2026-11-09 (8 vCPU / 20 GiB / 150 GiB,
       **20/20 env + 20/20 verifier** images including `formal-crypto`, `tb-dsh-base` overlay on every
       env image, sidecars pulled, tarball `f7a961a797ca5e17…`, smoke 1.0/1.0/1.0). The bounded
-      four-task diagnostic then ran at HEAD `5cae65c` and **failed**
-      (`bench/official/results/2026-11-09-prediag-0122/`): `intrastat-meldung` (graph 0/47, stock
-      42/47 criteria) and `heat-pump-warranty` (graph 1/21, stock 16/21) are valid 0.0 near-misses,
-      while `vpp-loss-divergence` and `medical-claims-processing` are `n_trials: 0` on both arms. No
-      full run was started and there is no aggregate. **Historical:** the tracked 2026-11-08 partial
-      run (`bench/official/results/2026-11-08-product20-partial/`) was taken on the pre-repair
-      instrument and attempted **19/20** tasks: **11 graph / 3 stock** valid trials, only **2
-      paired-valid** tasks (`bun-sourcemap-leak`, `cargo-flight-dispatch`), all **0.0**. Reward is
-      binary: stock passed **35/37** criteria on `bun-sourcemap-leak` (graph 18/37) and **33/40** on
-      `cargo-flight-dispatch` (graph 32/40). That run measured the **pre-fix** five-step plan, whose
-      `n_answer` removed every tool (80 vs 217 session records); the plan shape has since changed, so
-      the partial run is invalid as a product aggregate and none of its numbers are citable. A
-      three-task oracle control (`bench/official/results/2026-11-08-oracle-control/`) passes **1.0**
-      (task image/verifier path, not the DSH arm), so those zeros are not a blanket harness artifact.
-      **Rerun on the repaired instrument before any stock-vs-graph statement.**
-- [ ] `medical-claims-processing` **infrastructure blocker** (separate from the MCP-adapter
-      limitation): its `playwright-mcp` sidecar is a vendor amd64 image, and under qemu on arm64
-      Chrome never opens CDP 9222, so the compose healthcheck fails and no trial is created. It needs
-      an arm64-native sidecar (or a different health gate) before it can produce a valid expected-0.0
-      trial or enter the aggregate; do not backfill a 0.0 row for it.
-- [ ] `vpp-loss-divergence` image reproducibility: the two images were patched out-of-band because
-      Docker's legacy builder silently drops `RUN python - <<'PYEOF'` heredoc bodies (the CPU/gloo
-      shim and the `/opt/verifier_pristine` snapshot live there). `build-arm64-task.sh` still uses
-      plain `docker build`, so a canonical rebuild reproduces the defect; force BuildKit/`docker
-      buildx` (or convert the heredoc), rebuild both images, and finish the stock trial.
+      four-task pre-run diagnostic first failed and then **passed after the vpp/medical fixes**
+      (`bench/official/results/2026-11-09-prediag-fixes/`; all eight rows `n_trials: 1`,
+      `n_errors: 0`). The full run is **running**: PID `38616`, started 2026-11-09 04:18:32 +08,
+      OUT_DIR `bench/official/results/2026-11-09-product20/`, log `/tmp/product20-2026-11-09.log`,
+      marker `/tmp/product20-shard-full.log` without `_EXIT`; `rows.jsonl` grows per trial. **No
+      aggregate** — do not cite accuracy, parity, token or cost from partial rows. **Historical:**
+      the tracked 2026-11-08 partial run (`bench/official/results/2026-11-08-product20-partial/`) was
+      taken on the pre-repair instrument and attempted **19/20** tasks: **11 graph / 3 stock** valid
+      trials, only **2 paired-valid** tasks (`bun-sourcemap-leak`, `cargo-flight-dispatch`), all
+      **0.0**. Reward is binary: stock passed **35/37** criteria on `bun-sourcemap-leak` (graph 18/37)
+      and **33/40** on `cargo-flight-dispatch` (graph 32/40). That run measured the **pre-fix**
+      five-step plan, whose `n_answer` removed every tool (80 vs 217 session records); the plan shape
+      has since changed, so the partial run is invalid as a product aggregate and none of its numbers
+      are citable. A three-task oracle control
+      (`bench/official/results/2026-11-08-oracle-control/`) passes **1.0** (task image/verifier path,
+      not the DSH arm), so those zeros are not a blanket harness artifact.
+- [x] `medical-claims-processing` **fixed for this run.** The vendor `playwright-mcp` sidecar is
+      amd64-only and never opened CDP 9222 under qemu; the prepared task now uses a local arm64-native
+      sidecar (`tb-arm64-medical-claims-sidecar:latest`), so both arms have valid trials (graph 2/27,
+      stock 22/27; reward is expected 0 because DSH has no native SSE-MCP client). **Remaining debt:**
+      the compose image line is a local edit that a task-dir reset loses and the repo does not
+      re-apply; do not reset or rebuild while the run is live.
+- [x] `vpp-loss-divergence` **fixed for this run.** Docker's legacy builder silently drops the
+      `RUN python - <<'PYEOF'` heredoc bodies (the CPU/gloo shim and `/opt/verifier_pristine`), so
+      both images were patched out-of-band; graph and stock both score criteria **4/5** (stock
+      56m57s). **Remaining debt:** `build-arm64-task.sh` still uses plain `docker build`, so a
+      canonical rebuild reproduces the defect. Force BuildKit/`docker buildx` (or convert the
+      heredoc), rebuild both images and re-verify both arms **after** the live runner exits — do not
+      rebuild or retag anything now.
 - [ ] Graph termination, remaining part: the tool-stripping/forced-summary defect is fixed (the
       answer keeps tools and an exhausted plan gets a continuation step), but that continuation is a
       graph-to-stock hand-off bounded by the per-turn `maxSteps`, not graph routing. Decide whether

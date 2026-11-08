@@ -3,6 +3,23 @@
 You are a fresh evaluator for `/Users/zhinan/Documents/dsh_workspace/dsh-graph-loop`. Do not edit
 product source; your writes are limited to `bench/official/results/` and a short evaluation note.
 
+## Live-run guard (check before anything else)
+
+A benchmark is **in progress** if **any** of these is true:
+
+- a Harbor container whose name contains `__env` is live (`docker ps --filter name=__env`);
+- any `/tmp/product20-shard*.log` exists without its matching `*_EXIT` line (the finished A–D shards
+  end `A_EXIT=0` … `D_EXIT=0`);
+- `/tmp/product20-shard-full.log` exists without an `_EXIT` line;
+- `bench/official/results/2026-11-09-product20/runner.pid` holds a PID that is still alive
+  (`ps -p "$(cat bench/official/results/2026-11-09-product20/runner.pid)"`).
+
+If it is in progress: report **"benchmark in progress"** with the PID, OUT_DIR and live `rows.jsonl`
+path; **do not run the smoke gate** (a second Harbor run contends for Docker/CPU with the live one)
+and **do not start another product20**. `bash scripts/ci-local.sh` stays safe. Never rely on the
+`__env` check alone: on 2026-11-09 at 05:19 only the verifier container existed and at 05:20 no
+container existed, while the run was live and appending rows.
+
 ## Readiness first
 
 - 20 product tasks must each have `tb-arm64-<task>-env:latest` and `-verifier:latest`, plus
@@ -32,8 +49,8 @@ The instrument was repaired on 2026-11-09; see
 `bench/official/results/2026-11-09-product20-prep/README.md`.
 
 - **20/20 env and 20/20 verifier images** are present, including `formal-crypto` (SageMath 10.7 /
-  Python 3.12.14 per its 2026-11-09 build log). No `--cpus 8` run is recorded yet; the direct image
-  check in the diagnostic gate below is what records it.
+  Python 3.12.14 per its 2026-11-09 build log). The direct `--cpus 8` verifier check is recorded in
+  `bench/official/results/2026-11-09-prediag-0122/README.md` (Python 3.12.14 / SageMath 10.7).
 - Colima is **8 vCPU / 20 GiB / 150 GiB**; the old 4-CPU and 11-GB blockers are gone.
 - All 20 env images carry the `tb-dsh-base` overlay: `/opt/node` (v24.9.0) + `/opt/dsh`
   (0.2.2-rc.1); freight's Node 24 is first on PATH.
@@ -64,21 +81,26 @@ The instrument was repaired on 2026-11-09; see
   still invokes plain `docker build`, so a **canonical** vpp rebuild would reproduce the heredoc
   defect — do not rebuild vpp from that script without forcing BuildKit/de-heredoc.
 
-A full product20 run is allowed **after the pre-run diagnostic gate below passes**. Do not start one
-if a Harbor container whose name contains `__env` is already live. The 2026-11-09 gate has already
-passed after the vpp/medical fixes; see the `2026-11-09-prediag-fixes` table below.
+A full product20 run is allowed **after the pre-run diagnostic gate below passes** and only when the
+**live-run guard** above reports no benchmark in progress. The 2026-11-09 gate has already passed
+after the vpp/medical fixes; see the `2026-11-09-prediag-fixes` table below. The full run is live
+now (PID `38616`, OUT_DIR `bench/official/results/2026-11-09-product20/`), so this role reports it as
+in progress instead of starting a second one.
 
 ## Gate
 
-- Run `bash scripts/ci-local.sh`.
-- With environment ready, run `bash bench/official/terminal-bench/run-smoke.sh`.
+- Run `bash scripts/ci-local.sh` (safe while a benchmark is live).
+- With environment ready **and no benchmark in progress**, run
+  `bash bench/official/terminal-bench/run-smoke.sh`. While a benchmark is live, skip the smoke gate.
 
 ## Pre-run diagnostic gate (required before a full product20)
 
 The 2026-11-09 gate is already complete: see
 [`bench/official/results/2026-11-09-prediag-fixes/README.md`](../bench/official/results/2026-11-09-prediag-fixes/README.md).
-If that file exists and every row has `n_trials >= 1`, **do not repeat the diagnostic**; start the
-full product20. Only run the block below when the table is missing or a row is `n_trials: 0`.
+If that file exists and every row has `n_trials >= 1`, **do not repeat the diagnostic**. Start the
+full product20 only when the live-run guard above reports no benchmark in progress; otherwise report
+"benchmark in progress". Only run the block below when the table is missing or a row is
+`n_trials: 0`.
 
 The full run costs days and cannot resume, while four task paths have never executed under Harbor.
 Before starting all 20 tasks, run this bounded diagnostic and record `n_trials` and the criteria
@@ -115,7 +137,8 @@ Result of the 2026-11-09 attempt: the first run FAILED (`vpp-loss-divergence` an
 valid near-misses). The two faults were fixed and the four tasks rerun; final table
 `bench/official/results/2026-11-09-prediag-fixes/README.md`: vpp graph/stock 4/5, medical graph 2/27 /
 stock 22/27, plus the two earlier valid tasks. All eight rows have `n_trials: 1`, `n_errors: 0`; the
-gate PASSES and no full product20 has been started yet.
+gate PASSES and the full product20 is live (started 2026-11-09 04:18:32 +08, PID `38616`, OUT_DIR
+`bench/official/results/2026-11-09-product20/`).
 
 Decision rule: a row with `n_trials: 0` is a real infrastructure failure — diagnose and fix it, or
 block and report it; **do not start the full 20**. A `0.0` with `n_trials >= 1` is a valid trial (a
@@ -162,6 +185,8 @@ Reporting rules:
 
 ## Product20
 
+- **First run the live-run guard above.** If a benchmark is in progress, report its PID, OUT_DIR and
+  live `rows.jsonl` path and stop; never start a second product20 and never kill the running one.
 - Run only if all 20 tasks are ready, the diagnostic gate above passed, AND (the repo commit changed
   since the last completed product20 OR no product20 result exists).
 - Command: `TASKS_DIR=/tmp/tb-arm-dsh bash bench/official/subsets/run-product20.sh`.
@@ -184,8 +209,21 @@ Reporting rules:
 - **The cycle lock is role-level, not a benchmark lock.** `docs/audits/.running` exists so two
   cycles never run the four roles concurrently; it does not own a background product20 and must not
   be held for the whole benchmark. The Lead removes it at cycle end, and the next cycle's benchmark
-  rule skips its own product20 while a Harbor `__env` container is live (a run in progress shows in
-  `docker ps`). Never start a second product20 while one is live.
+  rule skips its own product20 while a benchmark is live. Check all the live signals, not just
+  `docker ps`: a Harbor `__env` container, any `/tmp/product20-shard*.log` without its `*_EXIT`
+  line, and a live PID in the product20 `runner.pid`. Never start a second product20 while one is
+  live.
+- **Marker close.** `/tmp/product20-shard-full.log` must end with an `_EXIT` line once the runner
+  exits; a marker without `_EXIT` is read as "benchmark in progress" forever. A watcher appends it
+  when the PID dies. If the watcher is absent, append it yourself **after confirming the PID is dead**:
+
+  ```sh
+  ps -p "$(cat bench/official/results/2026-11-09-product20/runner.pid)" || \
+    echo "_EXIT" >> /tmp/product20-shard-full.log
+  ```
+
+  Do not delete the marker instead; `_EXIT` is the documented close. Keep the live `OUT_DIR` and its
+  `runner.pid` (they are the durable liveness record).
 - Keep `rows.jsonl` canonical; a row with `n_trials: 0` is an infrastructure error, not a score.
 - Record commit, model, image tags, per-task scores, **criteria passed/total**, accuracy,
   prompt/billed tokens and steps. The runner writes `commit`, `model`, `agent_timeout_sec`,

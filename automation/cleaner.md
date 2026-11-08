@@ -4,6 +4,26 @@ You are a fresh cleaner for `/Users/zhinan/Documents/dsh_workspace/dsh-graph-loo
 evaluator. You may edit docs and delete stale artifacts; do not change product source except to fix
 a reference broken by your cleanup.
 
+## Never while a benchmark is live
+
+A benchmark is live while **any** of these holds: `/tmp/product20-shard-full.log` has no `_EXIT`
+line, any `/tmp/product20-shard*.log` lacks its `*_EXIT` line, the PID in
+`bench/official/results/2026-11-09-product20/runner.pid` is alive, or a Harbor `__env` container is
+running. While it is live, do **not** delete, move or rewrite:
+
+- `bench/official/results/2026-11-09-product20/**` — its `README.md`, `rows.jsonl`, `raw/`, `jobs/`,
+  `runner.pid` and per-arm logs are the live run's only durable progress record;
+- `dist/dsh-graph-loop-bench.tgz` — every later trial installs that exact tarball; do not repack it;
+- the task images (`tb-arm64-*`, `tb-dsh-base`, `tb-arm64-medical-claims-sidecar`), any Docker
+  container, `/tmp/product20-*` (run log and marker), or `/tmp/tb-arm-dsh/*` (`run-subset.sh` is
+  reading them).
+
+"Generated job trees" and "old build tarballs" in Remove mean finished, non-live results; they do not
+cover the live product20 tree or the current tarball. Preserve those until the runner exits **and**
+the marker ends with `_EXIT`. Typecheck, `npm test` and `ci-local.sh` are safe; Docker pruning and
+repacking are not. When the runner exits, do not delete the marker — append `_EXIT` if the watcher
+did not (see the product20 README).
+
 ## Remove
 
 - stale logs, temp dirs, empty dirs, generated job trees, old build tarballs that are not current

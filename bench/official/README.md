@@ -6,23 +6,29 @@ were removed; they are not current gates.
 
 ## Status
 
-No aggregate; **product20 is blocked by the failed 2026-11-09 pre-run diagnostic.** Readiness
-(2026-11-09): 20/20 env and 20/20 verifier images including `formal-crypto`, Colima 8 vCPU / 20 GiB /
-150 GiB, the `tb-dsh-base` overlay on every env image, product20 sidecars pulled, tarball
+The **full product20 is live (2026-11-09); no aggregate exists yet.** PID `38616`, started 04:18:32
++08, OUT_DIR `results/2026-11-09-product20/` (`runner.pid`, `rows.jsonl` growing per trial), log
+`/tmp/product20-2026-11-09.log`, marker `/tmp/product20-shard-full.log` without `_EXIT`. Do not start
+a second run and do not run the smoke gate while it is live; canonical state:
+[`docs/STATUS.md`](../../docs/STATUS.md#current-benchmark-state). Readiness (2026-11-09): 20/20 env
+and 20/20 verifier images including `formal-crypto`, Colima 8 vCPU / 20 GiB / 150 GiB, the
+`tb-dsh-base` overlay on every env image, product20 sidecars pulled, tarball
 `f7a961a797ca5e17…`, smoke 1.0 / 1.0 / 1.0 — see
-[`results/2026-11-09-product20-prep`](results/2026-11-09-product20-prep/README.md) and
-[`results/2026-11-09-smoke-prep`](results/2026-11-09-smoke-prep/README.md).
+[`results/2026-11-09-product20-prep`](results/2026-11-09-product20-prep/README.md) (historical
+snapshot) and [`results/2026-11-09-smoke-prep`](results/2026-11-09-smoke-prep/README.md).
 
-The four-task pre-run diagnostic then ran at HEAD `5cae65c` and **failed**
+The four-task pre-run diagnostic first **failed**
 ([`results/2026-11-09-prediag-0122`](results/2026-11-09-prediag-0122/README.md)):
 `intrastat-meldung` (graph 0/47, stock 42/47 criteria) and `heat-pump-warranty` (graph 1/21, stock
-16/21) are valid 0.0 near-misses, while `vpp-loss-divergence` and `medical-claims-processing` are
-`n_trials: 0` on both arms. `medical-claims-processing` never starts: its `playwright-mcp` sidecar is
-a vendor amd64 image and its compose healthcheck (CDP 9222) never passes under qemu on arm64. The
-vpp images were repaired out-of-band because
-[`terminal-bench/build-arm64-task.sh`](terminal-bench/build-arm64-task.sh) still invokes Docker's
-legacy builder, which silently drops heredoc `RUN` bodies; a canonical rebuild reproduces the defect.
-No full product20 was started; the diagnostic is a readiness gate, not a new score.
+16/21) were valid 0.0 near-misses, while `vpp-loss-divergence` (`/opt/verifier_pristine` emptied by
+the legacy builder's heredoc drop) and `medical-claims-processing` (amd64 `playwright-mcp` sidecar
+never healthy under qemu) were `n_trials: 0` on both arms. Both faults were repaired and the four
+tasks reran ([`results/2026-11-09-prediag-fixes`](results/2026-11-09-prediag-fixes/README.md)): vpp
+4/5 both arms, medical 2/27 graph / 22/27 stock, all eight rows `n_trials: 1` / `n_errors: 0`; the
+gate passes and the full run is live. The repairs are local-only: `build-arm64-task.sh` still invokes
+Docker's legacy builder, so a canonical vpp rebuild reproduces the defect, and the medical compose
+image tag is a local edit. Do not rebuild or reset either while the run is live; the code fix is
+deferred.
 
 The tracked [`results/2026-11-08-product20-partial`](results/2026-11-08-product20-partial/README.md)
 run is **historical**: it was taken on the pre-repair instrument, attempted 19/20 tasks, produced 11

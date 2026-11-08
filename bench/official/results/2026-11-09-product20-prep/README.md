@@ -1,5 +1,12 @@
 # product20 readiness — 2026-11-09
 
+> **Update 2026-11-09 04:18:32 +08:** the pre-run diagnostic passed after the vpp/medical fixes
+> (postscript 2 below) and the full product20 is **live** — PID `38616`, OUT_DIR
+> [`../2026-11-09-product20/`](../2026-11-09-product20/README.md), `rows.jsonl` growing per trial, no
+> aggregate yet. The snapshot below is **historical** (the state before the diagnostic); read the
+> live run README and [`docs/STATUS.md`](../../../../docs/STATUS.md#current-benchmark-state) for the
+> current state.
+
 **Status: instrument ready; the full run is pending the pre-run diagnostic.** This note records the
 environment repair after the 2026-11-08/09 audits; it is not a product result. No product20 rows
 exist for this tree yet.

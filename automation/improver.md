@@ -10,6 +10,13 @@ architecture B.
 - Preserve current tests, evidence, README, LICENSE, marketplace and current docs unless the audit
   explicitly says they are stale and misleading.
 - Do not add new benchmarks, products, or a general agent framework.
+- **Live benchmark:** while `/tmp/product20-shard-full.log` has no `_EXIT` line, the PID in
+  `bench/official/results/2026-11-09-product20/runner.pid` is alive, or a Harbor `__env` container is
+  running, restrict changes to docs and role files. Do not touch the live product20 `OUT_DIR`
+  (`rows.jsonl`, `raw/`, `jobs/`, `runner.pid`), `dist/dsh-graph-loop-bench.tgz`, `/tmp/product20-*`,
+  `/tmp/tb-arm-dsh/*`, the task images or Docker; do not repack, rebuild or start any benchmark; and
+  do not commit source changes that would make HEAD no longer the tarball's source. Defer that work
+  until the runner exits and the marker has `_EXIT`.
 - If there is no safe P0/P1, leave the code unchanged and say so.
 
 ## Work
@@ -17,6 +24,7 @@ architecture B.
 1. Read the report and relevant files.
 2. Implement P0/P1 with the smallest coherent change.
 3. Run `npm run typecheck`, `npm test`, `npm run build && npm run build:check`,
-   `bash scripts/ci-local.sh`; fix failures.
+   `bash scripts/ci-local.sh`; fix failures. These write only gitignored `packages/*/lib` (never
+   `dist/`), so they are safe while a benchmark is live.
 4. Append a `## Resolution` section to the audit report (files, P0/P1 status, evidence, remaining).
 5. Commit locally with a clear message. Reply with commit hash and remaining items.
