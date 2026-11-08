@@ -14,10 +14,11 @@ full suite. A three-task
 so the task image/verifier path can pass; it does not validate the DSH arm. Do not report the partial
 rows as accuracy, parity or cost.
 
-The latest readiness pass
-([`results/2026-11-08-readiness`](results/2026-11-08-readiness/README.md)) found 20/20 env images and
-19/20 verifier images, with the gate and smoke passing; product20 was not run. `formal-crypto` and
-`shadow-relay` request 8 CPUs on the 4-CPU VM, so the suite is not runnable end to end.
+The latest evaluator pass
+([`results/2026-11-08-eval-1327`](results/2026-11-08-eval-1327/README.md), HEAD `823aa68`) found
+20/20 env images and 19/20 verifier images, with the gate (204/204) and smoke passing; product20 was
+not run. `formal-crypto` and `shadow-relay` request 8 CPUs on the 4-CPU VM, so the suite is not
+runnable end to end. The benchmark tarball was repacked from `packages/loop` at `823aa68`.
 
 ## Prerequisites
 

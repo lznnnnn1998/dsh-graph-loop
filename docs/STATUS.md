@@ -69,12 +69,15 @@ scoring) can produce a pass on those tasks, so a 0.0 is not by itself evidence a
 the partial run disagree on that task's stock arm (the partial stock attempt timed out at 900 s);
 both are task-level evidence, neither is an aggregate.
 
-The latest evaluator readiness pass
-([`2026-11-08-readiness`](../bench/official/results/2026-11-08-readiness/README.md)) records 20/20
-env images, 19/20 verifier images (`formal-crypto` still missing), a passing local gate (168/168
-tests at the time; the current suite is 204/204) and a passing three-arm smoke
-([`2026-11-08-smoke`](../bench/official/results/2026-11-08-smoke/README.md)); product20 was not run,
-so no aggregate changed.
+The latest evaluator pass
+([`2026-11-08-eval-1327`](../bench/official/results/2026-11-08-eval-1327/README.md), HEAD `823aa68`)
+records 20/20 env images, 19/20 verifier images (`formal-crypto` still missing), `ci-local.sh` PASS
+at **204/204** tests and a passing three-arm smoke
+([`2026-11-08-smoke-1327`](../bench/official/results/2026-11-08-smoke-1327/README.md): 1.0 oracle /
+1.0 graph / 1.0 stock on a fresh `823aa68` tarball); product20 was not run, so no aggregate changed.
+`dist/dsh-graph-loop-bench.tgz` was repacked from `packages/loop` at `823aa68` (220,087 B, sha256
+`499d89ac…`); `run-smoke.sh` and `run-subset.sh` do not rebuild it, so repack before any product20
+run.
 
 The former local 20-task run is not part of this tree and is not citable as current evidence.
 

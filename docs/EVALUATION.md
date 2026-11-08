@@ -82,13 +82,16 @@ values.
 
 ## Current evidence
 
-- Readiness (2026-11-08): 20/20 env images, 19/20 verifier images (`formal-crypto` missing), local
-  gate 168/168 at the time (the current suite is 204/204); product20 not run. `formal-crypto` and
-  `shadow-relay` request `cpus = 8` on a 4-CPU
-  VM, so the suite is not runnable end to end
-  ([result](../bench/official/results/2026-11-08-readiness/README.md)).
-- Smoke (2026-11-08): **1.0** oracle / **1.0** graph / **1.0** stock on the synthetic `smoke/answer-42`
-  task ([result](../bench/official/results/2026-11-08-smoke/README.md)); harness plumbing only.
+- Readiness and gate (2026-11-08, HEAD `823aa68`): 20/20 env images, 19/20 verifier images
+  (`formal-crypto` missing), `ci-local.sh` PASS at **204/204** tests; product20 not run.
+  `formal-crypto` and `shadow-relay` request `cpus = 8` on a 4-CPU VM, so the suite is not runnable
+  end to end ([evaluation](../bench/official/results/2026-11-08-eval-1327/README.md)).
+- Smoke (2026-11-08, `823aa68`): **1.0** oracle / **1.0** graph / **1.0** stock on the synthetic
+  `smoke/answer-42` task, run with a fresh tarball packed from `packages/loop`
+  ([result](../bench/official/results/2026-11-08-smoke-1327/README.md)); harness plumbing only.
+- Benchmark tarball: `dist/dsh-graph-loop-bench.tgz` was repacked from `packages/loop` at `823aa68`
+  (220,087 B, sha256 `499d89ac…`) after the evaluation. `run-smoke.sh` and `run-subset.sh` still
+  default to it without a rebuild step, so repack before any product20 run.
 - 2026-11-08 product20 partial: 19/20 tasks attempted (`formal-crypto` has no verifier image);
   11 graph / 3 stock valid; only 2 paired-valid (`bun-sourcemap-leak`, `cargo-flight-dispatch`); all
   valid scores 0.0. **Invalid as a product aggregate; the instrument is unvalidated for the full
