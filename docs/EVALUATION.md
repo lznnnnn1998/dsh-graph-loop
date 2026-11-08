@@ -132,4 +132,5 @@ object on each row; `bench/official/terminal-bench/criteria.py <job-dir>` extrac
 Report a micro criteria rate (`sum passed / sum total`) and call a 0.0 with high criteria a
 near-miss, not a pass. Do not turn criteria into a new score. For pytest tasks, report the rubric
 criteria and the `ctrf.json` test counts separately when they differ (a meta criterion such as
-`pytest_completed_successfully` is not a test).
+`pytest_completed_successfully` is not a test); the row's `criteria` object carries
+`tests_passed`/`tests_total`/`tests_source` for that case.

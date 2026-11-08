@@ -68,7 +68,8 @@ Reporting rules:
 - Call a 0.0 with high criteria a **near-miss**, not a pass, and name the failed criteria.
 - For pytest tasks, `reward-details.json` may include a meta criterion
   (`pytest_completed_successfully`) that is not a test; if the `ctrf.json` test count differs,
-  report both rubric criteria and test counts.
+  report both rubric criteria and test counts. The row's `criteria` object carries
+  `tests_passed`/`tests_total`/`tests_source` for that case.
 - If criteria are unavailable, write `n/a` and why; do not fabricate.
 
 ## Product20

@@ -172,8 +172,25 @@ def extract_criteria(root: str | Path) -> dict[str, Any]:
             reports.append(report)
     if not reports:
         return {'criteria_passed': None, 'criteria_total': None, 'criteria_failed': [], 'criteria_source': 'unavailable'}
+    def attach_tests(report: dict[str, Any], verifier: Path) -> dict[str, Any]:
+        # A rubric report may include a meta criterion (e.g.
+        # `pytest_completed_successfully`) that is not a test. Keep the executed
+        # test count separately so the evaluator can report both.
+        if report['criteria_source'] == 'ctrf.json':
+            return report
+        tests = _from_ctrf(verifier)
+        if tests is None:
+            return report
+        return {
+            **report,
+            'tests_passed': tests['criteria_passed'],
+            'tests_total': tests['criteria_total'],
+            'tests_failed': tests['criteria_failed'][:50],
+            'tests_source': 'ctrf.json',
+        }
+
     if len(reports) == 1:
-        return reports[0]
+        return attach_tests(reports[0], trials[0] / 'verifier')
     sources = {report['criteria_source'] for report in reports}
     if len(sources) == 1:
         return {
@@ -183,7 +200,7 @@ def extract_criteria(root: str | Path) -> dict[str, Any]:
             'criteria_source': f"{reports[0]['criteria_source']} (summed over {len(reports)} trials)",
         }
     first = reports[0]
-    return {**first, 'criteria_note': f'{len(reports)} trials with mixed reports; showing the first'}
+    return {**attach_tests(first, trials[0] / 'verifier'), 'criteria_note': f'{len(reports)} trials with mixed reports; showing the first'}
 
 
 def main(argv: list[str]) -> int:
