@@ -39,6 +39,21 @@ for p in [out / 'environment' / 'Dockerfile', out / 'tests' / 'Dockerfile']:
     s = _re.sub(r'@sha256:[0-9a-f]{64}', '', s)
     p.write_text(s)
 
+# Compose-based tasks ignore task.toml's environment.docker_image: their
+# docker-compose.yaml pins the official amd64 image. Point the main service at
+# the arm64 env tag; sidecars remain the vendor images (Python sidecars are
+# usable under qemu; Node DSH cannot run there).
+compose = out / 'environment' / 'docker-compose.yaml'
+if compose.exists():
+    text = compose.read_text()
+    text = re.sub(
+        r'(?m)^(\s+image:\s*)harborframework/terminal-bench:[^\s]*-environment-[^\s]+',
+        lambda m: m.group(1) + env_tag,
+        text,
+        count=1,
+    )
+    compose.write_text(text)
+
 toml = out / 'task.toml'
 s = toml.read_text()
 # The environment image and the verifier image are the two `docker_image` keys.

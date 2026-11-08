@@ -39,6 +39,15 @@ ROWS="$OUT_DIR/rows.jsonl"
 for task in $TASKS; do
   task_dir="$TASKS_DIR/$task"
   [ -f "$task_dir/task.toml" ] || { echo "SKIP $task (no task dir)"; continue; }
+  TASK_TIMEOUT=$(python3 - "$task_dir/task.toml" <<'PY'
+import sys, tomllib
+with open(sys.argv[1], 'rb') as fh:
+    data = tomllib.load(fh)
+print(int(float(data.get('agent', {}).get('timeout_sec', 900))))
+PY
+)
+  export DSH_AGENT_TIMEOUT_SEC="${DSH_AGENT_TIMEOUT_CAP:-$TASK_TIMEOUT}"
+  echo "agent timeout: ${DSH_AGENT_TIMEOUT_SEC}s"
   for arm in graph stock; do
     job="tb-${arm}-${task}-$(date +%H%M%S)"
     echo "===== $arm $task ====="
