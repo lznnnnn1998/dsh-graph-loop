@@ -82,6 +82,9 @@ values.
 
 ## Current evidence
 
+- Current tree: `npm test` **253/253** (0 fail, 0 skipped), typecheck and `build:check` green; the
+  transition matrix drives the frontier, the minimal kernel and the default LangGraph kernel. The
+  204/204 figures below are the evaluator run pinned to `823aa68` and are kept as that run's record.
 - Readiness and gate (2026-11-08, HEAD `823aa68`): 20/20 env images, 19/20 verifier images
   (`formal-crypto` missing), `ci-local.sh` PASS at **204/204** tests; product20 not run.
   `formal-crypto` and `shadow-relay` request `cpus = 8` on a 4-CPU VM, so the suite is not runnable

@@ -1,20 +1,25 @@
 /**
  * Transition matrix — the minimum cross-engine and end-to-end coverage the
- * 2026-11-08 audit asked for (P1-6).
+ * 2026-11-08 audits asked for (P1-6).
  *
- *   1. the same plan and outcome stream through `FrontierTopology` and the
- *      kernel, compared node by node;
- *   2. fan-in joins: a diamond and a research subagent batch each run the join
- *      once;
+ *   1. the same plan and outcome stream through `FrontierTopology`, the minimal
+ *      kernel and the default LangGraph kernel, compared node by node;
+ *   2. fan-in joins: a shallow diamond, a **depth-2 diamond**, a depth-2 diamond
+ *      inside a cycle, and a research subagent batch each run the join once (and
+ *      once per iteration when the join is on a cycle);
  *   3. a composed verify stage that fails twice by shell exit code (not a tool
- *      error) and then succeeds, through the live turn driver; a non-verify
- *      stage whose shell command exits 1 is not sent to repair;
- *   4. a third-party/MCP author's success, tool failure, no-artifact outcome and
- *      wrong-tool outcome, plus step-scoped artifact credit;
- *   5. `artifact` / `noArtifact` routing in both engines;
- *   6. the `budget` guard at `maxSteps - 1`, `maxSteps - 2` and the last
+ *      error) and then succeeds, through the live turn driver on all three
+ *      engines; a non-verify stage whose shell command exits 1 is not sent to
+ *      repair;
+ *   4. a third-party/MCP author's success, tool failure, no-artifact outcome,
+ *      wrong-artifact outcome and step-scoped artifact credit;
+ *   5. every composed stage classifies its own success: discover/inspect/mutate
+ *      with no tool, a `file.image` author fed only `file.text`, and a verify
+ *      that never ran all repair instead of advancing;
+ *   6. failure exits outrank the budget exit at the answer reserve boundary;
+ *   7. the `budget` guard at `maxSteps - 1`, `maxSteps - 2` and the last
  *      planned step;
- *   7. removed token/wall budget axes and data-edge conditions are rejected
+ *   8. removed token/wall budget axes and data-edge conditions are rejected
  *      instead of silently inert.
  */
 
@@ -40,6 +45,7 @@ import {
   type ToolSource,
 } from '../../packages/core/src/registry.ts'
 import { FrontierTopology } from '../../packages/core/src/topology.ts'
+import { available } from '../../packages/loop/src/kernel/index.ts'
 import { KernelTopology, canKernelDrive } from '../../packages/loop/src/kernel/topology.ts'
 import { createGraphTurnDriver } from '../../packages/loop/src/scheduler.ts'
 
@@ -47,7 +53,29 @@ import { createGraphTurnDriver } from '../../packages/loop/src/scheduler.ts'
 // Helpers
 // ---------------------------------------------------------------------------
 
-type Engine = 'frontier' | 'kernel'
+/** The three routing engines a plan can run on. */
+type Engine = 'frontier' | 'minimal' | 'langgraph'
+
+const ENGINES: readonly Engine[] = ['frontier', 'minimal', 'langgraph']
+
+/**
+ * LangGraph is an optional dependency. A skip is reported with an explicit
+ * reason, never silently passed (the audit's P2-6); the minimal kernel and the
+ * frontier never skip.
+ */
+const langgraphAvailable = await available()
+const LANGGRAPH_SKIP = langgraphAvailable
+  ? undefined
+  : '@langchain/langgraph is not installed (or no longer satisfies the kernel surface); language-graph rows skipped'
+
+function engineTest(name: string, engine: Engine, fn: () => Promise<void>): void {
+  test(name, { skip: engine === 'langgraph' && !langgraphAvailable ? LANGGRAPH_SKIP : undefined }, fn)
+}
+
+/** The turn-driver `kernel` option for an engine. */
+function kernelOption(engine: Engine): 'off' | 'minimal' | 'langgraph' {
+  return engine === 'frontier' ? 'off' : engine
+}
 
 /** One node outcome as the engines accept it (facts/artifacts are pre-projected). */
 interface Outcome {
@@ -75,25 +103,34 @@ interface Steppable {
 function engineOf(engine: Engine, plan: TaskPlan): Steppable {
   return engine === 'frontier'
     ? new FrontierTopology(plan)
-    : new KernelTopology(plan, { kind: 'minimal', taskHash: 'transition-matrix' })
+    : new KernelTopology(plan, { kind: engine, taskHash: 'transition-matrix' })
 }
 
 /** Walk a plan to completion, recording the node id before each advance. */
 async function walk(engine: Engine, plan: TaskPlan, stream: readonly Outcome[]): Promise<{ nodes: string[]; status: string }> {
   const topology = engineOf(engine, plan)
   const nodes: string[] = []
+  // Both engines merge facts cumulatively; a direct adapter caller is the source
+  // of the step-scoped facts (the scheduler derives them with `deriveStepFacts`).
+  // Spelling `lastOk`/`failedTool` out on every advance keeps a stale value from
+  // a previous step out of the next route decision.
+  const stepFacts = (outcome: Outcome, ok: boolean): Record<string, Json> => ({
+    lastOk: ok,
+    ...(outcome.failedTool === undefined ? {} : { failedTool: outcome.failedTool }),
+    ...outcome.facts,
+  })
   try {
     for (const outcome of stream) {
       const current = topology.current()
       if (current === undefined) break
       nodes.push(current.id)
-      await Promise.resolve(topology.advance(outcome))
+      await Promise.resolve(topology.advance({ ...outcome, facts: stepFacts(outcome, outcome.ok) }))
     }
     // A stream may end before the plan; finish with plain successful steps so
     // the returned status is settled.
     while (topology.current() !== undefined && nodes.length < 50) {
       nodes.push(topology.current()!.id)
-      await Promise.resolve(topology.advance({ ok: true }))
+      await Promise.resolve(topology.advance({ ok: true, facts: stepFacts({ ok: true }, true) }))
     }
     return { nodes, status: topology.status() }
   } finally {
@@ -311,13 +348,24 @@ for (const parity of [
     expected: ['a', 'c', 'd'],
   },
 ]) {
-  test(`frontier and kernel agree: ${parity.name}`, async () => {
-    const frontier = await walk('frontier', parity.plan, parity.stream)
-    const kernel = await walk('kernel', parity.plan, parity.stream)
-    assert.deepEqual(frontier.nodes, parity.expected)
-    assert.deepEqual(kernel, frontier, 'the same plan/outcome stream must route identically')
-  })
+  for (const engine of ENGINES) {
+    engineTest(`parity [${engine}]: ${parity.name}`, engine, async () => {
+      const route = await walk(engine, parity.plan, parity.stream)
+      assert.deepEqual(route.nodes, parity.expected)
+    })
+  }
 }
+
+test('all available engines route the same plan/outcome stream identically', async () => {
+  const plan = branchPlan({ op: 'fact', key: 'lastOk', equals: false })
+  const stream: Outcome[] = [{ ok: false }, { ok: true }, { ok: true }]
+  const routes: { engine: Engine; nodes: string[] }[] = []
+  for (const engine of ENGINES) routes.push({ engine, nodes: (await walk(engine, plan, stream)).nodes })
+  const expected = ['a', 'b', 'd']
+  for (const route of routes) {
+    assert.deepEqual(route.nodes, expected, `${route.engine} diverged`)
+  }
+})
 
 // ---------------------------------------------------------------------------
 // 1b. Fan-in joins execute once (frontier fallback; the kernel rejects fan-out)
@@ -339,6 +387,105 @@ test('a diamond fan-in join executes the join node once', async () => {
   const route = await walk('frontier', diamond, [{ ok: true }])
   assert.deepEqual(route.nodes, ['a', 'b', 'c', 'd'], 'the join must not run twice after both branches')
   assert.equal(route.status, 'done')
+})
+
+test('a depth-2 diamond join waits for the deep branch (P1-1)', async () => {
+  const deep = planOf(
+    [
+      { from: 'a', to: 'b', kind: 'control' },
+      { from: 'a', to: 'c', kind: 'control' },
+      { from: 'b', to: 'd', kind: 'control' },
+      { from: 'c', to: 'c2', kind: 'control' },
+      { from: 'c2', to: 'd', kind: 'control' },
+    ],
+    { terminals: ['d'], nodes: ['a', 'b', 'c', 'c2', 'd'], maxSteps: 8 },
+  )
+  assert.equal(validateTaskPlan(graphOf({ tools: [] }), deep).ok, true, 'the deep diamond is a legal plan')
+  assert.equal(canKernelDrive(deep), false, 'fan-out stays on the frontier')
+  const route = await walk('frontier', deep, [{ ok: true }])
+  assert.deepEqual(route.nodes, ['a', 'b', 'c', 'c2', 'd'],
+    'the join must wait for c2; running on b and dropping the c2 -> d edge is the P1-1 bug')
+  assert.equal(route.status, 'done')
+})
+
+test('a depth-3 branch still holds the join (P1-1)', async () => {
+  // The direct predecessor of the join is two levels below the split, so the
+  // queue cannot see it directly; the pending reachability rule must hold `d`.
+  const deep = planOf(
+    [
+      { from: 'a', to: 'b', kind: 'control' },
+      { from: 'a', to: 'c', kind: 'control' },
+      { from: 'b', to: 'd', kind: 'control' },
+      { from: 'c', to: 'c2', kind: 'control' },
+      { from: 'c2', to: 'c3', kind: 'control' },
+      { from: 'c3', to: 'd', kind: 'control' },
+    ],
+    { terminals: ['d'], nodes: ['a', 'b', 'c', 'c2', 'c3', 'd'], maxSteps: 10 },
+  )
+  const route = await walk('frontier', deep, [{ ok: true }])
+  assert.deepEqual(route.nodes, ['a', 'b', 'c', 'c2', 'c3', 'd'])
+})
+
+test('a join whose dependency is inverted in the declaration order still runs last (P1-1)', async () => {
+  // Legal DAG: `c` is a join of `a` and `d`. The old FIFO frontier popped `c`
+  // before `d` (its predecessor) and then never re-ran it.
+  const inverted = planOf(
+    [
+      { from: 'a', to: 'b', kind: 'control' },
+      { from: 'a', to: 'c', kind: 'control' },
+      { from: 'b', to: 'd', kind: 'control' },
+      { from: 'd', to: 'c', kind: 'control' },
+    ],
+    { terminals: ['c'], maxSteps: 8 },
+  )
+  assert.equal(validateTaskPlan(graphOf({ tools: [] }), inverted).ok, true)
+  const route = await walk('frontier', inverted, [{ ok: true }])
+  assert.deepEqual(route.nodes, ['a', 'b', 'd', 'c'], 'the join must run after its predecessor d')
+})
+
+test('a join inside a cycle runs once per iteration, never before its deep branch (P1-1)', async () => {
+  const loop = planOf(
+    [
+      { from: 'a', to: 'b', kind: 'control' },
+      { from: 'a', to: 'c', kind: 'control' },
+      { from: 'b', to: 'd', kind: 'control' },
+      { from: 'c', to: 'c2', kind: 'control' },
+      { from: 'c2', to: 'd', kind: 'control' },
+      { from: 'd', to: 'e', kind: 'control' },
+      { from: 'e', to: 'a', kind: 'control' },
+    ],
+    { terminals: ['e'], nodes: ['a', 'b', 'c', 'c2', 'd', 'e'], maxSteps: 12 },
+  )
+  const route = await walk('frontier', loop, [{ ok: true }])
+  // Two full iterations: the join runs once per iteration and only after c2.
+  assert.deepEqual(route.nodes, ['a', 'b', 'c', 'c2', 'd', 'e', 'a', 'b', 'c', 'c2', 'd', 'e'])
+  assert.equal(route.nodes.filter(id => id === 'd').length, 2, 'the loop re-enters the join exactly once per pass')
+})
+
+test('a fan-out with a retried branch runs its join once, after the retry settles (P1-1)', async () => {
+  const retry = planOf(
+    [
+      { from: 'entry', to: 'a', kind: 'control' },
+      { from: 'entry', to: 'b', kind: 'control' },
+      { from: 'a', to: 'a', kind: 'control', when: { op: 'callFailed', tool: 'bash' } },
+      { from: 'a', to: 'join', kind: 'control' },
+      { from: 'b', to: 'join', kind: 'control' },
+      { from: 'join', to: 'answer', kind: 'control' },
+    ],
+    { terminals: ['answer'], nodes: ['entry', 'a', 'b', 'join', 'answer'], maxSteps: 10 },
+  )
+  assert.equal(validateTaskPlan(graphOf({ tools: [] }), retry).ok, true)
+  const route = await walk('frontier', retry, [
+    { ok: true },                            // entry fans out
+    { ok: false, failedTool: 'bash' },       // a fails -> retry a
+    { ok: true },                            // a succeeds
+    { ok: true },                            // b
+    { ok: true },                            // join
+    { ok: true },                            // answer
+  ])
+  assert.deepEqual(route.nodes, ['entry', 'a', 'b', 'a', 'join', 'answer'],
+    'the retried branch runs (the queued sibling may go first), and the join still waits for it')
+  assert.equal(route.nodes.filter(id => id === 'join').length, 1, 'the retried branch must not double the join')
 })
 
 test('a research fan-out reaches its answer node once (frontier, subagent batch)', async () => {
@@ -367,41 +514,39 @@ test('a research fan-out reaches its answer node once (frontier, subagent batch)
 // 2. Composed verify fails twice by shell exit code, then succeeds
 // ---------------------------------------------------------------------------
 
-test('a composed verify stage fails twice by shell exit code, then passes (turn driver, both engines)', async () => {
-  const { graph, plan } = coreComposition()
-  assert.equal(canKernelDrive(plan), true, 'the composed plan must be kernel-drivable')
-  const verifyFailure = (code: number): StepOutcome => ({
-    // DSH reports a non-zero shell exit as a normal result: ok is true and the
-    // rendered text carries `[exit code: N]`. The step facts, not `ok`, must
-    // drive the verify -> repair exit.
-    ok: true,
-    tools: [{ name: 'bash', isError: false, output: `FAIL tests/loader.test.ts\n[exit code: ${code}]` }],
-  })
-  const stream: StepOutcome[] = [
-    { ok: true, tools: [{ name: 'read', isError: false }] },     // inspect (readFile)
-    { ok: true, tools: [{ name: 'edit', isError: false }] },     // mutate (wroteFile)
-    verifyFailure(1),                                            // verify -> repair
-    { ok: true },                                                // repair -> verify
-    verifyFailure(2),                                            // verify -> repair again
-    { ok: true },                                                // repair -> verify
-    { ok: true, tools: [{ name: 'bash', isError: false, output: 'PASS\n[exit code: 0]' }] },
-    { ok: true },                                                // answer
-  ]
-  const expected = [
-    'n_inspect',
-    'n_mutate',
-    'n_verify',
-    'n_verify_repair',
-    'n_verify',
-    'n_verify_repair',
-    'n_verify',
-    'n_answer',
-  ]
+for (const engine of ENGINES) {
+  engineTest(`a composed verify stage fails twice by shell exit code, then passes [${engine}]`, engine, async () => {
+    const { graph, plan } = coreComposition()
+    assert.equal(canKernelDrive(plan), true, 'the composed plan must be kernel-drivable')
+    const verifyFailure = (code: number): StepOutcome => ({
+      // DSH reports a non-zero shell exit as a normal result: ok is true and the
+      // rendered text carries `[exit code: N]`. The step facts, not `ok`, must
+      // drive the verify -> repair exit.
+      ok: true,
+      tools: [{ name: 'bash', isError: false, output: `FAIL tests/loader.test.ts\n[exit code: ${code}]` }],
+    })
+    const stream: StepOutcome[] = [
+      { ok: true, tools: [{ name: 'read', isError: false }] },     // inspect (readFile)
+      { ok: true, tools: [{ name: 'edit', isError: false }] },     // mutate (wroteFile)
+      verifyFailure(1),                                            // verify -> repair
+      { ok: true },                                                // repair -> verify
+      verifyFailure(2),                                            // verify -> repair again
+      { ok: true },                                                // repair -> verify
+      { ok: true, tools: [{ name: 'bash', isError: false, output: 'PASS\n[exit code: 0]' }] },
+      { ok: true },                                                // answer
+    ]
+    const expected = [
+      'n_inspect',
+      'n_mutate',
+      'n_verify',
+      'n_verify_repair',
+      'n_verify',
+      'n_verify_repair',
+      'n_verify',
+      'n_answer',
+    ]
 
-  const kernelDriver = createGraphTurnDriver({ mode: 'dynamic', kernel: 'minimal', graphProvider: () => graph })
-  const frontierDriver = createGraphTurnDriver({ mode: 'dynamic', kernel: 'off', graphProvider: () => graph })
-  const routes: string[][] = []
-  for (const driver of [kernelDriver, frontierDriver]) {
+    const driver = createGraphTurnDriver({ mode: 'dynamic', kernel: kernelOption(engine), graphProvider: () => graph })
     const started = await driver.beginTurn({ text: 'fix the failing test in the loader' })
     assert.equal(started.templateId, 't_compose')
     const trail = await walkDriver(driver, stream)
@@ -409,25 +554,178 @@ test('a composed verify stage fails twice by shell exit code, then passes (turn 
     assert.equal(driver.done(), true)
     assert.equal(driver.status?.(), 'done')
     assert.equal(driver.snapshot().replans, 0, 'the composed repair exit must not need a boundary replan')
-    routes.push(trail)
     driver.endTurn()
-  }
-  assert.deepEqual(routes[1], routes[0], 'frontier and kernel drivers must walk the same composed plan identically')
-})
+  })
+}
 
-test('a non-verify stage whose shell command exits 1 is not sent to repair (P1-3)', async () => {
+test('a non-verify stage whose shell command exits 1 is not sent to repair', async () => {
   const { graph, plan } = coreComposition()
-  for (const kernel of ['minimal', 'off'] as const) {
-    const driver = createGraphTurnDriver({ kernel, graphProvider: () => graph })
+  for (const engine of ENGINES) {
+    const driver = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
     driver.adopt(plan)
     assert.equal(driver.current()?.id, 'n_inspect')
     await driver.advance({ ok: true, tools: [{ name: 'read', isError: false }] })
     assert.equal(driver.current()?.id, 'n_mutate')
     // A successful mutate step that happened to run a probe command: DSH reports
     // a normal result carrying `[exit code: 1]`. That is not a tool-invocation
-    // failure and must not send a non-verify stage to repair.
-    await driver.advance({ ok: true, tools: [{ name: 'bash', isError: false, output: 'no match\n[exit code: 1]' }] })
-    assert.equal(driver.current()?.id, 'n_verify', `kernel=${kernel}: mutate must advance, not repair`)
+    // failure and must not send a non-verify stage to repair. The edit is the
+    // stage's own progress fact; without it the stage repairs for a different
+    // reason (no mutation happened), which is not what this test is about.
+    await driver.advance({ ok: true, tools: [
+      { name: 'edit', isError: false },
+      { name: 'bash', isError: false, output: 'no match\n[exit code: 1]' },
+    ] })
+    assert.equal(driver.current()?.id, 'n_verify', `engine=${engine}: mutate must advance, not repair`)
+    driver.endTurn()
+  }
+})
+
+// ---------------------------------------------------------------------------
+// 2b. Every composed stage classifies its own progress (P1-2/P1-3/P1-4)
+// ---------------------------------------------------------------------------
+
+for (const engine of ENGINES) {
+  engineTest(`a composed mutate step with no tool repairs instead of advancing [${engine}]`, engine, async () => {
+    const { graph, plan } = coreComposition()
+    const driver = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
+    driver.adopt(plan)
+    await driver.advance({ ok: true, tools: [{ name: 'read', isError: false }] })
+    assert.equal(driver.current()?.id, 'n_mutate')
+    // No tool call at all: the stage made no progress. The old success edge and
+    // the unconditional fallback both pointed at `n_verify`, so this advanced
+    // silently (P1-4).
+    await driver.advance({ ok: true })
+    assert.equal(driver.current()?.id, 'n_mutate_repair')
+  })
+}
+
+for (const engine of ENGINES) {
+  engineTest(`a composed inspect step with no tool repairs instead of advancing [${engine}]`, engine, async () => {
+    const { graph, plan } = coreComposition()
+    const driver = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
+    driver.adopt(plan)
+    assert.equal(driver.current()?.id, 'n_inspect')
+    await driver.advance({ ok: true })
+    assert.equal(driver.current()?.id, 'n_inspect_repair')
+  })
+}
+
+for (const engine of ENGINES) {
+  engineTest(`a composed discover step with no tool repairs instead of advancing [${engine}]`, engine, async () => {
+    // An investigative, non-mutating task composes discover -> inspect.
+    const graph = graphOf({ tools: CORE_TOOLS })
+    const envelope = buildEnvelope({ roles: [role('workspace-read'), role('workspace-search')] }, graph)
+    const result = synthesizeComposition({
+      fingerprint: fingerprint({ intent: 'code-question' }),
+      graph,
+      envelope: envelope.envelope,
+    })
+    assert.deepEqual(result.stages.map(stage => stage.stage), ['discover', 'inspect'])
+    const driver = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
+    driver.adopt(result.plan)
+    assert.equal(driver.current()?.id, 'n_discover')
+    await driver.advance({ ok: true })
+    assert.equal(driver.current()?.id, 'n_discover_repair')
+  })
+}
+
+for (const engine of ENGINES) {
+  engineTest(`a composed verify step that ran no tool repairs instead of answering [${engine}]`, engine, async () => {
+    const { graph, plan } = coreComposition()
+    const driver = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
+    driver.adopt(plan)
+    await driver.advance({ ok: true, tools: [{ name: 'read', isError: false }] })
+    await driver.advance({ ok: true, tools: [{ name: 'edit', isError: false }] })
+    assert.equal(driver.current()?.id, 'n_verify')
+    // `verificationFailed` is false when no verification ran; the verify success
+    // exit must additionally require `verificationRan` (P1-3).
+    await driver.advance({ ok: true })
+    assert.equal(driver.current()?.id, 'n_verify_repair')
+  })
+}
+
+for (const engine of ENGINES) {
+  engineTest(`an author contracted for file.image repairs when only write(file.text) ran [${engine}]`, engine, async () => {
+    const { graph, plan } = thirdPartyComposition()
+    const driver = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
+    driver.adopt(plan)
+    assert.equal(driver.current()?.id, 'n_author_0')
+    // The step succeeded and produced a path artifact — but of the wrong type.
+    // The author guard is the stage's own artifact contract (P1-2).
+    await driver.advance({ ok: true, tools: [
+      { name: 'write', isError: false, arguments: JSON.stringify({ file_path: '/tmp/notes.txt' }) },
+    ] })
+    assert.equal(driver.current()?.id, 'n_author_0_repair')
+  })
+}
+
+for (const engine of ENGINES) {
+  engineTest(`an author contracted for file.image succeeds when that type is produced [${engine}]`, engine, async () => {
+    const { graph, plan } = thirdPartyComposition()
+    const driver = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
+    driver.adopt(plan)
+    await driver.advance({ ok: true, tools: [
+      { name: 'write', isError: false, arguments: JSON.stringify({ file_path: '/tmp/render.png' }) },
+    ] })
+    assert.equal(driver.current()?.id, 'n_answer')
+  })
+}
+
+for (const engine of ENGINES) {
+  engineTest(`at maxSteps 5 a failed verify repairs instead of becoming the answer [${engine}]`, engine, async () => {
+    // maxSteps 5: inspect, mutate, verify (fails with exit 1) leaves exactly the
+    // answer reserve (2). The failure exit must be evaluated before the budget
+    // exit, or a failed verification is reported as a successful run (P1-5).
+    const graph = graphOf({ tools: CORE_TOOLS })
+    const envelope = buildEnvelope({
+      roles: [role('workspace-read'), role('workspace-write'), role('shell'), role('verification')],
+    }, graph)
+    const composed = synthesizeComposition({
+      fingerprint: fingerprint({ intent: 'code-change', mutating: true }),
+      graph,
+      envelope: envelope.envelope,
+      budget: { maxSteps: 5, maxReplans: 2 },
+    })
+    const driver = createGraphTurnDriver({ kernel: kernelOption(engine), maxSteps: 5, graphProvider: () => graph })
+    driver.adopt(composed.plan)
+    await driver.advance({ ok: true, tools: [{ name: 'read', isError: false }] })
+    await driver.advance({ ok: true, tools: [{ name: 'edit', isError: false }] })
+    await driver.advance({ ok: true, tools: [{ name: 'bash', isError: false, output: 'FAIL\n[exit code: 1]' }] })
+    assert.equal(driver.current()?.id, 'n_verify_repair',
+      `engine=${engine}: a failed verify at the reserve boundary must repair, not answer`)
+    // Walk the rest of the run: the answer must never be reached on a failed
+    // verification, whatever the step cap does at the end.
+    while (!driver.done()) await driver.advance({ ok: true })
+    assert.ok(!driver.snapshot().trail.some(row => row.id === 'n_answer'),
+      `engine=${engine}: the run must not end at n_answer after a failed verify`)
+  })
+}
+
+test('failedTool is step-scoped: a nameless failure does not reuse the previous step name (P2-1)', async () => {
+  // `b` has a `callFailed(read)` recovery edge and a tool-agnostic
+  // `lastOk=false` edge. A step that fails without naming a tool must reach the
+  // read edge; a sticky `failedTool=bash` from the previous step used to block
+  // it and fall to `d`.
+  const plan = planOf(
+    [
+      { from: 'a', to: 'b', kind: 'control', when: { op: 'callFailed', tool: 'bash' } },
+      { from: 'a', to: 'd', kind: 'control', when: { op: 'fact', key: 'lastOk', equals: false } },
+      { from: 'b', to: 'c', kind: 'control', when: { op: 'callFailed', tool: 'read' } },
+      { from: 'b', to: 'd', kind: 'control', when: { op: 'fact', key: 'lastOk', equals: false } },
+    ],
+    { terminals: ['c', 'd'], maxSteps: 6 },
+  )
+  assert.equal(validateTaskPlan(graphOf({ tools: [] }), plan).ok, true)
+  for (const engine of ENGINES) {
+    const driver = createGraphTurnDriver({ kernel: kernelOption(engine) })
+    driver.adopt(plan)
+    assert.equal(driver.current()?.id, 'a')
+    // Step 1 fails through bash, so `a` names the failing tool.
+    await driver.advance({ ok: false, failedTool: 'bash' })
+    assert.equal(driver.current()?.id, 'b')
+    // Step 2 fails with no named tool: `callFailed(read)` must match.
+    await driver.advance({ ok: false })
+    assert.equal(driver.current()?.id, 'c', `engine=${engine}: the stale bash failure name must not block the read recovery`)
     driver.endTurn()
   }
 })
@@ -436,91 +734,96 @@ test('a non-verify stage whose shell command exits 1 is not sent to repair (P1-3
 // 3. Third-party/MCP author outcomes
 // ---------------------------------------------------------------------------
 
-test('a third-party author succeeds when its declared artifact is observed', async () => {
-  const { graph, plan } = thirdPartyComposition()
-  const driver = createGraphTurnDriver({ kernel: 'minimal', graphProvider: () => graph })
-  driver.adopt(plan)
-  assert.equal(driver.current()?.id, 'n_author_0')
-  await driver.advance({ ok: true, tools: [{ name: 'acme_render', isError: false }] })
-  assert.equal(driver.current()?.id, 'n_answer')
-  await driver.advance({ ok: true })
-  assert.equal(driver.status?.(), 'done')
-})
+for (const engine of ENGINES) {
+  engineTest(`a third-party author succeeds when its declared artifact is observed [${engine}]`, engine, async () => {
+    const { graph, plan } = thirdPartyComposition()
+    const driver = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
+    driver.adopt(plan)
+    assert.equal(driver.current()?.id, 'n_author_0')
+    await driver.advance({ ok: true, tools: [{ name: 'acme_render', isError: false }] })
+    assert.equal(driver.current()?.id, 'n_answer')
+    await driver.advance({ ok: true })
+    assert.equal(driver.status?.(), 'done')
+    driver.endTurn()
+  })
+}
 
-test('a third-party author that fails or produces nothing repairs instead of passing through', async () => {
-  const { graph, plan } = thirdPartyComposition()
+for (const engine of ENGINES) {
+  engineTest(`a third-party author that fails or produces nothing repairs instead of passing through [${engine}]`, engine, async () => {
+    const { graph, plan } = thirdPartyComposition()
 
-  // Tool-invocation failure: the step fails and the author's repair exit runs.
-  const failed = createGraphTurnDriver({ kernel: 'minimal', graphProvider: () => graph })
-  failed.adopt(plan)
-  await failed.advance({ ok: false, failedTool: 'acme_render', tools: [{ name: 'acme_render', isError: true }] })
-  assert.equal(failed.current()?.id, 'n_author_0_repair')
-  await failed.advance({ ok: true, tools: [{ name: 'acme_render', isError: false }] })
-  assert.equal(failed.current()?.id, 'n_author_0', 'the repair node must return to the author stage')
-  await failed.advance({ ok: true, tools: [{ name: 'acme_render', isError: false }] })
-  assert.equal(failed.current()?.id, 'n_answer')
-  await failed.advance({ ok: true })
-  assert.equal(failed.status?.(), 'done')
+    // Tool-invocation failure: the step fails and the author's repair exit runs.
+    const failed = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
+    failed.adopt(plan)
+    await failed.advance({ ok: false, failedTool: 'acme_render', tools: [{ name: 'acme_render', isError: true }] })
+    assert.equal(failed.current()?.id, 'n_author_0_repair')
+    await failed.advance({ ok: true, tools: [{ name: 'acme_render', isError: false }] })
+    assert.equal(failed.current()?.id, 'n_author_0', 'the repair node must return to the author stage')
+    await failed.advance({ ok: true, tools: [{ name: 'acme_render', isError: false }] })
+    assert.equal(failed.current()?.id, 'n_answer')
+    await failed.advance({ ok: true })
+    assert.equal(failed.status?.(), 'done')
+    failed.endTurn()
 
-  // "Success" with no observable artifact (no tool ran): `producedArtifact` is
-  // step-scoped and false, so the author repairs rather than silently skipping
-  // its artifact contract.
-  const empty = createGraphTurnDriver({ kernel: 'minimal', graphProvider: () => graph })
-  empty.adopt(plan)
-  await empty.advance({ ok: true })
-  assert.equal(empty.current()?.id, 'n_author_0_repair')
+    // "Success" with no observable artifact (no tool ran): the author's own
+    // step produced nothing, so it repairs rather than silently skipping its
+    // artifact contract.
+    const empty = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
+    empty.adopt(plan)
+    await empty.advance({ ok: true })
+    assert.equal(empty.current()?.id, 'n_author_0_repair')
+    empty.endTurn()
 
-  // A different successful tool is not the planned author tool: it must not be
-  // credited with the declared artifact (P1-2).
-  const wrongTool = createGraphTurnDriver({ kernel: 'minimal', graphProvider: () => graph })
-  wrongTool.adopt(plan)
-  await wrongTool.advance({ ok: true, tools: [{ name: 'read', isError: false }] })
-  assert.equal(wrongTool.current()?.id, 'n_author_0_repair')
-})
+    // A different successful tool is not the planned author tool: it must not be
+    // credited with the declared artifact (P1-2).
+    const wrongTool = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
+    wrongTool.adopt(plan)
+    await wrongTool.advance({ ok: true, tools: [{ name: 'read', isError: false }] })
+    assert.equal(wrongTool.current()?.id, 'n_author_0_repair')
+    wrongTool.endTurn()
+  })
+}
 
-test('an earlier stage artifact cannot satisfy a later author (step-scoped, P1-4)', async () => {
-  // `document` intent + a requested file.text composes inspect (acme_read) and
-  // an author filled by the same tool. The inspect step produces file.text, so
-  // the run-cumulative artifact array already contains it when the author runs;
-  // the author's own step reports producedArtifact=false and must still repair.
-  const { graph, plan } = thirdPartyComposition('document', ['file.text'])
-  const stageIds = plan.nodes.filter(node => !node.id.endsWith('_repair')).map(node => node.id)
-  assert.ok(stageIds.indexOf('n_inspect') !== -1 && stageIds.indexOf('n_inspect') < stageIds.indexOf('n_author_0'))
+for (const engine of ENGINES) {
+  engineTest(`an earlier stage artifact cannot satisfy a later author [${engine}]`, engine, async () => {
+    // `document` intent + a requested file.text composes inspect (acme_read) and
+    // an author filled by the same tool. The inspect step produces file.text, so
+    // the run-cumulative artifact array already contains it when the author runs;
+    // the author's own step produced no artifact and must still repair.
+    const { graph, plan } = thirdPartyComposition('document', ['file.text'])
+    const stageIds = plan.nodes.filter(node => !node.id.endsWith('_repair')).map(node => node.id)
+    assert.ok(stageIds.indexOf('n_inspect') !== -1 && stageIds.indexOf('n_inspect') < stageIds.indexOf('n_author_0'))
 
-  const driver = createGraphTurnDriver({ kernel: 'minimal', graphProvider: () => graph })
-  driver.adopt(plan)
-  assert.equal(driver.current()?.id, 'n_inspect')
-  await driver.advance({ ok: true, tools: [{ name: 'acme_read', isError: false }] })
-  assert.equal(driver.current()?.id, 'n_author_0')
-  await driver.advance({ ok: true })
-  assert.equal(driver.current()?.id, 'n_author_0_repair', 'the run-cumulative file.text must not satisfy the author')
-})
+    const driver = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
+    driver.adopt(plan)
+    assert.equal(driver.current()?.id, 'n_inspect')
+    await driver.advance({ ok: true, tools: [{ name: 'acme_read', isError: false }] })
+    assert.equal(driver.current()?.id, 'n_author_0')
+    await driver.advance({ ok: true })
+    assert.equal(driver.current()?.id, 'n_author_0_repair', 'the earlier stage file.text must not satisfy the author')
+    driver.endTurn()
+  })
+}
 
 // ---------------------------------------------------------------------------
 // 4. Budget at the boundary
 // ---------------------------------------------------------------------------
 
-test('the budget guard fires at maxSteps - 1 and maxSteps - 2 in both engines', async () => {
+test('the budget guard fires at maxSteps - 1 and maxSteps - 2 on every engine', async () => {
   // After one completed node the remaining count is maxSteps - 1.
-  const afterOne = await Promise.all([
-    walk('frontier', budgetPlan(4, 3), [{ ok: true }]),
-    walk('kernel', budgetPlan(4, 3), [{ ok: true }]),
-  ])
-  for (const route of afterOne) assert.deepEqual(route.nodes, ['a', 'b'])
-  const belowOne = await Promise.all([
-    walk('frontier', budgetPlan(4, 2), [{ ok: true }]),
-    walk('kernel', budgetPlan(4, 2), [{ ok: true }]),
-  ])
-  for (const route of belowOne) assert.deepEqual(route.nodes, ['a', 'c'])
-
+  for (const engine of ENGINES) {
+    const route = await walk(engine, budgetPlan(4, 3), [{ ok: true }])
+    assert.deepEqual(route.nodes, ['a', 'b'], `engine=${engine}`)
+  }
+  for (const engine of ENGINES) {
+    const route = await walk(engine, budgetPlan(4, 2), [{ ok: true }])
+    assert.deepEqual(route.nodes, ['a', 'c'], `engine=${engine}`)
+  }
   // After two completed nodes the remaining count is maxSteps - 2; the guard
-  // that did not fire after `a` fires after `x` in both engines.
-  const afterTwo = await Promise.all([
-    walk('frontier', chainBudgetPlan(4, 2), [{ ok: true }, { ok: true }]),
-    walk('kernel', chainBudgetPlan(4, 2), [{ ok: true }, { ok: true }]),
-  ])
-  for (const route of afterTwo) {
-    assert.deepEqual(route.nodes, ['a', 'x', 'b'])
+  // that did not fire after `a` fires after `x` on every engine.
+  for (const engine of ENGINES) {
+    const route = await walk(engine, chainBudgetPlan(4, 2), [{ ok: true }, { ok: true }])
+    assert.deepEqual(route.nodes, ['a', 'x', 'b'], `engine=${engine}`)
     assert.equal(route.status, 'done')
   }
 })
@@ -529,26 +832,33 @@ test('the last planned step keeps its budget-routed wrap-up node (kernel adapter
   // maxSteps 1: one planned step remains after `a`, so the guard's target `b`
   // would be a second step. The kernel adapter itself reserves one step for the
   // wrap-up node, so the node is folded and committed instead of being run by
-  // the host and discarded at the budget boundary (P1-5).
-  const topology = new KernelTopology(budgetPlan(1, 0), { kind: 'minimal', taskHash: 'matrix' })
-  try {
-    assert.equal(topology.current()?.id, 'a')
-    assert.equal((await topology.advance({ ok: true }))?.id, 'b')
-    assert.equal(await topology.advance({ ok: true }), undefined)
-    assert.equal(topology.status(), 'done')
-    assert.deepEqual(topology.stateSnapshot().journal.map(entry => entry.nodeId), ['a', 'b'])
-  } finally {
-    await topology.dispose()
+  // the host and discarded at the budget boundary.
+  for (const engine of ENGINES) {
+    if (engine === 'frontier') continue
+    const topology = new KernelTopology(budgetPlan(1, 0), { kind: engine, taskHash: 'matrix' })
+    try {
+      assert.equal(topology.current()?.id, 'a')
+      assert.equal((await topology.advance({ ok: true }))?.id, 'b', `engine=${engine}`)
+      assert.equal(await topology.advance({ ok: true }), undefined)
+      assert.equal(topology.status(), 'done')
+      assert.deepEqual(topology.stateSnapshot().journal.map(entry => entry.nodeId), ['a', 'b'])
+    } finally {
+      await topology.dispose()
+    }
   }
 
   // The driver uses the same rule; the scheduler no longer special-cases it.
-  const driver = createGraphTurnDriver({ kernel: 'minimal' })
-  driver.adopt(budgetPlan(1, 0))
-  await driver.advance({ ok: true })
-  assert.equal(driver.current()?.id, 'b')
-  await driver.advance({ ok: true })
-  assert.equal(driver.status?.(), 'done')
-  assert.deepEqual(driver.snapshot().trail.map(row => row.id), ['a', 'b'])
+  for (const engine of ENGINES) {
+    if (engine === 'frontier') continue
+    const driver = createGraphTurnDriver({ kernel: engine })
+    driver.adopt(budgetPlan(1, 0))
+    await driver.advance({ ok: true })
+    assert.equal(driver.current()?.id, 'b', `engine=${engine}`)
+    await driver.advance({ ok: true })
+    assert.equal(driver.status?.(), 'done')
+    assert.deepEqual(driver.snapshot().trail.map(row => row.id), ['a', 'b'])
+    driver.endTurn()
+  }
 
   // The frontier is the fallback engine and stops at the plan's step cap: a
   // guard that fires only when zero steps remain cannot add a step. Composed

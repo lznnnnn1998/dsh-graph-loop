@@ -26,9 +26,9 @@ import { FrontierTopology, bootstrapTopology, recoveryTopology, repairTopology, 
 import { synthesizeComposition } from 'dsh-graph-loop-core/compose'
 import { selectEnvelopeForTask } from 'dsh-graph-loop-core/envelope'
 import { KernelTopology, canKernelDrive } from './kernel/topology.ts'
-import { deriveStepArtifacts, deriveStepFacts } from './step-facts.ts'
+import { deriveCapabilityFacts, deriveStepArtifacts, deriveStepFacts } from './step-facts.ts'
 import type { RoutingArtifact } from 'dsh-graph-loop-core/condition'
-import type { Json } from 'dsh-graph-loop-core/graph-schema'
+import type { ArtifactType, Json } from 'dsh-graph-loop-core/graph-schema'
 import { fallbackPlan } from 'dsh-graph-loop-core/fallback'
 
 export type { TopologyMode }
@@ -212,6 +212,13 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
   let lastNode: string | undefined
   let rationale: readonly string[] = []
   let envelopeId: string | undefined
+  /**
+   * Artifact types this run has ever produced, used to reset the step-scoped
+   * `produced.<type>` facts on every step. Without the reset a guard such as the
+   * author's `produced.file.image == false` could be satisfied by an artifact
+   * from an earlier stage.
+   */
+  let producedTypes = new Set<ArtifactType>()
 
   function presetToolsOf(graph: RegistryGraph, task: TurnTask): readonly string[] {
     if (task.presetTools !== undefined) return task.presetTools
@@ -362,13 +369,27 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       record?.capabilityId ?? record?.id ?? 'step',
       capability?.tool?.name,
     )
-    // `artifact` is run-cumulative by design; stage success must be step-scoped,
-    // otherwise an earlier stage's file can satisfy a later author's guard. The
-    // boolean is always written so an author's `producedArtifact=false` repair
-    // exit can fire when the step produced nothing (an absent fact would make
-    // both author exits false and fall through to the next stage).
+    // A planned third-party/MCP capability supplies the same read/write signal
+    // the tool-name heuristics in `deriveStepFacts` give the core tools, so a
+    // composed inspect/mutate stage is classifiable whatever fills it.
+    Object.assign(facts, deriveCapabilityFacts(observed, capability))
+    // `artifact` stays run-cumulative by design; stage success must be
+    // step-scoped, otherwise an earlier stage's file can satisfy a later
+    // author's guard. The boolean is always written so an author's
+    // `producedArtifact=false` repair exit can fire when the step produced
+    // nothing (an absent fact would make both author exits false).
     facts['producedArtifact'] = artifacts.length > 0
-    for (const artifact of artifacts) facts[`produced.${artifact.type}`] = true
+    // Type-scoped and step-scoped: every type this run has ever produced, plus
+    // the node's declared types, is reset to false before this step's artifacts
+    // are marked true. A stale `produced.file.text` must not satisfy a later
+    // guard, and the author's own type must be present (false) on its first
+    // step or its no-progress exit could never fire.
+    for (const type of declaredTypes) facts[`produced.${type}`] = false
+    for (const type of producedTypes) facts[`produced.${type}`] = false
+    for (const artifact of artifacts) {
+      facts[`produced.${artifact.type}`] = true
+      producedTypes.add(artifact.type)
+    }
     await Promise.resolve(topology.advance({
       ok: outcome.ok,
       ...(outcome.failedTool === undefined ? {} : { failedTool: outcome.failedTool }),
@@ -404,6 +425,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       rationale = []
       envelopeId = undefined
       trail = []
+      producedTypes = new Set<ArtifactType>()
       // Per-turn state: a new turn gets its own replan allowance and adoption
       // window. Leaving these to accumulate permanently disables boundary
       // recovery once an early turn exhausts the plan's replan budget.

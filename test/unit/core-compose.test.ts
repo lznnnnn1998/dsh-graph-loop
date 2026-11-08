@@ -229,8 +229,12 @@ test('the composed plan ends at a tool-enabled answer node and gives verify a re
   assert.ok(verifyOut.some(edge => edge.to === 'n_verify_repair'
     && edge.when?.op === 'fact' && edge.when.key === 'verificationFailed' && edge.when.equals === true),
   'an exit-code failure must repair the verify stage')
+  assert.ok(verifyOut.some(edge => edge.to === 'n_verify_repair'
+    && edge.when?.op === 'fact' && edge.when.key === 'verificationRan' && edge.when.equals === false),
+  'a verify step that ran no tool must repair, not answer')
   assert.ok(verifyOut.some(edge => edge.to === 'n_answer'
-    && edge.when?.op === 'fact' && edge.when.key === 'verificationFailed' && edge.when.equals === false))
+    && edge.when?.op === 'fact' && edge.when.key === 'verificationRan' && edge.when.equals === true),
+  'the verify success exit requires that verification actually ran')
   assert.ok(result.plan.nodes.some(node => node.id === 'n_verify_repair'))
   assert.equal(validateTaskPlan(graph, result.plan).ok, true)
 })
@@ -286,7 +290,7 @@ test('the legacy top-level maxSteps is honoured by the cap and the plan budget a
   assert.equal(validateTaskPlan(graph, result.plan).ok, true)
 })
 
-test('every composed stage gets a real multi-exit table, not one hardcoded successor', () => {
+test('every composed stage classifies its own progress; failure exits precede the budget exit', () => {
   const graph = graphOf({ tools: CORE_TOOLS })
   const envelope = buildEnvelope({
     roles: [role('workspace-read'), role('workspace-write'), role('shell'), role('verification')],
@@ -296,15 +300,29 @@ test('every composed stage gets a real multi-exit table, not one hardcoded succe
     graph,
     envelope: envelope.envelope,
   })
-  const stages = ['n_inspect', 'n_mutate', 'n_verify']
-  for (const stage of stages) {
+  const stages = {
+    n_inspect: { key: 'readFile', next: 'n_mutate' },
+    n_mutate: { key: 'wroteFile', next: 'n_verify' },
+    n_verify: { key: 'verificationRan', next: 'n_answer' },
+  }
+  for (const [stage, expected] of Object.entries(stages)) {
     const out = result.plan.edges.filter(edge => edge.from === stage)
     assert.ok(out.some(edge => edge.when?.op === 'budget'), `${stage} must answer when the step budget is nearly gone`)
     assert.ok(out.some(edge => edge.to === `${stage}_repair`
       && edge.when?.op === 'fact' && edge.when.key === 'lastOk' && edge.when.equals === false), `${stage} must repair a failed step`)
-    assert.ok(out.some(edge => edge.when === undefined), `${stage} needs an unconditional fallback`)
-    assert.ok(out.some(edge => edge.when?.op === 'artifact'
-      || (edge.when?.op === 'fact' && (edge.when.key !== 'lastOk' || edge.when.equals === true))), `${stage} must have a stage-specific success guard`)
+    assert.ok(out.some(edge => edge.to === expected.next && edge.when?.op === 'fact'
+      && edge.when.key === expected.key && edge.when.equals === true), `${stage} must have its own success classifier`)
+    assert.ok(out.some(edge => edge.to === `${stage}_repair` && edge.when?.op === 'fact'
+      && edge.when.key === expected.key && edge.when.equals === false), `${stage} must repair on no progress`)
+    // A false success fact must not fall through to `next`: there is no
+    // unconditional stage exit, because silently advancing is what the 2026-11-08
+    // audit found (P1-4).
+    assert.ok(!out.some(edge => edge.when === undefined), `${stage} must not have an unconditional exit`)
+    const failureIndex = out.findIndex(edge => edge.to === `${stage}_repair`
+      && edge.when?.op === 'fact' && edge.when.equals === false)
+    const budgetIndex = out.findIndex(edge => edge.when?.op === 'budget')
+    assert.ok(failureIndex !== -1 && budgetIndex !== -1 && failureIndex < budgetIndex,
+      `${stage} failure must be evaluated before the budget exit (P1-5)`)
     assert.ok(result.plan.edges.some(edge => edge.from === `${stage}_repair` && edge.to === stage), `${stage}_repair must return to ${stage}`)
   }
   assert.equal(validateTaskPlan(graph, result.plan).ok, true)

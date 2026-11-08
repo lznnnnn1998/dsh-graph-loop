@@ -136,9 +136,15 @@ test('a failed work node triggers a boundary recovery plan', async () => {
 test('a failed verify node follows the composed repair exit without a replan', async () => {
   const driver = createGraphTurnDriver({ mode: 'dynamic', graphProvider: () => registry.graph })
   await driver.beginTurn({ text: 'fix the failing test in the loader' })
-  for (const id of ['n_inspect', 'n_mutate']) {
-    assert.equal(driver.current()?.id, id)
-    await driver.advance({ ok: true })
+  // Each stage's own success fact is load-bearing: inspect must actually read
+  // and mutate must actually write, or the stage repairs instead of advancing.
+  const stageOutcomes = [
+    { id: 'n_inspect', tools: [{ name: 'read', isError: false }] },
+    { id: 'n_mutate', tools: [{ name: 'edit', isError: false }] },
+  ]
+  for (const stage of stageOutcomes) {
+    assert.equal(driver.current()?.id, stage.id)
+    await driver.advance({ ok: true, tools: stage.tools })
   }
   assert.equal(driver.current()?.id, 'n_verify')
   await driver.advance({ ok: false, failedTool: 'bash' })

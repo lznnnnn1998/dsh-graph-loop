@@ -10,14 +10,19 @@ features.
 - [x] Per-turn topology: fingerprint → plan → one DSH step per node.
 - [x] Capability envelope + capability-driven composition.
 - [x] LangGraph kernel default; every control-edge condition is kernel-routed, composed plans included.
-- [x] Bounded recovery/repair for failed verify nodes; fan-in joins de-duplicated; a non-zero shell
-      exit is a verification signal, not a blanket stage failure.
+- [x] Bounded recovery/repair for failed verify nodes; a non-zero shell exit is a verification
+      signal, not a blanket stage failure. Every composed stage classifies its own success with a
+      step-scoped fact (discover/inspect/mutate/author/verify), so no stage advances on no progress;
+      failure exits are evaluated before the answer reserve.
+- [x] Frontier join barrier: a forward join waits for every predecessor that has entered the run,
+      including depth-2+ branches, and a join on a cycle runs once per iteration; explicit repair
+      back-edges still re-enter.
 - [x] Per-node tool admission; the composed answer node keeps its tools so the turn can continue.
 - [x] Subagent batch nodes (frontier path), child fallback.
 - [x] Graph tab + `/graph-chat` API; SSE/tool-call inspector.
 - [x] Explore mode, one-command installer, profile verification.
 - [x] Fork guard: pinned upstream + patch budgets, enforced in `ci-local`/`verify-all`.
-- [x] 204 unit tests, typecheck, build:check, installed e2e, tarball e2e green.
+- [x] 253 unit tests, typecheck, build:check, installed e2e, tarball e2e green.
 
 ## In progress / next
 

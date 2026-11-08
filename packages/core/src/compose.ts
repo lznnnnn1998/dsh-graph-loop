@@ -233,7 +233,15 @@ function planStages(input: ComposeInput): { stages: StagePlan[]; issues: Compose
     add('author', producer, `produces:${artifact}`, false, artifact)
   }
   if (requested.length === 0 && input.fingerprint.intent === 'document' && !wantsMutation) {
-    add('author', firstProducing(tools, 'file.text') ?? firstProducing(tools, 'file.binary'), 'document intent', true, 'file.text')
+    // The declared artifact must be the type the chosen capability actually
+    // produces: the author's step-scoped `produced.<type>` guard is derived from
+    // this, and a mismatch would leave both exits inert.
+    const textProducer = firstProducing(tools, 'file.text')
+    const binaryProducer = textProducer === undefined ? firstProducing(tools, 'file.binary') : undefined
+    const producer = textProducer ?? binaryProducer
+    if (producer !== undefined) {
+      add('author', producer, 'document intent', true, textProducer === undefined ? 'file.binary' : 'file.text')
+    }
   }
 
   if (wantsMutation || input.fingerprint.intent === 'test-failure' || input.fingerprint.intent === 'bug-fix') {
@@ -375,55 +383,82 @@ export function synthesizeComposition(input: ComposeInput): ComposeResult {
   })
 
   // Every stage gets a real exit table, not one hardcoded successor:
-  //   budget exhausted -> answer
-  //   tool error       -> stage repair -> stage (bounded by maxSteps)
-  //   stage-specific failure guard -> stage repair
-  //   stage-specific success guard -> next stage
-  //   always            -> next stage
+  //   tool error                  -> stage repair -> stage (bounded by maxSteps)
+  //   stage-specific failure      -> stage repair (evaluated BEFORE the budget)
+  //   budget exhausted            -> answer
+  //   stage-specific success      -> next stage
   // The guards are generic facts/artifacts the runtime folds from tool calls;
-  // no task-kind branch appears here.
-  const successGuard = (node: (typeof stageNodes)[number]): PlanEdge['when'] | undefined => {
+  // no task-kind branch appears here. The failure exits are declared first: both
+  // engines take the first matching edge, so at the answer reserve boundary a
+  // failed stage must still repair instead of being reported as the answer.
+  const successGuard = (node: (typeof stageNodes)[number]): PlanEdge['when'] => {
     switch (node.stage) {
       case 'discover':
-        return { op: 'fact', key: `tool.${node.toolName}.ok`, equals: true }
+        // Discovery's contract is "look something up", not a specific artifact.
+        return { op: 'fact', key: 'hadToolCall', equals: true }
       case 'inspect':
         return { op: 'fact', key: 'readFile', equals: true }
       case 'mutate':
         return { op: 'fact', key: 'wroteFile', equals: true }
       case 'author':
-        // Step-scoped: run-cumulative `artifact` would let an earlier stage's
-        // file satisfy this author's success guard.
-        return node.artifact === undefined ? undefined : { op: 'fact', key: 'producedArtifact', equals: true }
+        // Step- AND type-scoped: a run-cumulative `artifact` (or a boolean for
+        // any artifact type) would let an earlier stage's file — or a different
+        // tool's output — satisfy this author's contract. The runtime writes
+        // `produced.<type>` for the node's declared types on every step.
+        return node.artifact === undefined
+          ? { op: 'fact', key: 'producedArtifact', equals: true }
+          : { op: 'fact', key: `produced.${node.artifact}`, equals: true }
       case 'verify':
         // A non-zero shell exit is a normal tool result, so `lastOk` cannot be
-        // the verification signal: `verificationFailed` is folded from the
-        // rendered `[exit code: N]` and is step-scoped.
-        return { op: 'fact', key: 'verificationFailed', equals: false }
+        // the verification signal, and "no tool ran" must not read as a pass:
+        // `verificationRan` requires the step to have invoked something and
+        // `verificationFailed` carries the `[exit code: N]` result.
+        return { op: 'fact', key: 'verificationRan', equals: true }
     }
   }
-  /** A stage-specific failure that is not a tool-invocation error. */
-  const failureGuard = (node: (typeof stageNodes)[number]): PlanEdge['when'] | undefined => {
+  /**
+   * The stage's own negative classifier(s), in evaluation order. These are the
+   * no-progress exits that make the success guard exclusive: every fact below is
+   * written by the runtime on every step, so a false success cannot fall through
+   * to the next stage through an unconditional edge.
+   */
+  const failureGuards = (node: (typeof stageNodes)[number]): PlanEdge['when'][] => {
     switch (node.stage) {
+      case 'discover':
+        return [{ op: 'fact', key: 'hadToolCall', equals: false }]
+      case 'inspect':
+        return [{ op: 'fact', key: 'readFile', equals: false }]
+      case 'mutate':
+        return [{ op: 'fact', key: 'wroteFile', equals: false }]
       case 'author':
-        // A step can "succeed" and still produce nothing: the author's own
-        // artifact contract is the guard, not the tool exit code.
-        return node.artifact === undefined ? undefined : { op: 'fact', key: 'producedArtifact', equals: false }
+        return [node.artifact === undefined
+          ? { op: 'fact', key: 'producedArtifact', equals: false }
+          : { op: 'fact', key: `produced.${node.artifact}`, equals: false }]
       case 'verify':
-        return { op: 'fact', key: 'verificationFailed', equals: true }
-      default:
-        return undefined
+        return [
+          { op: 'fact', key: 'verificationFailed', equals: true },
+          // Completion is not verification: a verify step that called no tool
+          // has not verified anything and must repair.
+          { op: 'fact', key: 'verificationRan', equals: false },
+        ]
     }
   }
   for (const [index, node] of stageNodes.entries()) {
     const next = stageNodes[index + 1]?.id ?? answerId
-    edges.push({ from: node.id, to: answerId, kind: 'control', when: { op: 'budget', axis: 'steps', remainingAtMost: ANSWER_RESERVE_STEPS } })
     edges.push({ from: node.id, to: node.repairId, kind: 'control', when: { op: 'callFailed', tool: node.toolName } })
     edges.push({ from: node.id, to: node.repairId, kind: 'control', when: { op: 'fact', key: 'lastOk', equals: false } })
+    for (const failure of failureGuards(node)) {
+      edges.push({ from: node.id, to: node.repairId, kind: 'control', when: failure })
+    }
+    // Only after the failure exits: a stage that failed at the reserve boundary
+    // repairs rather than becoming the answer.
+    edges.push({ from: node.id, to: answerId, kind: 'control', when: { op: 'budget', axis: 'steps', remainingAtMost: ANSWER_RESERVE_STEPS } })
     const success = successGuard(node)
     if (success !== undefined) edges.push({ from: node.id, to: next, kind: 'control', when: success })
-    const failure = failureGuard(node)
-    if (failure !== undefined) edges.push({ from: node.id, to: node.repairId, kind: 'control', when: failure })
-    edges.push({ from: node.id, to: next, kind: 'control' })
+    // No unconditional edge off a stage: success and failure guards are
+    // exhaustive on every step the live path drives, so "nothing matched" would
+    // mean a missing fact, and silently advancing would hide that. The repair
+    // node keeps its unconditional return edge to the stage.
     edges.push({ from: node.repairId, to: node.id, kind: 'control' })
   }
 

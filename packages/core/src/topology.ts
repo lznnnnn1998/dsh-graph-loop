@@ -360,6 +360,10 @@ export class FrontierTopology {
   private readonly adjacency: PlanEdge[]
   private readonly pending: string[] = []
   private readonly completed = new Set<string>()
+  /** Nodes that ever entered the frontier (queued, detached or run). */
+  private readonly entered = new Set<string>()
+  /** Nodes detached for a parallel batch and not yet completed. */
+  private readonly detached = new Set<string>()
   private currentId: string | undefined
   private state: 'running' | 'done' | 'failed' = 'running'
   private readonly maxSteps: number
@@ -375,21 +379,41 @@ export class FrontierTopology {
     this.maxSteps = basePlan.budget.maxSteps
     if (this.nodeById.has(basePlan.entry)) this.pending.push(basePlan.entry)
     else this.state = 'failed'
+    this.entered.add(basePlan.entry)
   }
 
-  /** Idempotent peek: the same node until `advance()` completes it. */
+  /**
+   * Idempotent peek: the same node until `advance()` completes it.
+   *
+   * The frontier is not FIFO: a forward join is deferred until its inputs have
+   * arrived (see `joinBlocked`). Deferring keeps the node queued, so the run is
+   * not reported done while a join is still waiting for a branch.
+   */
   current(): PlanNode | undefined {
     if (this.state !== 'running') return undefined
     if (this.currentId !== undefined) return this.nodeById.get(this.currentId)
-    while (this.pending.length > 0) {
-      const id = this.pending.shift() as string
+    for (;;) {
+      if (this.pending.length === 0) {
+        // A detached batch node is still running; its completion is the next
+        // arrival, so the frontier is waiting rather than done.
+        if (this.detached.size > 0) return undefined
+        this.state = 'done'
+        return undefined
+      }
+      let index = this.pending.findIndex(id => !this.joinBlocked(id))
+      if (index === -1) {
+        if (this.detached.size > 0) return undefined
+        // Nothing queued has all its inputs and nothing is in flight: run the
+        // oldest node rather than deadlock. A predecessor that can never arrive
+        // (a mutated-away node) must not stop the run; maxSteps still bounds it.
+        index = 0
+      }
+      const id = this.pending.splice(index, 1)[0] as string
       const node = this.nodeById.get(id)
       if (node === undefined) continue
       this.currentId = id
       return node
     }
-    this.state = 'done'
-    return undefined
   }
 
   /** Peek the nodes currently queued (does not pop). */
@@ -402,6 +426,7 @@ export class FrontierTopology {
     const index = this.pending.indexOf(id)
     if (index === -1) return undefined
     this.pending.splice(index, 1)
+    this.detached.add(id)
     return this.nodeById.get(id)
   }
 
@@ -426,6 +451,67 @@ export class FrontierTopology {
     if (this.pending.includes(target)) return
     if (this.completed.has(target) && !this.reaches(target, source)) return
     this.pending.push(target)
+    this.entered.add(target)
+  }
+
+  /**
+   * Join barrier: a forward join runs only after every input that has entered
+   * the run has completed, and only when no queued node can still deliver one.
+   *
+   * The old dedupe only asked "is this target already queued/completed"; it did
+   * not order a join after a *deeper* sibling, so `a -> b, c; b -> d; c -> c2;
+   * c2 -> d` ran `d` before `c2` and then dropped the `c2 -> d` edge. Two rules
+   * close that hole:
+   *
+   *  - A predecessor that has already entered the run (`entered`) must complete
+   *    before the join can run. A predecessor that never entered — a guarded
+   *    branch that did not fire — cannot deliver an input, so it must not block.
+   *  - A queued node that can still reach the join means another input is on the
+   *    way, even if the direct predecessor has not been enqueued yet (its parent
+   *    is still queued).
+   *
+   * Neither rule asks whether the edge is part of a cycle. A join inside a cycle
+   * still has to wait for the inputs of the current iteration; the re-entry is
+   * ordered by the same barrier on the next pass, and `maxSteps` bounds the loop.
+   */
+  private joinBlocked(target: string): boolean {
+    for (const edge of this.adjacency) {
+      if (edge.kind !== 'control' || edge.to !== target) continue
+      const predecessor = edge.from
+      if (predecessor === target) continue
+      if (this.completed.has(predecessor)) continue
+      if (this.entered.has(predecessor)) return true
+    }
+    return this.pendingReaches(target)
+  }
+
+  /**
+   * True when a queued node can still deliver an input to `target`.
+   *
+   * Only paths through nodes that have not completed count: a completed node
+   * already ran in this pass, so work behind it is not an outstanding input to
+   * this join (otherwise a join inside a cycle would wait for a downstream
+   * sibling forever). This is what lets a depth-2 branch (`c -> c2 -> c3 -> d`)
+   * hold the join until `c3` arrives while a cycle back through the entry does
+   * not.
+   */
+  private pendingReaches(target: string): boolean {
+    for (const start of this.pending) {
+      if (start === target) continue
+      const seen = new Set<string>([start])
+      const stack: string[] = [start]
+      while (stack.length > 0) {
+        const id = stack.pop() as string
+        for (const edge of this.adjacency) {
+          if (edge.from !== id || edge.kind !== 'control') continue
+          if (edge.to === target) return true
+          if (this.completed.has(edge.to) || seen.has(edge.to)) continue
+          seen.add(edge.to)
+          stack.push(edge.to)
+        }
+      }
+    }
+    return false
   }
 
   /** True when `to` is reachable from `from` over control edges (back-edge test). */
@@ -449,6 +535,7 @@ export class FrontierTopology {
     this.currentId = undefined
     if (id === undefined) return undefined
     this.completed.add(id)
+    this.detached.delete(id)
     this.stepCount += 1
     const folded: Record<string, Json> = { ...this.facts, ...(outcome.facts ?? {}) }
     // Compatibility: an advance that reports only `ok`/`failedTool` still
@@ -512,7 +599,8 @@ export class FrontierTopology {
   }
 
   done(): boolean {
-    return this.state !== 'running' || (this.pending.length === 0 && this.currentId === undefined)
+    return this.state !== 'running'
+      || (this.pending.length === 0 && this.currentId === undefined && this.detached.size === 0)
   }
 
   status(): 'running' | 'done' | 'failed' {
@@ -528,7 +616,10 @@ export class FrontierTopology {
   addNode(node: PlanNode, from?: readonly string[]): void {
     this.nodeById.set(node.id, node)
     this.mutations.push(`add:${node.id}`)
-    if (this.pending.length === 0) this.pending.push(node.id)
+    if (this.pending.length === 0) {
+      this.pending.push(node.id)
+      this.entered.add(node.id)
+    }
     for (const source of from ?? []) {
       if (this.nodeById.has(source)) this.adjacency.push({ from: source, to: node.id, kind: 'control' })
     }
@@ -543,6 +634,10 @@ export class FrontierTopology {
     }
     const pendingIndex = this.pending.indexOf(id)
     if (pendingIndex !== -1) this.pending.splice(pendingIndex, 1)
+    // A removed node can no longer deliver an input: forgetting it unblocks a
+    // join that was waiting for it. `entered` only marks live inputs.
+    this.entered.delete(id)
+    this.detached.delete(id)
     this.mutations.push(`remove:${id}`)
   }
 

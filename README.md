@@ -29,16 +29,19 @@ executes arbitrary graphs.
   artifact contracts, not hardcoded tool names.
 - **Per-node tool admission** — a terminal node can run with no tools; the composed answer node
   keeps its tools so the turn can continue.
-- **Bounded failure recovery** — every composed stage exits to a repair node on failure and to the
-  answer when the step budget is nearly gone; the boundary recovery graph covers failures outside a
-  composed plan.
+- **Per-stage classification** — every composed stage (`discover`, `inspect`, `mutate`, `author`,
+  `verify`) has a step-scoped success fact and its own no-progress exit back to a repair node, so a
+  stage that did nothing repairs instead of advancing. The author's guard is the stage's artifact
+  *type*; the verify guard requires that verification actually ran. Failure exits are evaluated
+  before the answer reserve, so a failed stage repairs even at the step-budget boundary instead of
+  becoming the answer. The boundary recovery graph covers failures outside a composed plan.
 - **Graph tab** — live topology, node → tool-call inspector, `/graph-chat` API.
 - **Explore mode** — an agent preset installed as the default for new sessions.
 
 ## Status (honest)
 
 - Unit suite, typecheck, and the release build gate are green:
-  `npm test` (204 tests), `npm run typecheck`, `npm run build && npm run build:check`.
+  `npm test` (253 tests), `npm run typecheck`, `npm run build && npm run build:check`.
 - **No product benchmark aggregate.** Terminal-Bench easy10 + medium10 is defined in
   [`bench/official/subsets/product20.json`](bench/official/subsets/product20.json). The tracked
   2026-11-08 partial run

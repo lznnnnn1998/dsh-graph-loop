@@ -133,6 +133,25 @@ test('a non-zero shell exit is a verification failure, not a step failure', () =
   assert.equal(facts['allToolsFailed'], false)
 })
 
+test('step facts are rewritten every step so stale values cannot route a later step (P2-1)', () => {
+  const failed = deriveStepFacts([{ name: 'bash', isError: true }], false, 'bash')
+  assert.equal(failed['failedTool'], 'bash')
+  assert.equal(failed['verificationRan'], true)
+  assert.equal(failed['verificationFailed'], false)
+
+  // The next step fails without naming a tool: the previous step's name must be
+  // cleared, or a later `callFailed(<other tool>)` guard could never fire.
+  const nameless = deriveStepFacts([{ name: 'read', isError: true }], false)
+  assert.equal(nameless['failedTool'], false)
+
+  // A step that ran no tool has not verified anything, even though nothing
+  // "failed" (`verificationFailed` is false).
+  const noTool = deriveStepFacts([], true)
+  assert.equal(noTool['verificationRan'], false)
+  assert.equal(noTool['verificationFailed'], false)
+  assert.equal(noTool['hadToolCall'], false)
+})
+
 test('a verify/repair loop runs until maxSteps, not two visits', () => {
   const loop = plan([
     { from: 'a', to: 'b', kind: 'control', when: { op: 'fact', key: 'lastOk', equals: false } },

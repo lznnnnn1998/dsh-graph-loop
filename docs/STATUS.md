@@ -14,15 +14,16 @@ Architecture: **B**. `packages/loop` is a dedicated graph-loop plugin that repla
 | Composition | envelope / role resolution / capability composer live in dynamic mode |
 | UI | Graph tab + `/graph-chat`; installed e2e passes |
 | Packaging | tarball install + packed-loop runtime e2e passes; `build:check` reproducible |
+| Tests | `npm test` **253/253** (0 fail, 0 skipped) on the current tree; three engines in the transition matrix |
 
 ## Kernel coverage (exact)
 
 | Plan shape | Engine | Evidence |
 |---|---|---|
 | Linear chain | **LangGraph** | `test/unit/kernel-topology.test.ts` |
-| Any control-edge condition: `artifact`, `noArtifact`, `fact`, `callFailed`, `budget` (step axis) | **LangGraph** (one shared evaluator; `routeKernelPlan` selects `state.next`) | `test/unit/transition-matrix.test.ts`, `test/unit/kernel-topology.test.ts` |
-| Composed plans (per-stage repair/budget exits) | **LangGraph** | `test/unit/transition-matrix.test.ts` |
-| Parallel fan-out / join | `FrontierTopology` (joins de-duplicated; retry back-edges still re-enter) | `test/unit/transition-matrix.test.ts`, `test/unit/topology.test.ts` |
+| Any control-edge condition: `artifact`, `noArtifact`, `fact`, `callFailed`, `budget` (step axis) | **LangGraph** (one shared evaluator; `routeKernelPlan` selects `state.next`) | `test/unit/transition-matrix.test.ts` (frontier + minimal + langgraph), `test/unit/kernel-topology.test.ts` |
+| Composed plans (per-stage success / no-progress / repair / budget exits) | **LangGraph** | `test/unit/transition-matrix.test.ts` (frontier + minimal + langgraph), `test/unit/scheduler.test.ts` |
+| Parallel fan-out / join | `FrontierTopology` (a forward join waits for every entered predecessor, depth-2+ branches included; retry back-edges still re-enter; a join on a cycle runs once per iteration) | `test/unit/transition-matrix.test.ts`, `test/unit/topology.test.ts` |
 | Subagent batches | `FrontierTopology` | `test/unit/scheduler.test.ts` |
 | Condition on a data edge | `FrontierTopology`; rejected by `validateTaskPlan` (`P023`) | `test/unit/transition-matrix.test.ts` |
 | Reserved / nonconforming node ids | `FrontierTopology` | `canKernelDrive()` rejects them |
@@ -32,11 +33,16 @@ no consumption producer, so token/wall budget conditions were removed from `Cond
 rejected by `validateTaskPlan` (`P022`) instead of silently never firing.
 
 A non-zero shell exit (`[exit code: N]`) is a normal DSH result, not a tool-invocation error. The
-runtime folds it into the step-scoped `verificationFailed` fact; the composed verify stage guards on
-that fact, so an inspect/mutate step that runs `grep`/`diff` (exit 1) is not sent to repair. `lastOk`
-stays about tool invocation. The kernel adapter also reserves the one step a budget-routed wrap-up
-node needs; the frontier stops at the plan's step cap, which only differs for a guard that fires
-with zero steps left.
+runtime folds it into the step-scoped `verificationFailed` fact and a `verificationRan` fact; the
+composed verify stage repairs when verification failed **or** never ran, so an inspect/mutate step
+that runs `grep`/`diff` (exit 1) is not sent to repair and a no-tool verify is not read as a pass.
+`lastOk` stays about tool invocation. Every composed stage also classifies its own progress with a
+step-scoped fact (`hadToolCall` for discover, `readFile`, `wroteFile`, `produced.<artifact>` for the
+author's declared artifact type) and has a no-progress exit to its repair node, so no stage advances
+on a false success. Failure exits are declared before the budget exit, so a stage that fails at the
+answer reserve repairs instead of becoming the answer. The kernel adapter also reserves the one step
+a budget-routed wrap-up node needs; the frontier stops at the plan's step cap, which only differs for
+a guard that fires with zero steps left.
 
 No claim is made that LangGraph executes arbitrary graphs.
 
@@ -72,7 +78,8 @@ both are task-level evidence, neither is an aggregate.
 The latest evaluator pass
 ([`2026-11-08-eval-1327`](../bench/official/results/2026-11-08-eval-1327/README.md), HEAD `823aa68`)
 records 20/20 env images, 19/20 verifier images (`formal-crypto` still missing), `ci-local.sh` PASS
-at **204/204** tests and a passing three-arm smoke
+at **204/204** tests (the figure at `823aa68`; the current tree runs 253/253, see the Tests row of
+"Works today") and a passing three-arm smoke
 ([`2026-11-08-smoke-1327`](../bench/official/results/2026-11-08-smoke-1327/README.md): 1.0 oracle /
 1.0 graph / 1.0 stock on a fresh `823aa68` tarball); product20 was not run, so no aggregate changed.
 `dist/dsh-graph-loop-bench.tgz` was repacked from `packages/loop` at `823aa68` (220,087 B, sha256
@@ -87,8 +94,9 @@ The former local 20-task run is not part of this tree and is not citable as curr
    The blocker is the consumer (replay/time-travel), not storage availability.
 2. **Kernel breadth**: parallel fan-out/join, subagent batches, conditions on data edges and
    reserved/nonconforming node ids still use `FrontierTopology`. `maxTokens`/`maxWallMs` are declared
-   capacity, not routed budget axes. A fan-out join on the frontier is now de-duplicated, but only the
-   frontier executes fan-out at all.
+   capacity, not routed budget axes. The frontier now waits for every entered predecessor before a
+   forward join (depth-2+ diamonds included) and a join on a cycle runs once per iteration, but only
+   the frontier executes fan-out at all.
 3. **Budget boundary**: the kernel adapter reserves one extra step for a budget-routed wrap-up node;
    the frontier stops at the plan's step cap. Composed plans target `ANSWER_RESERVE_STEPS` (2), so
    both engines have room in practice; one rule in both engines is still open.

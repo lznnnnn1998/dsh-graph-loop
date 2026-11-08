@@ -9,7 +9,7 @@
  */
 
 import type { RoutingArtifact } from 'dsh-graph-loop-core/condition'
-import type { ArtifactType, Json } from 'dsh-graph-loop-core/graph-schema'
+import type { ArtifactType, Json, RegistryNode } from 'dsh-graph-loop-core/graph-schema'
 
 /** One tool call as the agent loop reports it. */
 export interface ObservedTool {
@@ -65,7 +65,14 @@ function artifactTypeFor(path: string): ArtifactType {
  * normal result whose text carries `[exit code: N]`. That is a *verification*
  * signal (`verificationFailed`), not a failed step: `lastOk` stays about tool
  * invocation so an inspect/mutate stage running `grep`/`diff` (exit 1) is not
- * sent to repair. The composed verify stage guards on `verificationFailed`.
+ * sent to repair. The composed verify stage guards on `verificationRan` /
+ * `verificationFailed`.
+ *
+ * Every fact here is step-scoped: `failedTool` is written on every step (false
+ * when the step named no failing tool) so a stale tool name from an earlier step
+ * cannot match a later `callFailed(<tool>)` guard, and `verificationRan` /
+ * `verificationFailed` are both always present so the verify stage can classify
+ * "ran and failed", "ran and passed" and "did not run" separately.
  */
 export function deriveStepFacts(tools: readonly ObservedTool[], ok: boolean, failedTool?: string): Record<string, Json> {
   let exitFailure = false
@@ -83,9 +90,16 @@ export function deriveStepFacts(tools: readonly ObservedTool[], ok: boolean, fai
     lastOk: ok,
     hadToolCall: tools.length > 0,
     toolCount: tools.length,
+    // "A tool was invoked" is the strongest cross-tool signal that a
+    // verification step actually performed work: the verify stage may be filled
+    // by `bash`, `pwsh` or a third-party verifier, so the composer cannot guard
+    // on one tool name.
+    verificationRan: tools.length > 0,
     verificationFailed: exitFailure,
+    // Always written (false = no named failing tool) so a stale `failedTool`
+    // from a previous step cannot satisfy a later `callFailed` guard.
+    failedTool: failedTool ?? false,
   }
-  if (failedTool !== undefined) facts['failedTool'] = failedTool
   let failed = 0
   let mutated = false
   let read = false
@@ -100,6 +114,35 @@ export function deriveStepFacts(tools: readonly ObservedTool[], ok: boolean, fai
   facts['allToolsFailed'] = tools.length > 0 && failed === tools.length
   facts['wroteFile'] = mutated
   facts['readFile'] = read
+  return facts
+}
+
+/**
+ * Aggregate facts for a planned capability whose tool name is not one of the
+ * DSH names the reducer knows.
+ *
+ * `deriveStepFacts` classifies by tool name (`read`/`grep` read, `write`/`edit`
+ * write). A composed inspect or mutate stage can be filled by a third-party or
+ * MCP tool, so the capability's own contract supplies the same step-scoped
+ * signal when *that* tool ran successfully: a read-only filesystem producer
+ * counts as reading, and a `mutation`-tagged tool counts as writing. Without
+ * this, a composed stage filled by anything but the core tools could never
+ * satisfy its success guard.
+ */
+export function deriveCapabilityFacts(
+  tools: readonly ObservedTool[],
+  capability: RegistryNode | undefined,
+): Record<string, Json> {
+  const tool = capability?.tool
+  if (capability === undefined || tool === undefined) return {}
+  if (!tools.some(candidate => candidate.name === tool.name && !candidate.isError)) return {}
+  const produces = capability.produces.map(spec => spec.type)
+  const facts: Record<string, Json> = {}
+  if (tool.permission === 'read-only'
+    && (capability.tags.includes('filesystem') || produces.includes('file.text') || produces.includes('file.image'))) {
+    facts['readFile'] = true
+  }
+  if (capability.tags.includes('mutation')) facts['wroteFile'] = true
   return facts
 }
 
