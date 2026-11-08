@@ -25,11 +25,19 @@
  */
 import type {
   ArtifactType,
+  Json,
   PlanEdge,
   PlanNode,
   TaskPlan,
   RegistryGraph,
 } from './graph-schema.ts'
+import {
+  evaluateCondition,
+  routeOrder,
+  type RoutingArtifact,
+  type RoutingBudget,
+  type RoutingState,
+} from './condition.ts'
 import type { TaskFingerprint } from './matching.ts'
 
 export type TopologyMode = 'template' | 'dynamic' | 'propose'
@@ -339,6 +347,12 @@ export function bootstrapTopology(taskHash: string, budget?: Partial<TopologyBud
 export interface FrontierAdvance {
   readonly ok: boolean
   readonly failedTool?: string
+  /** Facts folded from this step's durable tool results (lastOk, failedTool, hadToolCall, ...). */
+  readonly facts?: Readonly<Record<string, Json>>
+  /** Artifact refs produced by this step; the router sees refs, never file bodies. */
+  readonly artifacts?: readonly RoutingArtifact[]
+  /** Remaining budget; an omitted axis stays unknown and makes that budget guard false. */
+  readonly budget?: Partial<RoutingBudget>
 }
 
 export class FrontierTopology {
@@ -351,6 +365,8 @@ export class FrontierTopology {
   private state: 'running' | 'done' | 'failed' = 'running'
   private readonly maxSteps: number
   private stepCount = 0
+  private facts: Record<string, Json> = {}
+  private readonly artifacts: RoutingArtifact[] = []
   /** Every mutation is appended here so the run can be explained/replayed. */
   readonly mutations: string[] = []
 
@@ -404,20 +420,36 @@ export class FrontierTopology {
     if (id === undefined) return undefined
     this.completed.add(id)
     this.stepCount += 1
+    const folded: Record<string, Json> = { ...this.facts, ...(outcome.facts ?? {}) }
+    // Compatibility: an advance that reports only `ok`/`failedTool` still
+    // projects the two facts every `callFailed` guard reads.
+    if (folded['lastOk'] === undefined) folded['lastOk'] = outcome.ok
+    if (folded['failedTool'] === undefined && outcome.failedTool !== undefined) folded['failedTool'] = outcome.failedTool
+    this.facts = folded
+    if (outcome.artifacts !== undefined) this.artifacts.push(...outcome.artifacts)
     const visits = (this.visits.get(id) ?? 0) + 1
     this.visits.set(id, visits)
+    const routingState: RoutingState = {
+      facts: this.facts,
+      artifacts: this.artifacts,
+      budget: {
+        stepsRemaining: outcome.budget?.stepsRemaining ?? Math.max(0, this.maxSteps - this.stepCount),
+        ...(outcome.budget?.tokensRemaining === undefined ? {} : { tokensRemaining: outcome.budget.tokensRemaining }),
+        ...(outcome.budget?.wallMsRemaining === undefined ? {} : { wallMsRemaining: outcome.budget.wallMsRemaining }),
+      },
+    }
+
     if (!outcome.ok) {
-      // The step budget bounds recovery too: a `callFailed` self-loop is still a
-      // loop, so it must terminate when `maxSteps` is exhausted instead of
-      // queueing the recovery edge forever (H3).
+      // The step budget bounds recovery too: a condition-led recovery loop is
+      // still a loop, so it must terminate when `maxSteps` is exhausted (H3).
       if (this.stepCount >= this.maxSteps) {
         this.state = 'failed'
         return undefined
       }
-      // A failed node only continues when an explicit failed-tool edge exists.
-      const recovery = this.adjacency.find(edge => edge.from === id
-        && edge.when?.op === 'callFailed'
-        && (edge.when.tool === outcome.failedTool || outcome.failedTool === undefined))
+      // A failed node only continues on an explicit guarded edge. An
+      // unconditional success edge must not mask the failure.
+      const recovery = routeOrder(this.adjacency.filter(edge => edge.from === id && edge.kind === 'control'))
+        .find(edge => edge.when !== undefined && edge.when.op !== 'always' && evaluateCondition(edge.when, routingState))
       if (recovery === undefined) {
         this.state = 'failed'
         return undefined
@@ -425,19 +457,29 @@ export class FrontierTopology {
       this.pending.push(recovery.to)
       return this.current()
     }
+
     if (this.stepCount >= this.maxSteps) {
       this.state = 'done'
       return undefined
     }
-    const outgoing = this.adjacency.filter(edge => edge.from === id)
-    // Insertion order is the author's intent; dedupe already-visited nodes unless
-    // the edge is an explicit loop (target visited < 2 times and budget remains).
-    for (const edge of outgoing) {
+    // A guarded edge is an alternative, not a parallel branch: at most one
+    // guarded exit is taken. Unconditional edges keep the old fan-out meaning,
+    // so a research node with two `always` edges still runs both branches.
+    const outgoing = this.adjacency.filter(edge => edge.from === id && edge.kind === 'control')
+    const guarded = outgoing.filter(edge => edge.when !== undefined && edge.when.op !== 'always')
+    if (guarded.length > 0) {
+      const selected = routeOrder(guarded).find(edge => evaluateCondition(edge.when, routingState))
+      if (selected !== undefined && this.nodeById.has(selected.to)) {
+        this.pending.push(selected.to)
+        return this.current()
+      }
+    }
+    const fallback = routeOrder(outgoing.filter(edge => edge.when === undefined || edge.when.op === 'always'))
+    for (const edge of fallback) {
       const target = edge.to
       if (!this.nodeById.has(target)) continue
       const targetVisits = this.visits.get(target) ?? 0
       if (this.completed.has(target) && targetVisits >= 2) continue
-      if (edge.when !== undefined && edge.when.op !== 'always') continue
       this.pending.push(target)
     }
     return this.current()

@@ -326,21 +326,39 @@ export function synthesizeComposition(input: ComposeInput): ComposeResult {
 
   const answerId = 'n_answer'
   const generic = stages.length === 0
+  // A verification node gets a real failure branch: fail -> repair -> verify,
+  // bounded by the plan's step budget. This is a stage exit table, not a
+  // code-change special case: any task that composed a verify stage gets it.
+  const hasVerify = previous === 'n_verify'
+  if (hasVerify) {
+    nodes.push({
+      id: 'n_repair',
+      kind: 'agent-step',
+      executor: 'step',
+      instruction: 'The verification failed. Diagnose the exact failure from the last output and apply the smallest fix, then re-run the same verification.',
+      budget: { maxSteps: 1 },
+    })
+  }
   nodes.push({
     id: answerId,
-    kind: 'terminal',
+    // A terminal node may not allow tools (P007), so this stays an agent step:
+    // the model can keep acting at the end of the plan. The scheduler extends
+    // an exhausted plan when the model is still calling tools.
+    kind: 'agent-step',
     executor: 'step',
     instruction: generic
       ? 'Complete the task using the available tools and report the result.'
-      : 'Summarize what was produced, what was verified, and any remaining risk.',
-    // The terminal step answers from what the previous nodes produced; it must
-    // not carry the full preset tool surface. A generic single-step plan is the
-    // exception: there the terminal node is also the work node, so it keeps the
-    // envelope the escape hatch exists to expose.
-    ...(generic ? {} : { toolAllow: [] }),
+      : 'Summarize what was produced, what was verified, and any remaining risk. If the task still needs work, continue with the available tools; otherwise answer.',
     budget: { maxSteps: 1 },
   })
-  if (previous !== undefined) edges.push({ from: previous, to: answerId, kind: 'control' })
+  if (hasVerify) {
+    edges.push({ from: 'n_verify', to: 'n_repair', kind: 'control', when: { op: 'fact', key: 'lastOk', equals: false } })
+    edges.push({ from: 'n_repair', to: 'n_verify', kind: 'control' })
+    edges.push({ from: 'n_verify', to: answerId, kind: 'control', when: { op: 'fact', key: 'lastOk', equals: true } })
+    edges.push({ from: 'n_verify', to: answerId, kind: 'control' })
+  } else if (previous !== undefined) {
+    edges.push({ from: previous, to: answerId, kind: 'control' })
+  }
 
   const toolUniverse = [...input.envelope.tools.universe].sort()
   const confidence = input.confidence ?? (stages.length === 0 ? 0.2 : 0.75)

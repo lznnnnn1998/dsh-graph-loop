@@ -12,7 +12,8 @@ import { test } from 'node:test'
 import type { Condition, TaskPlan } from '../../packages/core/src/graph-schema.ts'
 import { KernelError, available } from '../../packages/loop/src/kernel/index.ts'
 import { LANGGRAPH_RESERVED_NODE_IDS, LANGGRAPH_STATE_CHANNELS } from '../../packages/loop/src/kernel/langgraph.ts'
-import { KernelTopology, canKernelDrive } from '../../packages/loop/src/kernel/topology.ts'
+import { KernelTopology, canKernelDrive, routeKernelPlan } from '../../packages/loop/src/kernel/topology.ts'
+import { planInitialState } from '../../packages/loop/src/kernel/plan.ts'
 
 const lgAvailable = await available()
 
@@ -108,7 +109,7 @@ test('kernel topology records a failed step outcome', async () => {
   }
 })
 
-test('canKernelDrive accepts a callFailed failure branch and excludes unsupported conditions', () => {
+test('canKernelDrive accepts every condition the shared evaluator handles', () => {
   const base = plan()
   assert.equal(canKernelDrive(base), true)
 
@@ -132,16 +133,16 @@ test('canKernelDrive accepts a callFailed failure branch and excludes unsupporte
   }
   assert.equal(canKernelDrive(withCondition), true)
 
-  // Other condition kinds are not evaluated by the kernel route; keep them on
-  // the frontier rather than silently ignoring the guard.
-  const unsupported: readonly Condition[] = [
+  // Every condition operator is evaluated by the kernel route hook, so the
+  // adapter no longer sends these plans to the frontier.
+  const supported: readonly Condition[] = [
     { op: 'fact', key: 'lastOk', equals: true },
     { op: 'artifact', type: 'file.patch' },
     { op: 'noArtifact', type: 'file.patch' },
     { op: 'budget', axis: 'steps', remainingAtMost: 2 },
   ]
-  for (const when of unsupported) {
-    assert.equal(canKernelDrive({ ...base, edges: [{ ...base.edges[0]!, when }] }), false, when.op)
+  for (const when of supported) {
+    assert.equal(canKernelDrive({ ...base, edges: [{ ...base.edges[0]!, when }] }), true, when.op)
   }
   // A condition on a data edge cannot route; the kernel follows control edges.
   assert.equal(canKernelDrive({
@@ -292,4 +293,44 @@ test('kernel topology defaults to the LangGraph engine', async () => {
   } finally {
     await topology.dispose()
   }
+})
+
+
+test('kernel route evaluates artifact, fact and budget guards', () => {
+  const base = plan()
+  const branch: TaskPlan = {
+    ...base,
+    id: 'kernel-guard-test',
+    terminals: ['c'],
+    nodes: [
+      { id: 'a', kind: 'agent-step', executor: 'step', instruction: 'work' },
+      { id: 'b', kind: 'agent-step', executor: 'step', instruction: 'guarded' },
+      { id: 'c', kind: 'agent-step', executor: 'step', instruction: 'fallback' },
+    ],
+    edges: [],
+    budget: { ...base.budget, maxSteps: 10, maxNodes: 3 },
+  }
+  const route = (when: Condition, facts: Record<string, unknown>, artifacts: { type: 'file.patch' | 'file.text'; ref: string }[] = [], superstep = 1): string => {
+    const state = {
+      ...planInitialState(branch),
+      superstep,
+      facts: facts as never,
+      artifacts: artifacts as never,
+    }
+    const guarded: TaskPlan = {
+      ...branch,
+      edges: [
+        { from: 'a', to: 'b', kind: 'control', when },
+        { from: 'a', to: 'c', kind: 'control' },
+      ],
+    }
+    return routeKernelPlan({ plan: guarded, nodeId: 'a', state })
+  }
+
+  assert.equal(route({ op: 'artifact', type: 'file.patch' }, { lastOk: true }), 'c')
+  assert.equal(route({ op: 'artifact', type: 'file.patch' }, { lastOk: true }, [{ type: 'file.patch', ref: 'a.patch' }]), 'b')
+  assert.equal(route({ op: 'fact', key: 'lastOk', equals: false }, { lastOk: true }), 'c')
+  assert.equal(route({ op: 'fact', key: 'lastOk', equals: false }, { lastOk: false }), 'b')
+  assert.equal(route({ op: 'budget', axis: 'steps', remainingAtMost: 2 }, { lastOk: true }, [], 1), 'c')
+  assert.equal(route({ op: 'budget', axis: 'steps', remainingAtMost: 2 }, { lastOk: true }, [], 9), 'b')
 })

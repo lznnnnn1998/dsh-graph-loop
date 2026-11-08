@@ -133,7 +133,7 @@ test('a failed work node triggers a boundary recovery plan', async () => {
   assert.ok(snapshot.rationale.some(line => line.includes('replan 1')))
 })
 
-test('a failed verify node installs the bounded repair graph', async () => {
+test('a failed verify node follows the composed repair exit without a replan', async () => {
   const driver = createGraphTurnDriver({ mode: 'dynamic', graphProvider: () => registry.graph })
   await driver.beginTurn({ text: 'fix the failing test in the loader' })
   for (const id of ['n_inspect', 'n_mutate']) {
@@ -142,9 +142,9 @@ test('a failed verify node installs the bounded repair graph', async () => {
   }
   assert.equal(driver.current()?.id, 'n_verify')
   await driver.advance({ ok: false, failedTool: 'bash' })
-  assert.equal(driver.snapshot().replans, 1)
-  assert.equal(driver.current()?.id, 'r_diagnose')
-  assert.equal(driver.snapshot().templateId, 'repair')
+  assert.equal(driver.snapshot().replans, 0)
+  assert.equal(driver.current()?.id, 'n_repair')
+  assert.equal(driver.snapshot().templateId, 't_compose')
 })
 
 test('triage keeps a trivial task at one step', async () => {

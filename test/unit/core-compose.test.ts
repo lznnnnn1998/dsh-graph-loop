@@ -202,7 +202,7 @@ test('synthesis is deterministic and respects the envelope universe', () => {
   assert.equal(validateTaskPlan(graph, first.plan).ok, true)
 })
 
-test('the terminal answer node is answer-only for a composed plan', () => {
+test('the composed plan ends at a tool-enabled answer node and gives verify a repair exit', () => {
   const graph = graphOf({ tools: CORE_TOOLS })
   const envelope = buildEnvelope({
     roles: [
@@ -221,7 +221,14 @@ test('the terminal answer node is answer-only for a composed plan', () => {
   assert.ok(result.stages.length > 0, 'the fixture must compose work stages')
   const answer = result.plan.nodes.find(node => node.id === 'n_answer')
   assert.ok(answer, 'composed plans end at n_answer')
-  assert.deepEqual(answer.toolAllow, [], 'the terminal step must not carry the preset tool surface')
+  assert.equal(answer.kind, 'agent-step', 'an answer that can still act is an agent step, not a terminal')
+  assert.equal(answer.toolAllow, undefined, 'the answer node must keep the tools needed to continue')
+  const verifyOut = result.plan.edges.filter(edge => edge.from === 'n_verify')
+  assert.ok(verifyOut.some(edge => edge.to === 'n_repair'
+    && edge.when?.op === 'fact' && edge.when.key === 'lastOk' && edge.when.equals === false))
+  assert.ok(verifyOut.some(edge => edge.to === 'n_answer'
+    && edge.when?.op === 'fact' && edge.when.key === 'lastOk' && edge.when.equals === true))
+  assert.ok(result.plan.nodes.some(node => node.id === 'n_repair'))
   assert.equal(validateTaskPlan(graph, result.plan).ok, true)
 })
 

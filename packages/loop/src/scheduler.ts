@@ -26,6 +26,9 @@ import { FrontierTopology, bootstrapTopology, recoveryTopology, repairTopology, 
 import { synthesizeComposition } from 'dsh-graph-loop-core/compose'
 import { selectEnvelopeForTask } from 'dsh-graph-loop-core/envelope'
 import { KernelTopology, canKernelDrive } from './kernel/topology.ts'
+import { deriveStepArtifacts, deriveStepFacts } from './step-facts.ts'
+import type { RoutingArtifact } from 'dsh-graph-loop-core/condition'
+import type { Json } from 'dsh-graph-loop-core/graph-schema'
 import { fallbackPlan } from 'dsh-graph-loop-core/fallback'
 
 export type { TopologyMode }
@@ -60,7 +63,7 @@ export interface GraphTurnSnapshot {
     readonly step: number
     readonly executor: string
     readonly status: 'ok' | 'failed'
-    readonly tools?: readonly { readonly name: string; readonly callId: string; readonly isError: boolean }[]
+    readonly tools?: readonly { readonly name: string; readonly callId?: string; readonly isError: boolean; readonly arguments?: string }[]
   }[]
   readonly depth?: number
   readonly replans?: number
@@ -81,7 +84,7 @@ export interface GraphTurnDriver {
   advance(outcome: {
     readonly ok: boolean
     readonly failedTool?: string
-    readonly tools?: readonly { readonly name: string; readonly callId: string; readonly isError: boolean }[]
+    readonly tools?: readonly { readonly name: string; readonly callId?: string; readonly isError: boolean; readonly arguments?: string }[]
   }): Promise<GraphTurnSnapshot>
   adopt(plan: TaskPlan): void
   /** Detach and return all queued subagent nodes (parallel batch). */
@@ -156,7 +159,12 @@ interface TurnTopology {
   pendingNodes(): readonly PlanNode[]
   detach(id: string): PlanNode | undefined
   select(id: string): PlanNode | undefined
-  advance(outcome: { readonly ok: boolean; readonly failedTool?: string }): PlanNode | undefined | Promise<PlanNode | undefined>
+  advance(outcome: {
+    readonly ok: boolean
+    readonly failedTool?: string
+    readonly facts?: Readonly<Record<string, Json>>
+    readonly artifacts?: readonly RoutingArtifact[]
+  }): PlanNode | undefined | Promise<PlanNode | undefined>
   done(): boolean
   status(): 'running' | 'done' | 'failed'
   steps(): number
@@ -168,7 +176,7 @@ interface TurnTopology {
 interface NodeOutcome {
   readonly ok: boolean
   readonly failedTool?: string
-  readonly tools?: readonly { readonly name: string; readonly callId: string; readonly isError: boolean }[]
+  readonly tools?: readonly { readonly name: string; readonly callId?: string; readonly isError: boolean; readonly arguments?: string }[]
 }
 
 /**
@@ -185,7 +193,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     step: number
     executor: string
     status: 'ok' | 'failed'
-    tools?: readonly { name: string; callId: string; isError: boolean }[]
+    tools?: readonly { name: string; callId?: string; isError: boolean; arguments?: string }[]
   }[] = []
   let replans = 0
   let currentGraph = options.graph
@@ -328,9 +336,33 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     if (topology === undefined) return
     if (record !== undefined) recordTrail(record.id, record.executor, outcome)
     lastNode = lastNodeId ?? lastNode
-    await Promise.resolve(topology.advance({ ok: outcome.ok, ...(outcome.failedTool === undefined ? {} : { failedTool: outcome.failedTool }) }))
+    const observed = outcome.tools ?? []
+    const facts = deriveStepFacts(observed, outcome.ok, outcome.failedTool)
+    const artifacts = deriveStepArtifacts(observed)
+    await Promise.resolve(topology.advance({
+      ok: outcome.ok,
+      ...(outcome.failedTool === undefined ? {} : { failedTool: outcome.failedTool }),
+      facts,
+      ...(artifacts.length === 0 ? {} : { artifacts }),
+    }))
     recoverAfterFailure(outcome)
     if (adoptProposal) adoptProposalAtBoundary()
+    // The plan is a policy, not a script. If it runs out while the model is
+    // still calling tools, extend it with one neutral continuation node instead
+    // of ending the turn as if the work were finished. The turn still stops when
+    // the model stops calling tools or the per-turn step budget is exhausted.
+    if (outcome.ok
+      && observed.length > 0
+      && topology.done()
+      && trail.length < maxSteps) {
+      const remaining = Math.max(1, maxSteps - trail.length)
+      install(fallbackPlan({
+        id: `${plan?.id ?? 'continue'}:continue:${trail.length}`,
+        instruction: 'The current plan is exhausted but the task is not necessarily finished. Continue with the next concrete step using the available tools; when the work is complete, stop calling tools.',
+        maxSteps: remaining,
+      }))
+      rationale = [...rationale, 'plan exhausted while the model was still acting: continuation step']
+    }
   }
 
   return {
@@ -469,7 +501,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     async advance(outcome: {
     readonly ok: boolean
     readonly failedTool?: string
-    readonly tools?: readonly { readonly name: string; readonly callId: string; readonly isError: boolean }[]
+    readonly tools?: readonly { readonly name: string; readonly callId?: string; readonly isError: boolean; readonly arguments?: string }[]
   }): Promise<GraphTurnSnapshot> {
       if (topology === undefined) return snapshot()
       const node = topology.current()

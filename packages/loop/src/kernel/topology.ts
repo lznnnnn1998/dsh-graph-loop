@@ -17,7 +17,9 @@
  */
 
 import { END, KernelError } from 'dsh-graph-loop-core/kernel'
-import type { GraphState, PlanNode, TaskPlan } from 'dsh-graph-loop-core/graph-schema'
+import type { GraphState, Json, PlanNode, TaskPlan } from 'dsh-graph-loop-core/graph-schema'
+import type { RoutingArtifact } from 'dsh-graph-loop-core/condition'
+import { evaluateCondition, routeOrder, type RoutingState } from 'dsh-graph-loop-core/condition'
 import type { KernelResult, KernelRunHandle } from 'dsh-graph-loop-core/runtime'
 
 import { createLangGraphKernel, isReservedPlanNodeId } from './langgraph.ts'
@@ -33,6 +35,10 @@ import {
 export interface KernelAdvanceOutcome {
   readonly ok: boolean
   readonly failedTool?: string
+  /** Facts folded from this step's tool results; the route hook reads them. */
+  readonly facts?: Readonly<Record<string, Json>>
+  /** Artifact refs produced by this step; the route hook reads them. */
+  readonly artifacts?: readonly RoutingArtifact[]
 }
 
 export type KernelEngine = 'minimal' | 'langgraph'
@@ -134,7 +140,9 @@ export class KernelTopology {
         lastNode: nodeId,
         lastOk: outcome.ok,
         ...(outcome.failedTool === undefined ? {} : { failedTool: outcome.failedTool }),
+        ...(outcome.facts ?? {}),
       },
+      ...(outcome.artifacts === undefined ? {} : { artifacts: outcome.artifacts }),
       ...(outcome.ok
         ? {}
         : {
@@ -248,14 +256,14 @@ export class KernelTopology {
 }
 
 /**
- * Route policy for kernel-drivable plans. Success follows the single
- * unconditional `control` out-edge (`always` counts as unconditional); failure
- * follows the first `callFailed` edge whose tool matches, exactly like
- * `FrontierTopology`. `END` when the node has no applicable edge.
+ * Route policy for kernel-drivable plans. Every control edge is evaluated with
+ * the same `evaluateCondition` the frontier uses, so artifact/fact/budget
+ * guards are not silently dropped by the kernel. A failed step only takes a
+ * guarded recovery edge; `END` means no edge matched.
  *
  * The returned successor becomes `state.next`; the compiled graph then takes it
- * through a conditional edge, so the failure branch is a real graph branch, not
- * a second code path outside the kernel.
+ * through a conditional edge, so a branch is a real graph branch, not a second
+ * code path outside the kernel.
  */
 export function routeKernelPlan(input: {
   readonly plan: TaskPlan
@@ -263,18 +271,19 @@ export function routeKernelPlan(input: {
   readonly state: GraphState
 }): string {
   const control = input.plan.edges.filter(edge => edge.from === input.nodeId && edge.kind === 'control')
-  const failedTool = input.state.facts['failedTool']
+  const routingState: RoutingState = {
+    facts: input.state.facts,
+    artifacts: input.state.artifacts,
+    budget: { stepsRemaining: Math.max(0, input.plan.budget.maxSteps - input.state.superstep) },
+  }
   if (input.state.facts['lastOk'] === false) {
-    const recovery = control.find(edge => edge.when?.op === 'callFailed'
-      && (typeof failedTool !== 'string' || edge.when.tool === failedTool))
+    const recovery = routeOrder(control)
+      .find(edge => edge.when !== undefined && edge.when.op !== 'always' && evaluateCondition(edge.when, routingState))
     return recovery?.to ?? END
   }
-  const forward = control.find(edge => edge.when === undefined || edge.when.op === 'always')
+  const forward = routeOrder(control).find(edge => evaluateCondition(edge.when, routingState))
   return forward?.to ?? END
 }
-
-/** Conditions this adapter evaluates. Anything else keeps the plan on the frontier. */
-const KERNEL_CONDITIONS: ReadonlySet<string> = new Set(['always', 'callFailed'])
 
 /** True when the kernel adapter can own routing for this plan. */
 export function canKernelDrive(plan: TaskPlan): boolean {
@@ -286,13 +295,12 @@ export function canKernelDrive(plan: TaskPlan): boolean {
   // Neither engine may use a kernel channel (`next`) or `__start__`/`__end__` as
   // a node name: LangGraph's compile rejects it on the first advance().
   if (plan.nodes.some(node => isReservedPlanNodeId(node.id))) return false
-  // Accepted branches are failure edges only: the adapter's route policy and the
-  // frontier agree on `callFailed`. `artifact`/`noArtifact`/`fact`/`budget`
-  // conditions and edge conditions on `data` edges are not evaluated here, so
-  // such plans keep the frontier instead of silently ignoring their guard.
+  // The route hook evaluates every operator; a condition on a data edge still
+  // cannot route (the kernel follows control edges), so such plans stay on the
+  // frontier rather than silently ignoring the guard.
   for (const edge of plan.edges) {
     if (edge.when === undefined || edge.when.op === 'always') continue
-    if (edge.kind !== 'control' || !KERNEL_CONDITIONS.has(edge.when.op)) return false
+    if (edge.kind !== 'control') return false
   }
   // One unconditional out-edge per node: the kernel pauses before every node and
   // a DSH step is sequential, so a parallel diamond cannot run here. A
