@@ -250,18 +250,11 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     adoptedAtStep = undefined
     plan = next
     const kernelMode = options.kernel ?? 'langgraph'
-    // A budget-guarded exit may route to a wrap-up node on the last planned
-    // step. The kernel's own pre-execution cap would discard that node, so
-    // reserve one extra kernel step when such an exit exists; the plan budget
-    // still decides routing, not the reserve.
-    const hasBudgetExit = next.edges.some(edge => edge.when?.op === 'budget')
     try {
+      // `KernelTopology` owns its step-budget reserve for a budget-routed
+      // wrap-up node, so the driver does not special-case the plan budget.
       topology = kernelMode !== 'off' && canKernelDrive(next)
-        ? new KernelTopology(next, {
-            kind: kernelMode,
-            taskHash: next.id,
-            maxSteps: next.budget.maxSteps + (hasBudgetExit ? 1 : 0),
-          })
+        ? new KernelTopology(next, { kind: kernelMode, taskHash: next.id })
         : new FrontierTopology(next)
     } catch {
       topology = new FrontierTopology(next)
@@ -360,13 +353,22 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       ? undefined
       : graph?.nodes.find(node => node.id === record.capabilityId)
     const declaredTypes = capability?.produces.map(spec => spec.type) ?? []
-    const artifacts = deriveStepArtifacts(observed, declaredTypes, record?.capabilityId ?? record?.id ?? 'step')
+    // Credit the capability's declared artifacts only when that capability's
+    // tool actually ran; an unrelated successful call does not fulfill the
+    // node's artifact contract.
+    const artifacts = deriveStepArtifacts(
+      observed,
+      declaredTypes,
+      record?.capabilityId ?? record?.id ?? 'step',
+      capability?.tool?.name,
+    )
     // `artifact` is run-cumulative by design; stage success must be step-scoped,
-    // otherwise an earlier stage's file can satisfy a later author's guard.
-    if (artifacts.length > 0) {
-      facts['producedArtifact'] = true
-      for (const artifact of artifacts) facts[`produced.${artifact.type}`] = true
-    }
+    // otherwise an earlier stage's file can satisfy a later author's guard. The
+    // boolean is always written so an author's `producedArtifact=false` repair
+    // exit can fire when the step produced nothing (an absent fact would make
+    // both author exits false and fall through to the next stage).
+    facts['producedArtifact'] = artifacts.length > 0
+    for (const artifact of artifacts) facts[`produced.${artifact.type}`] = true
     await Promise.resolve(topology.advance({
       ok: outcome.ok,
       ...(outcome.failedTool === undefined ? {} : { failedTool: outcome.failedTool }),

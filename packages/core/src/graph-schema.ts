@@ -332,7 +332,12 @@ export type Condition =
   | { readonly op: 'noArtifact'; readonly type: ArtifactType }
   | { readonly op: 'fact'; readonly key: string; readonly equals: string | number | boolean }
   | { readonly op: 'callFailed'; readonly tool: string }
-  | { readonly op: 'budget'; readonly axis: 'steps' | 'tokens' | 'wall'; readonly remainingAtMost: number }
+  /**
+   * Step budget guard. `axis` is `steps` only: the token and wall budget axes
+   * have no producer at a step boundary, so a guard on them could never fire;
+   * `validateTaskPlan` rejects them instead of leaving them silently inert.
+   */
+  | { readonly op: 'budget'; readonly axis: 'steps'; readonly remainingAtMost: number }
 
 export interface PlanNode {
   readonly id: NodeId
@@ -376,8 +381,11 @@ export interface PlanEdge {
 
 export interface TaskBudget {
   readonly maxNodes: number
+  /** The only budget axis the routing engines enforce today. */
   readonly maxSteps: number
+  /** Declared capacity; no runtime consumption producer yet, so not routable. */
   readonly maxTokens: number
+  /** Declared capacity; no runtime consumption producer yet, so not routable. */
   readonly maxWallMs: number
   readonly maxReplans: number
 }
@@ -759,6 +767,19 @@ export function validateTaskPlan(graph: RegistryGraph, plan: TaskPlan): Validati
     }
     if (!nodeById.has(edge.to)) {
       errors.push({ code: 'P010', path: `${path}.to`, message: `unknown node "${edge.to}"` })
+    }
+    if (edge.when !== undefined) {
+      // Only the `steps` budget axis has a runtime producer. Reject the removed
+      // token/wall axes instead of leaving a guard that can never fire.
+      const axis = (edge.when as { readonly axis?: unknown }).axis
+      if (edge.when.op === 'budget' && axis !== 'steps') {
+        errors.push({ code: 'P022', path: `${path}.when`, message: 'budget condition supports only the "steps" axis; tokens/wall have no producer' })
+      }
+      // A guard on a data edge is inert: the frontier routes control edges only
+      // and the kernel refuses plans with data-edge conditions. Reject it.
+      if (edge.kind === 'data') {
+        errors.push({ code: 'P023', path: `${path}.when`, message: 'a condition on a data edge is not routed by either engine' })
+      }
     }
     const list = outgoing.get(edge.from) ?? []
     list.push(edge)

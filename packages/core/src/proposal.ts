@@ -76,7 +76,9 @@ function normalizeCondition(value: unknown): Condition | undefined {
     }
     case 'budget': {
       const b = value as { axis?: unknown; remainingAtMost?: unknown }
-      if ((b.axis !== 'steps' && b.axis !== 'tokens' && b.axis !== 'wall') || typeof b.remainingAtMost !== 'number') return undefined
+      // Only the step axis has a producer; a token/wall guard would be silently
+      // inert, so it is an unsupported condition in a proposal.
+      if (b.axis !== 'steps' || typeof b.remainingAtMost !== 'number') return undefined
       return { op: 'budget', axis: b.axis, remainingAtMost: b.remainingAtMost }
     }
     default: return undefined

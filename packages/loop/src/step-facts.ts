@@ -62,8 +62,10 @@ function artifactTypeFor(path: string): ArtifactType {
  * enough for plan guards; the aggregate keys keep simple plans simple.
  *
  * A shell that exits non-zero is not a tool-invocation error: DSH returns a
- * normal result whose text carries `[exit code: N]`. Treat that as a failed
- * step so the verify -> repair exit actually fires on a failing test.
+ * normal result whose text carries `[exit code: N]`. That is a *verification*
+ * signal (`verificationFailed`), not a failed step: `lastOk` stays about tool
+ * invocation so an inspect/mutate stage running `grep`/`diff` (exit 1) is not
+ * sent to repair. The composed verify stage guards on `verificationFailed`.
  */
 export function deriveStepFacts(tools: readonly ObservedTool[], ok: boolean, failedTool?: string): Record<string, Json> {
   let exitFailure = false
@@ -77,9 +79,8 @@ export function deriveStepFacts(tools: readonly ObservedTool[], ok: boolean, fai
     }
     if (exitFailure) break
   }
-  const effectiveOk = ok && !exitFailure
   const facts: Record<string, Json> = {
-    lastOk: effectiveOk,
+    lastOk: ok,
     hadToolCall: tools.length > 0,
     toolCount: tools.length,
     verificationFailed: exitFailure,
@@ -106,15 +107,18 @@ export function deriveStepFacts(tools: readonly ObservedTool[], ok: boolean, fai
  * Artifact refs produced by this step; never file bodies.
  *
  * Path extraction is a best-effort enrichment for the DSH filesystem tools. The
- * authoritative source is the plan node's registered capability: any tool that
+ * authoritative source is the plan node's registered capability: a tool that
  * declares `produces` (including third-party/MCP author tools) yields that
- * artifact type when the step succeeds. Without this second source, a generic
- * `artifact(...)` success guard can never fire for a craft/MCP author.
+ * artifact type when the planned tool itself ran successfully. Without this
+ * second source, a generic `artifact(...)` success guard can never fire for a
+ * craft/MCP author; without the planned-tool check, any unrelated successful
+ * call in the step would fake the artifact.
  */
 export function deriveStepArtifacts(
   tools: readonly ObservedTool[],
   declaredTypes: readonly ArtifactType[] = [],
   refPrefix = 'step',
+  realizedBy?: string,
 ): RoutingArtifact[] {
   const seen = new Set<string>()
   const artifacts: RoutingArtifact[] = []
@@ -129,7 +133,10 @@ export function deriveStepArtifacts(
     const path = pathFromArguments(parseArguments(tool.arguments))
     if (path !== undefined) add(artifactTypeFor(path), path)
   }
-  if (tools.length > 0 && tools.some(tool => !tool.isError)) {
+  // The declared contract belongs to the planned capability's tool. A step that
+  // only called something else (a read, a probe) did not produce that artifact.
+  const realized = tools.some(tool => !tool.isError && (realizedBy === undefined || tool.name === realizedBy))
+  if (realized) {
     for (const type of declaredTypes) add(type, `${refPrefix}:${type}`)
   }
   return artifacts

@@ -23,11 +23,17 @@ export interface RoutingArtifact {
   readonly bytes?: number
 }
 
-/** Remaining capacity the `budget` condition compares against. */
+/**
+ * Remaining capacity the `budget` condition compares against.
+ *
+ * Only the step axis has a producer: both engines derive `stepsRemaining` from
+ * the plan's `maxSteps`. Token and wall capacity exist on the plan
+ * (`TaskBudget.maxTokens` / `maxWallMs`) but nothing measures consumption at a
+ * step boundary, so they are not routing axes. They were removed from
+ * `Condition` rather than left as guards that can never fire.
+ */
 export interface RoutingBudget {
   readonly stepsRemaining: number
-  readonly tokensRemaining?: number
-  readonly wallMsRemaining?: number
 }
 
 /** Projected state a route decision is allowed to read. */
@@ -53,17 +59,16 @@ export function evaluateCondition(when: Condition | undefined, state: RoutingSta
       if (state.facts['lastOk'] !== false) return false
       const failedTool = state.facts['failedTool']
       // A failed step without a tool name can take any recovery edge; when the
-      // step names the tool, only the matching edge may fire.
+      // step names the tool, only the matching edge may fire. `failedTool` is
+      // only projected for configured shell tools today, so for a non-shell
+      // failure this is equivalent to `fact lastOk=false`; use that operator when
+      // the failure should be tool-agnostic.
       return typeof failedTool !== 'string' || failedTool === when.tool
     }
-    case 'budget': {
-      const remaining = when.axis === 'steps'
-        ? state.budget.stepsRemaining
-        : when.axis === 'tokens'
-          ? state.budget.tokensRemaining
-          : state.budget.wallMsRemaining
-      return remaining !== undefined && remaining <= when.remainingAtMost
-    }
+    case 'budget':
+      // `axis` is `steps` only: the token/wall axes have no producer, so they
+      // are not part of the routing schema (see `RoutingBudget`).
+      return state.budget.stepsRemaining <= when.remainingAtMost
     default: {
       // Exhaustiveness: a new operator added to `Condition` must be handled
       // here, not silently treated as false.

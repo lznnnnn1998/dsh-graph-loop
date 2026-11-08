@@ -226,8 +226,11 @@ test('the composed plan ends at a tool-enabled answer node and gives verify a re
   const verifyOut = result.plan.edges.filter(edge => edge.from === 'n_verify')
   assert.ok(verifyOut.some(edge => edge.to === 'n_verify_repair'
     && edge.when?.op === 'fact' && edge.when.key === 'lastOk' && edge.when.equals === false))
+  assert.ok(verifyOut.some(edge => edge.to === 'n_verify_repair'
+    && edge.when?.op === 'fact' && edge.when.key === 'verificationFailed' && edge.when.equals === true),
+  'an exit-code failure must repair the verify stage')
   assert.ok(verifyOut.some(edge => edge.to === 'n_answer'
-    && edge.when?.op === 'fact' && edge.when.key === 'lastOk' && edge.when.equals === true))
+    && edge.when?.op === 'fact' && edge.when.key === 'verificationFailed' && edge.when.equals === false))
   assert.ok(result.plan.nodes.some(node => node.id === 'n_verify_repair'))
   assert.equal(validateTaskPlan(graph, result.plan).ok, true)
 })

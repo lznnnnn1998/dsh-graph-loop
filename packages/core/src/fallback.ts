@@ -8,7 +8,7 @@
  */
 import type { PlanNode, TaskPlan } from './graph-schema.ts'
 
-/** Build a trivial two-node plan for a task when no template matched. */
+/** Build the trivial single-node plan for a task when no template matched. */
 export function fallbackPlan(input: {
   readonly id: string
   readonly instruction?: string

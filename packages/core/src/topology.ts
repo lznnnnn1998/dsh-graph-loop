@@ -360,7 +360,6 @@ export class FrontierTopology {
   private readonly adjacency: PlanEdge[]
   private readonly pending: string[] = []
   private readonly completed = new Set<string>()
-  private readonly visits = new Map<string, number>()
   private currentId: string | undefined
   private state: 'running' | 'done' | 'failed' = 'running'
   private readonly maxSteps: number
@@ -414,6 +413,37 @@ export class FrontierTopology {
     return node
   }
 
+  /**
+   * Queue a successor without duplicating a fan-in join.
+   *
+   * A forward edge to a node that is already queued or completed would run the
+   * same join twice (every branch of a diamond pushes it). A back-edge — the
+   * target can reach the source through control edges — is a retry/repair loop
+   * and may re-enter until `maxSteps` bounds it.
+   */
+  private enqueue(target: string, source: string): void {
+    if (!this.nodeById.has(target)) return
+    if (this.pending.includes(target)) return
+    if (this.completed.has(target) && !this.reaches(target, source)) return
+    this.pending.push(target)
+  }
+
+  /** True when `to` is reachable from `from` over control edges (back-edge test). */
+  private reaches(from: string, to: string): boolean {
+    const seen = new Set<string>()
+    const stack: string[] = [from]
+    while (stack.length > 0) {
+      const id = stack.pop() as string
+      if (id === to) return true
+      if (seen.has(id)) continue
+      seen.add(id)
+      for (const edge of this.adjacency) {
+        if (edge.from === id && edge.kind === 'control') stack.push(edge.to)
+      }
+    }
+    return false
+  }
+
   advance(outcome: FrontierAdvance): PlanNode | undefined {
     const id = this.currentId
     this.currentId = undefined
@@ -427,16 +457,12 @@ export class FrontierTopology {
     if (folded['failedTool'] === undefined && outcome.failedTool !== undefined) folded['failedTool'] = outcome.failedTool
     this.facts = folded
     if (outcome.artifacts !== undefined) this.artifacts.push(...outcome.artifacts)
-    const visits = (this.visits.get(id) ?? 0) + 1
-    this.visits.set(id, visits)
     const routingState: RoutingState = {
       facts: this.facts,
       artifacts: this.artifacts,
-      budget: {
-        stepsRemaining: outcome.budget?.stepsRemaining ?? Math.max(0, this.maxSteps - this.stepCount),
-        ...(outcome.budget?.tokensRemaining === undefined ? {} : { tokensRemaining: outcome.budget.tokensRemaining }),
-        ...(outcome.budget?.wallMsRemaining === undefined ? {} : { wallMsRemaining: outcome.budget.wallMsRemaining }),
-      },
+      // Only the step axis has a producer; see `RoutingBudget`. A caller can
+      // override the remaining count (tests), but cannot supply token/wall.
+      budget: { stepsRemaining: outcome.budget?.stepsRemaining ?? Math.max(0, this.maxSteps - this.stepCount) },
     }
 
     if (!outcome.ok) {
@@ -454,7 +480,7 @@ export class FrontierTopology {
         this.state = 'failed'
         return undefined
       }
-      this.pending.push(recovery.to)
+      this.enqueue(recovery.to, id)
       return this.current()
     }
 
@@ -463,24 +489,24 @@ export class FrontierTopology {
       return undefined
     }
     // A guarded edge is an alternative, not a parallel branch: at most one
-    // guarded exit is taken. Unconditional edges keep the old fan-out meaning,
-    // so a research node with two `always` edges still runs both branches.
+    // guarded exit is taken, and a matching guard suppresses the unconditional
+    // fan-out below (the kernel refuses plans with >1 unconditional out-edge,
+    // so this combination only reaches the frontier).
     const outgoing = this.adjacency.filter(edge => edge.from === id && edge.kind === 'control')
     const guarded = outgoing.filter(edge => edge.when !== undefined && edge.when.op !== 'always')
     if (guarded.length > 0) {
       const selected = routeOrder(guarded).find(edge => evaluateCondition(edge.when, routingState))
       if (selected !== undefined && this.nodeById.has(selected.to)) {
-        this.pending.push(selected.to)
+        this.enqueue(selected.to, id)
         return this.current()
       }
     }
     const fallback = routeOrder(outgoing.filter(edge => edge.when === undefined || edge.when.op === 'always'))
     for (const edge of fallback) {
-      const target = edge.to
-      if (!this.nodeById.has(target)) continue
       // Retries are bounded by maxSteps, not by a visit counter: a verify ->
-      // repair loop must be able to run until the budget is gone.
-      this.pending.push(target)
+      // repair loop must be able to run until the budget is gone, while a
+      // fan-in join must not run twice.
+      this.enqueue(edge.to, id)
     }
     return this.current()
   }
@@ -536,17 +562,11 @@ export class FrontierTopology {
   }
 }
 
-
 /**
- * Boundary replan: a small recovery graph built when a work node fails.
- * Diagnosis is deliberately separate from retry so the retry sees the failure.
- */
-/**
- * Bounded verify -> diagnose -> edit -> verify repair graph.
- *
- * Used when a verification node fails (exit/error), not as a generic failure
- * recovery. The plan keeps the caller's `maxReplans` so the scheduler can stop
- * after the configured number of cycles.
+ * Linear boundary-recovery graph for a failed verification node
+ * (diagnose -> edit -> re-verify -> answer). It is the scheduler's safety net
+ * when the failed plan had no composed repair exit; its retry allowance is the
+ * scheduler's `maxReplans`, not a condition edge inside this graph.
  */
 export function repairTopology(input: {
   readonly taskHash: string
@@ -603,6 +623,11 @@ export function repairTopology(input: {
   }
 }
 
+/**
+ * Linear boundary-recovery graph for a non-verification failure
+ * (diagnose -> retry -> answer). Like `repairTopology` it is a safety net for a
+ * plan that had no matching exit; `maxReplans: 0` means it runs once.
+ */
 export function recoveryTopology(input: {
   readonly taskHash: string
   readonly failedNode: string

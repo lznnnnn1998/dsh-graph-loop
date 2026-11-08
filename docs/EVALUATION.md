@@ -83,7 +83,8 @@ values.
 ## Current evidence
 
 - Readiness (2026-11-08): 20/20 env images, 19/20 verifier images (`formal-crypto` missing), local
-  gate 168/168; product20 not run. `formal-crypto` and `shadow-relay` request `cpus = 8` on a 4-CPU
+  gate 168/168 at the time (the current suite is 204/204); product20 not run. `formal-crypto` and
+  `shadow-relay` request `cpus = 8` on a 4-CPU
   VM, so the suite is not runnable end to end
   ([result](../bench/official/results/2026-11-08-readiness/README.md)).
 - Smoke (2026-11-08): **1.0** oracle / **1.0** graph / **1.0** stock on the synthetic `smoke/answer-42`
@@ -93,9 +94,11 @@ values.
   valid scores 0.0. **Invalid as a product aggregate; the instrument is unvalidated for the full
   suite** ([result](../bench/official/results/2026-11-08-product20-partial/README.md)). Reward is
   binary, so read criteria counts, not just reward: stock passed 35/37 on `bun-sourcemap-leak`
-  (graph 18/37) and 33/40 on `cargo-flight-dispatch` (graph 32/40). The graph arm's fixed five-step
-  plan ends at `n_answer` with every tool removed (80 vs 217 session records), so those graph scores
-  measure premature termination, not loop quality. Fix that before any arm comparison.
+  (graph 18/37) and 33/40 on `cargo-flight-dispatch` (graph 32/40). That run measured the **pre-fix**
+  five-step plan whose `n_answer` removed every tool (80 vs 217 session records), so those graph
+  scores measure premature termination, not loop quality. The plan shape has since changed
+  (per-stage repair/budget exits, tool-enabled answer), so a rerun is required before any arm
+  comparison; the partial numbers themselves remain invalid.
 - 2026-11-08 oracle control: oracle scores **1.0** on `html-js-filter`, `cargo-flight-dispatch` and
   `music-harmony` ([result](../bench/official/results/2026-11-08-oracle-control/README.md)). The
   task image, verifier and scoring path can pass those tasks, so the partial zeros are not a

@@ -31,7 +31,7 @@ The installer also adds the Explore mode and verifies the composed profile.
 | `topology` | `dynamic` | `template` (curated library), `dynamic` (synthesized from the capability graph), `propose` (model authors it via `graph_plan`) |
 | `kernel` | `langgraph` | `langgraph` (default, falls back to Minimal when absent) or `minimal` |
 | `trivialChars` | `32` | Text length below which a trivial task stays a single node |
-| `maxSteps` | `24` | Upper bound on nodes in one synthesized plan |
+| `maxSteps` | `24` | Upper bound on graph steps in one turn (also the default plan `budget.maxSteps`) |
 | `toolPolicy` | `plan` | `plan` narrows each step to the plan universe (token win); `preset` keeps the full preset tool set for benchmark harnesses |
 | `benchGuards` | `false` | Benchmark-only retries: detect DSML-printed tool calls and force a mutation node that did not mutate. Off for normal loop use |
 | `shellTools` | `['bash', 'pwsh']` | Tool names whose lone failed call fails the step's graph node (selects `callFailed` recovery) |
@@ -67,9 +67,11 @@ prompt bytes compared with a single stock step.
 
 - The driver is a fork; it is not covered by DSH's full conformance/snapshot suite. Local
   conformance/cross-loop scripts cover event invariants, not byte-identical replay.
-- Kernel coverage is partial: linear plans and a single `callFailed` failure branch run on
-  LangGraph; parallel fan-out/join, subagent batches, non-`callFailed` conditions and plans with
-  LangGraph-reserved node ids use `FrontierTopology`.
+- Kernel coverage is partial by plan shape, not by condition: every control-edge condition
+  (`artifact`, `noArtifact`, `fact`, `callFailed`, and `budget` on its step axis) is evaluated by
+  the kernel route hook, and composed plans are kernel-driven. Parallel fan-out/join, subagent
+  batches and plans with LangGraph-reserved ids use `FrontierTopology`; a condition on a data edge
+  is rejected by `validateTaskPlan` because neither engine routes it.
 - Kernel checkpoints are in-memory (`MemoryCheckpointer`); `storageDomain` persistence is pending.
 - `dynamic` synthesis is heuristic, not an optimization over all graphs.
 - Mid-run topology replacement is limited by `adoptPolicy: 'start-only'` by default.

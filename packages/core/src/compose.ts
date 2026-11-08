@@ -9,7 +9,7 @@
  *
  * Stages are generic verbs:
  *
- *   discover → inspect → mutate → author → verify → deliver → answer
+ *   discover → inspect → mutate → author → verify → answer
  *
  * Each stage is filled by a tool from the envelope universe using only data:
  * tags, `produces` / `accepts` artifact specs, permission class and cost. No
@@ -38,7 +38,7 @@ import { hash16, type TaskFingerprint } from './matching.ts'
 // Inputs and outputs
 // ---------------------------------------------------------------------------
 
-export type ComposeStage = 'discover' | 'inspect' | 'mutate' | 'author' | 'verify' | 'deliver'
+export type ComposeStage = 'discover' | 'inspect' | 'mutate' | 'author' | 'verify'
 
 export interface ComposeInput {
   readonly fingerprint: TaskFingerprint
@@ -82,7 +82,20 @@ export interface ComposeResult {
 // Registry queries
 // ---------------------------------------------------------------------------
 
-const STAGE_ORDER: readonly ComposeStage[] = ['discover', 'inspect', 'mutate', 'author', 'verify', 'deliver']
+/**
+ * Pipeline order for placed stages. This is an explicit synthesis policy, not a
+ * discovered exit: the emitted graph can leave a stage on budget, failure,
+ * success or artifact evidence, but the order the stages appear in is chosen
+ * here.
+ */
+const STAGE_ORDER: readonly ComposeStage[] = ['discover', 'inspect', 'mutate', 'author', 'verify']
+
+/**
+ * Steps reserved before the wrap-up answer. Every stage exits to `n_answer` when
+ * this many steps remain, so the answer node always has room to run before
+ * `budget.maxSteps` is reached.
+ */
+const ANSWER_RESERVE_STEPS = 2
 
 const INVESTIGATIVE_INTENTS = new Set<TaskFingerprint['intent']>([
   'code-question',
@@ -232,9 +245,10 @@ function planStages(input: ComposeInput): { stages: StagePlan[]; issues: Compose
   }
 
   const maxSteps = stepBudgetOf(input)
-  // Every composed plan spends one step on the terminal answer node. Capping
-  // the stages at maxSteps - 1 (never below zero) keeps nodes <= maxSteps even
-  // for maxSteps === 1, where the answer node is the only step.
+  // Every composed plan spends one step on the answer node. Capping the stages
+  // at maxSteps - 1 leaves that step. A stage owns two nodes (work + repair), so
+  // the plan may declare more nodes than maxSteps; maxSteps bounds executed
+  // steps through the budget/repair exits, not the declared node count.
   const maxStages = Math.max(0, maxSteps - 1)
   if (stages.length > maxStages) {
     stages.splice(maxStages)
@@ -261,8 +275,6 @@ function instructionFor(stage: ComposeStage, tool: RegistryNode): string {
       return `Produce the requested artifact with ${label}.`
     case 'verify':
       return `Verify the result with ${label}; report failures explicitly.`
-    case 'deliver':
-      return `Declare the final deliverables with ${label}.`
   }
 }
 
@@ -292,7 +304,7 @@ function digestOf(plan: Omit<TaskPlan, 'compiledDigest'>): string {
  * Synthesize a plan from capability facts only.
  *
  * The result always validates against `TaskPlan` invariants. When no stage can
- * be filled it returns a single generic `step` terminal (`t_generic`) that
+ * be filled it returns a single generic `step` answer node (`t_generic`) that
  * exposes the whole envelope; this is the generic escape hatch that keeps
  * unannotated tools usable.
  */
@@ -364,7 +376,8 @@ export function synthesizeComposition(input: ComposeInput): ComposeResult {
 
   // Every stage gets a real exit table, not one hardcoded successor:
   //   budget exhausted -> answer
-  //   step failed      -> stage repair -> stage (bounded by maxSteps)
+  //   tool error       -> stage repair -> stage (bounded by maxSteps)
+  //   stage-specific failure guard -> stage repair
   //   stage-specific success guard -> next stage
   //   always            -> next stage
   // The guards are generic facts/artifacts the runtime folds from tool calls;
@@ -382,23 +395,34 @@ export function synthesizeComposition(input: ComposeInput): ComposeResult {
         // file satisfy this author's success guard.
         return node.artifact === undefined ? undefined : { op: 'fact', key: 'producedArtifact', equals: true }
       case 'verify':
-        return { op: 'fact', key: 'lastOk', equals: true }
-      case 'deliver':
+        // A non-zero shell exit is a normal tool result, so `lastOk` cannot be
+        // the verification signal: `verificationFailed` is folded from the
+        // rendered `[exit code: N]` and is step-scoped.
+        return { op: 'fact', key: 'verificationFailed', equals: false }
+    }
+  }
+  /** A stage-specific failure that is not a tool-invocation error. */
+  const failureGuard = (node: (typeof stageNodes)[number]): PlanEdge['when'] | undefined => {
+    switch (node.stage) {
+      case 'author':
+        // A step can "succeed" and still produce nothing: the author's own
+        // artifact contract is the guard, not the tool exit code.
+        return node.artifact === undefined ? undefined : { op: 'fact', key: 'producedArtifact', equals: false }
+      case 'verify':
+        return { op: 'fact', key: 'verificationFailed', equals: true }
+      default:
         return undefined
     }
   }
   for (const [index, node] of stageNodes.entries()) {
     const next = stageNodes[index + 1]?.id ?? answerId
-    edges.push({ from: node.id, to: answerId, kind: 'control', when: { op: 'budget', axis: 'steps', remainingAtMost: 2 } })
+    edges.push({ from: node.id, to: answerId, kind: 'control', when: { op: 'budget', axis: 'steps', remainingAtMost: ANSWER_RESERVE_STEPS } })
     edges.push({ from: node.id, to: node.repairId, kind: 'control', when: { op: 'callFailed', tool: node.toolName } })
     edges.push({ from: node.id, to: node.repairId, kind: 'control', when: { op: 'fact', key: 'lastOk', equals: false } })
     const success = successGuard(node)
     if (success !== undefined) edges.push({ from: node.id, to: next, kind: 'control', when: success })
-    // A step can "succeed" and still produce nothing: the author's own artifact
-    // contract is the guard, not the tool exit code.
-    if (node.stage === 'author' && node.artifact !== undefined) {
-      edges.push({ from: node.id, to: node.repairId, kind: 'control', when: { op: 'fact', key: 'producedArtifact', equals: false } })
-    }
+    const failure = failureGuard(node)
+    if (failure !== undefined) edges.push({ from: node.id, to: node.repairId, kind: 'control', when: failure })
     edges.push({ from: node.id, to: next, kind: 'control' })
     edges.push({ from: node.repairId, to: node.id, kind: 'control' })
   }

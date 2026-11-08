@@ -10,10 +10,13 @@
  * kernel still owns routing, state folding and checkpoints.
  *
  * This adapter handles plans the kernel can route without the frontier's
- * parallel batching: no subagent nodes, and only the `callFailed` condition —
- * the failure branch is a real LangGraph conditional edge (two declared
- * destinations, one taken). Plans with artifact/fact/budget conditions, a
- * parallel fan-out, or subagent batches still use `FrontierTopology`.
+ * parallel batching: no subagent nodes and no fan-out. Every control-edge
+ * condition (`artifact`, `noArtifact`, `fact`, `callFailed`, `budget` on the
+ * step axis) is evaluated by the shared `evaluateCondition`, so a guarded route
+ * is a real conditional edge, not a second code path outside the kernel. Composed
+ * plans are kernel-driven. Plans with a parallel fan-out, subagent batches, a
+ * condition on a data edge, or an engine-reserved node id still use
+ * `FrontierTopology`.
  */
 
 import { END, KernelError } from 'dsh-graph-loop-core/kernel'
@@ -86,7 +89,14 @@ export class KernelTopology {
       // Stop before every node: the host has not run this step yet. Once an
       // outcome is pending, let the kernel execute the node's bridge executor.
       pauseWhen: () => (this.pending === undefined ? 'replan' : undefined),
-      maxSteps: options.maxSteps ?? plan.budget.maxSteps,
+      // A budget-guarded exit may route to a wrap-up node on the last planned
+      // step. The kernel's pre-execution cap would let the host run that node
+      // and then discard it before folding the boundary, so reserve one kernel
+      // step whenever the plan can route on the budget. The plan budget still
+      // decides routing; the reserve only keeps the routed node from being
+      // dropped. Owning this here (not in the scheduler) keeps direct adapter
+      // use and the live path on one rule.
+      maxSteps: (options.maxSteps ?? plan.budget.maxSteps) + budgetReserveSteps(plan),
     }
     const kernel = (options.kind ?? 'langgraph') === 'minimal'
       ? createMinimalKernel(deps)
@@ -278,6 +288,9 @@ export function routeKernelPlan(input: {
     // just ran so this matches the frontier's `maxSteps - completed` budget.
     budget: { stepsRemaining: Math.max(0, input.plan.budget.maxSteps - (input.state.superstep + 1)) },
   }
+  // This branch is for tool-invocation failure (`lastOk=false`). A non-zero
+  // shell exit is a normal result and is routed by the verify stage's
+  // `verificationFailed` guard on the forward branch instead.
   if (input.state.facts['lastOk'] === false) {
     const recovery = routeOrder(control)
       .find(edge => edge.when !== undefined && edge.when.op !== 'always' && evaluateCondition(edge.when, routingState))
@@ -318,6 +331,15 @@ export function canKernelDrive(plan: TaskPlan): boolean {
     if (count > 1) return false
   }
   return true
+}
+
+/**
+ * One extra kernel step when the plan can route on the step budget. A
+ * budget-routed wrap-up node is declared to run at the boundary; without the
+ * reserve the kernel's pre-execution cap would discard it after the host ran it.
+ */
+function budgetReserveSteps(plan: TaskPlan): number {
+  return plan.edges.some(edge => edge.when?.op === 'budget') ? 1 : 0
 }
 
 /**

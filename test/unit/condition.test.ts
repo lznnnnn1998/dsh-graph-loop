@@ -7,7 +7,7 @@ function state(overrides: Partial<RoutingState> = {}): RoutingState {
   return {
     facts: {},
     artifacts: [],
-    budget: { stepsRemaining: 10, tokensRemaining: 1_000, wallMsRemaining: 60_000 },
+    budget: { stepsRemaining: 10 },
     ...overrides,
   }
 }
@@ -43,13 +43,13 @@ test('callFailed requires a failed step and matches the named tool', () => {
   assert.equal(evaluateCondition({ op: 'callFailed', tool: 'bash' }, ok), false)
 })
 
-test('budget compares each remaining axis', () => {
-  const low = state({ budget: { stepsRemaining: 2, tokensRemaining: 100, wallMsRemaining: 1_000 } })
+test('budget compares the only live axis (steps)', () => {
+  // Token and wall axes have no producer and are not part of `RoutingBudget` /
+  // `Condition`; only the step axis is routed.
+  const low = state({ budget: { stepsRemaining: 2 } })
   assert.equal(evaluateCondition({ op: 'budget', axis: 'steps', remainingAtMost: 2 }, low), true)
   assert.equal(evaluateCondition({ op: 'budget', axis: 'steps', remainingAtMost: 1 }, low), false)
-  assert.equal(evaluateCondition({ op: 'budget', axis: 'tokens', remainingAtMost: 100 }, low), true)
-  assert.equal(evaluateCondition({ op: 'budget', axis: 'wall', remainingAtMost: 1_000 }, low), true)
-  assert.equal(evaluateCondition({ op: 'budget', axis: 'tokens', remainingAtMost: 1 }, state()), false)
+  assert.equal(evaluateCondition({ op: 'budget', axis: 'steps', remainingAtMost: 1 }, state()), false)
 })
 
 test('routeOrder puts specific guards before the unconditional fallback', () => {

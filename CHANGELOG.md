@@ -7,11 +7,12 @@
 - Dedicated graph loop replacing stock `agent-loop` via `AgentFactory`; no DSH source changes.
 - Per-turn topology: fingerprint → plan → one DSH step per node.
 - Per-turn capability envelope and capability-driven composition.
-- LangGraph kernel default; linear + one `callFailed` branch routed by the kernel.
+- LangGraph kernel default; every control-edge condition (`artifact`, `noArtifact`, `fact`,
+  `callFailed`, `budget` step axis) is routed by the kernel, composed plans included.
 - Bounded recovery/repair for failed verify nodes; subagent batch nodes.
 - Graph tab with live topology, node → tool-call inspector and `/graph-chat` API.
 - Explore agent preset, one-command installer, default-mode wiring.
-- Per-node tool admission and answer-only terminal nodes.
+- Per-node tool admission; the composed answer node keeps its tools so the turn can continue.
 
 ### Reliability
 
@@ -20,6 +21,14 @@
 - Bounded failure graphs, failed turns reported as `GRAPH_FAILED`, subagent failures surfaced.
 - `diff-upstream.sh` pins the DSH commit and patch budgets; enforced in local gates.
 - Graph-chat route hardening: bounded bodies, methods, host trust fence, SSE close handling.
+- Stage exits observe real outcomes: artifacts come from the node's registered `produces` only when
+  the planned tool actually ran (third-party/MCP authors included); a non-zero `[exit code: N]` is a
+  step-scoped `verificationFailed` fact consumed by the verify stage (inspect/mutate steps running
+  `grep`/`diff` are not repaired); repair loops are bounded by `maxSteps`.
+- Fan-in joins are de-duplicated on the frontier while explicit repair back-edges still re-enter;
+  the kernel adapter reserves the step a budget-routed wrap-up node needs.
+- `budget` conditions only expose the `steps` axis: token/wall axes had no producer and are rejected
+  by validation instead of being silently inert.
 
 ### Benchmark / docs
 

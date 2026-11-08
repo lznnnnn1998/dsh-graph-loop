@@ -77,6 +77,15 @@ comparison: the model's stop (no tool call) should end the turn, a terminal node
 the tools needed to finish, and an exhausted plan should fall back to the stock loop instead of
 forcing a summary.
 
+> **Caveat added after the run (2026-11-08): this run measured the pre-fix plan.** The five-step
+> chain above and the `toolAllow: []` answer are the plan shape the composer emitted *at run time*.
+> The composer has since changed: every composed stage has per-stage repair and budget exits, the
+> answer node is an `agent-step` that keeps its tools, and an exhausted plan installs a continuation
+> step instead of forcing a summary. No re-run has been done. Keep these rows as the historical
+> measurement of the pre-fix plan — do not present them as current behaviour, and do not treat the
+> graph arm as a valid comparison until a rerun with the current composer exists. The raw rows and
+> counts in this directory are unchanged.
+
 ## Error taxonomy (job.log evidence)
 
 38 Harbor job logs survive under `/tmp/product20-shard*/jobs/`. Counts are job logs, not stored
@@ -119,12 +128,11 @@ result`. Known and not known:
 
 **No product claim.** The three-task oracle control (`2026-11-08-oracle-control/`) scores 1.0 on
 `html-js-filter`, `cargo-flight-dispatch` and `music-harmony`, so the 0.0s are not a blanket harness
-artifact; the verifier path works on those tasks. But the DSH arms are not comparable yet: the graph
-arm is a five-step linear pipeline that ends the turn at `n_answer`, and stock arms were mostly
-killed by the old fixed 900 s timeout. The near-miss counts (stock 35/37 and 33/40) show the model
-can do these tasks; they do not show the graph loop can.
+artifact; the verifier path works on those tasks. But the DSH arms are not comparable yet: this run
+measured the **pre-fix** five-step pipeline that ended the turn at `n_answer` (see the caveat
+above), and stock arms were mostly killed by the old fixed 900 s timeout. The near-miss counts
+(stock 35/37 and 33/40) show the model can do these tasks; they do not show the graph loop can.
 
-Before another full product20 run: fix graph termination (model stop must end the turn; terminal
-nodes must not strip finishing tools; exhausted plans fall back to the stock loop), then MCP
-(implement or exclude), the sidecar image/CPU blockers, old-Node images and the per-task timeout
-policy.
+Before another full product20 run: rerun with the current composer (the pre-fix termination defect
+is fixed; the remaining contract is the graph-to-stock continuation), then MCP (implement or
+exclude), the sidecar image/CPU blockers, old-Node images and the per-task timeout policy.

@@ -20,8 +20,8 @@ The fork is tracked as debt; do not hide it behind the graph narrative.
 | Concern | Current owner | State |
 |---|---|---|
 | Session log, turn/step, prompt, tools, approvals, compaction | DSH | Kept by the fork |
-| Graph execution | LangGraph for linear + one `callFailed` branch | Done |
-| Parallel fan-out / subagent batches / other conditions | `FrontierTopology` | Fallback; documented |
+| Graph execution | LangGraph for every control-edge condition (`artifact`, `noArtifact`, `fact`, `callFailed`, `budget` step axis) and composed plans | Done |
+| Parallel fan-out / subagent batches / reserved ids | `FrontierTopology` | Fallback; documented |
 | Typed channels/reducers | Plugin `GraphState` | Not LangGraph channels |
 | Checkpoints | `MemoryCheckpointer` | Not durable; no read/resume consumer |
 | Send / Command / subgraphs | — | Not adopted |
@@ -36,7 +36,7 @@ The fork is tracked as debt; do not hide it behind the graph narrative.
 2. **Kernel breadth**: one legitimate parallel shape only if the live loop gains a parallel DSH
    step; otherwise keep the frontier fallback and say so.
 3. **Channels/reducers** if graph state becomes shared across branches; not needed for the current
-   linear + failure-branch path.
+   single-branch control-edge path.
 
 ## What not to absorb
 

@@ -14,27 +14,31 @@ default kernel; `FrontierTopology` is the fallback for plan shapes the kernel do
 ## Kernel coverage
 
 The exact table (plan shape → engine → test) lives in
-[`docs/STATUS.md`](docs/STATUS.md#kernel-coverage-exact). Short version: linear chains and one
-`callFailed` failure branch run on **LangGraph**; parallel fan-out/join, subagent batches,
-`artifact`/`noArtifact`/`fact`/`budget` conditions and reserved node ids fall back to
-**`FrontierTopology`**. No claim is made that LangGraph executes arbitrary graphs.
+[`docs/STATUS.md`](docs/STATUS.md#kernel-coverage-exact). Short version: the default kernel
+evaluates every control-edge condition (`artifact`, `noArtifact`, `fact`, `callFailed`, and
+`budget` on its step axis) and drives composed plans. Parallel fan-out/join, subagent batches and
+reserved/nonconforming node ids fall back to **`FrontierTopology`**; a condition on a data edge is
+rejected by plan validation because neither engine routes it. No claim is made that LangGraph
+executes arbitrary graphs.
 
 ## What 0.2 builds
 
 - **Per-turn topology** — task fingerprint → one plan per turn; one DSH step per node.
 - **Per-turn capability envelope** — role/tool resolution; tool universe stable inside the turn.
-- **Capability-driven synthesis** — stages (`discover`, `inspect`, `mutate`, `author`, `verify`,
-  `deliver`) and artifact contracts, not hardcoded tool names.
-- **Per-node tool admission** — a terminal node can run with no tools.
-- **Bounded failure recovery** — recovery/repair graph, with a `callFailed` edge routed by the
-  kernel.
+- **Capability-driven synthesis** — stages (`discover`, `inspect`, `mutate`, `author`, `verify`) and
+  artifact contracts, not hardcoded tool names.
+- **Per-node tool admission** — a terminal node can run with no tools; the composed answer node
+  keeps its tools so the turn can continue.
+- **Bounded failure recovery** — every composed stage exits to a repair node on failure and to the
+  answer when the step budget is nearly gone; the boundary recovery graph covers failures outside a
+  composed plan.
 - **Graph tab** — live topology, node → tool-call inspector, `/graph-chat` API.
 - **Explore mode** — an agent preset installed as the default for new sessions.
 
 ## Status (honest)
 
 - Unit suite, typecheck, and the release build gate are green:
-  `npm test` (168 tests), `npm run typecheck`, `npm run build && npm run build:check`.
+  `npm test` (204 tests), `npm run typecheck`, `npm run build && npm run build:check`.
 - **No product benchmark aggregate.** Terminal-Bench easy10 + medium10 is defined in
   [`bench/official/subsets/product20.json`](bench/official/subsets/product20.json). The tracked
   2026-11-08 partial run
@@ -43,10 +47,12 @@ The exact table (plan shape → engine → test) lives in
   two tasks (`bun-sourcemap-leak`, `cargo-flight-dispatch`) are paired-valid, and every valid score
   is **0.0**. The reward is binary, so read the criteria: stock passed **35/37** on
   `bun-sourcemap-leak` (graph 18/37) and **33/40** on `cargo-flight-dispatch` (graph 32/40). The
-  graph arm's fixed five-step plan ends at `n_answer` with all tools removed (80 vs 217 session
-  records), so those graph scores are premature termination, not a loop comparison. That run is
-  **invalid as a product aggregate; the instrument is unvalidated for the full suite.** A separate
-  three-task oracle control
+  graph arm in that run used the **pre-fix** five-step chain, whose `n_answer` removed all tools
+  (80 vs 217 session records): those graph scores measured premature termination, not a loop
+  comparison. That plan shape is historical — the composer now emits per-stage repair/budget exits
+  and a tool-enabled answer — so a rerun is required before any stock-vs-graph statement. The run
+  is **invalid as a product aggregate; the instrument is unvalidated for the full suite.** A
+  separate three-task oracle control
   ([result](bench/official/results/2026-11-08-oracle-control/README.md)) scores 1.0 on
   `html-js-filter`, `cargo-flight-dispatch` and `music-harmony`, so a 0.0 does not by itself measure
   the loop; only the task image, verifier and scoring path are validated. Do not cite accuracy,

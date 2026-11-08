@@ -120,12 +120,15 @@ test('a registered third-party author produces its declared artifact', () => {
   assert.deepEqual(artifacts, [{ type: 'file.image', ref: 'tool:acme_render:file.image' }])
 })
 
-test('a non-zero shell exit is a failed verification even without isError', () => {
+test('a non-zero shell exit is a verification failure, not a step failure', () => {
   const facts = deriveStepFacts(
     [{ name: 'bash', isError: false, output: 'FAIL tests/loader.test.ts\n[exit code: 1]' }],
     true,
   )
-  assert.equal(facts['lastOk'], false)
+  // `lastOk` stays about tool invocation: an inspect/mutate stage running
+  // `grep`/`diff` (exit 1) must not be sent to repair. The verify stage guards
+  // on `verificationFailed`, which is step-scoped.
+  assert.equal(facts['lastOk'], true)
   assert.equal(facts['verificationFailed'], true)
   assert.equal(facts['allToolsFailed'], false)
 })
