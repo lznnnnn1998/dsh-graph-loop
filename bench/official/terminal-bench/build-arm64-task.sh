@@ -24,10 +24,19 @@ for p in [out / 'environment' / 'Dockerfile', out / 'tests' / 'Dockerfile']:
     if not p.exists():
         continue
     s = p.read_text()
+    # The harness downloads large wheels (torch/botocore) through uv; the
+    # default 30 s HTTP timeout is too tight on a cold cache.
+    if 'UV_HTTP_TIMEOUT' not in s:
+        import re
+        s = re.sub(r'(?m)^(FROM\s+[^\n]+)$', r'\1\nENV UV_HTTP_TIMEOUT=300', s, count=1)
     # Multi-arch bases: drop the amd64 manifest digest and let buildx pick arm64.
     s = re.sub(r'python:3\.(?:12|13)-slim-bookworm@sha256:[0-9a-f]+', lambda m: m.group(0).split('@')[0], s)
     s = re.sub(r'mcr\.microsoft\.com/playwright/python:[^@\s]+@sha256:[0-9a-f]+', lambda m: m.group(0).split('@')[0], s)
     s = re.sub(r'ghcr\.io/astral-sh/uv@sha256:[0-9a-f]+', 'ghcr.io/astral-sh/uv:latest', s)
+    # Local arm64 cache: drop every base digest; the local tag is already the
+    # platform-correct image and avoids a Docker Hub round trip.
+    import re as _re
+    s = _re.sub(r'@sha256:[0-9a-f]{64}', '', s)
     p.write_text(s)
 
 toml = out / 'task.toml'
