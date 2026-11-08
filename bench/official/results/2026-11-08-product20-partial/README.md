@@ -10,8 +10,11 @@ were attempted; `formal-crypto` has no verifier image. Raw rows: [`rows.jsonl`](
 - Only **2 tasks** (`bun-sourcemap-leak`, `cargo-flight-dispatch`) are paired-valid, both **0.0/0.0**.
 - The other 24 rows have `n_trials: 0` — an infrastructure error, **not** an agent score.
 
-Where the verifier ran, the number in parentheses is **verifier criteria passed / total**. That
-number, not the binary reward, is the diagnostic:
+Where the verifier ran, the number in parentheses is **executed test criteria passed / total**
+(`ctrf.json`). For pytest tasks the rubric report can add a meta `pytest_completed_successfully`
+criterion, so `reward-details.json` may differ by one (cargo: graph 33/42, stock 34/42 rubric vs
+32/40, 33/40 tests). `criteria.py` returns both (`criteria_*` rubric, `tests_*` ctrf), and new
+`run-subset.sh` rows carry both. Reward stays binary; criteria are diagnostic.
 
 | Task | graph | stock | note |
 |---|---|---|---|
