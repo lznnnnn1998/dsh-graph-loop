@@ -139,6 +139,7 @@ row = {
     'criteria': criteria,
     'agent_exit': agent_meta.get('agent_exit'),
     'transport_failed': agent_meta.get('transport_failed'),
+    'graph_failed': agent_meta.get('graph_failed'),
 }
 with open(rows, 'a') as fh:
     fh.write(json.dumps(row) + '\n')
@@ -172,9 +173,20 @@ for arm in ('stock', 'graph'):
             'total': criteria_total,
             'micro_rate': (criteria_passed / criteria_total) if criteria_total else None,
         },
+        # A healthy agent terminal is exit 0, or GRAPH_FAILED: the graph loop's designed
+        # terminal when recovery/replan is exhausted, and a valid trial outcome even when
+        # it co-occurs with a scored 0.0/1.0 (docs/EVALUATION.md, "Trial validity" rule 2).
+        # The marker is `graph_failed` from dsh_agent.py metadata (dsh_agent.py keeps
+        # agent_exit as the integer); the string form stays valid for older rows. Any
+        # other nonzero agent exit, and a transport failure, remain agent-invalid rows
+        # (audit docs/audits/20261109-1158.md §6.4).
         'agent_invalid_rows': sum(
             1 for r in arm_rows
-            if (r.get('agent_exit') not in (0, None)) or r.get('transport_failed') is True
+            if r.get('transport_failed') is True
+            or (
+                r.get('graph_failed') is not True
+                and r.get('agent_exit') not in (0, None, 'GRAPH_FAILED')
+            )
         ),
     }
 meta = {

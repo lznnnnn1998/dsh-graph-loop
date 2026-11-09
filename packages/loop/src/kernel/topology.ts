@@ -90,12 +90,12 @@ export class KernelTopology {
       // outcome is pending, let the kernel execute the node's bridge executor.
       pauseWhen: () => (this.pending === undefined ? 'replan' : undefined),
       // A budget-guarded exit may route to a wrap-up node on the last planned
-      // step. The kernel's pre-execution cap would let the host run that node
-      // and then discard it before folding the boundary, so reserve one kernel
-      // step whenever the plan can route on the budget. The plan budget still
-      // decides routing; the reserve only keeps the routed node from being
-      // dropped. Owning this here (not in the scheduler) keeps direct adapter
-      // use and the live path on one rule.
+      // step. Both kernels check that cap before the pause hook, so the host
+      // cannot slip an extra step in after the plan's budget has run out; the
+      // reserve is the one step that still lets a budget-routed answer node run
+      // and be folded. The plan budget decides routing; the reserve only keeps
+      // that routed node affordable. Owning this here (not in the scheduler)
+      // keeps direct adapter use and the live path on one rule.
       maxSteps: (options.maxSteps ?? plan.budget.maxSteps) + budgetReserveSteps(plan),
     }
     const kernel = (options.kind ?? 'langgraph') === 'minimal'
@@ -334,9 +334,10 @@ export function canKernelDrive(plan: TaskPlan): boolean {
 }
 
 /**
- * One extra kernel step when the plan can route on the step budget. A
- * budget-routed wrap-up node is declared to run at the boundary; without the
- * reserve the kernel's pre-execution cap would discard it after the host ran it.
+ * One extra kernel step when the plan can route on the step budget. Both
+ * kernels check their cap before pausing, so this reserve is what lets a
+ * budget-routed wrap-up node still execute once the plan decides to wrap up;
+ * without it the last affordable node would be routed but never run.
  */
 function budgetReserveSteps(plan: TaskPlan): number {
   return plan.edges.some(edge => edge.when?.op === 'budget') ? 1 : 0

@@ -152,7 +152,7 @@ test('step facts are rewritten every step so stale values cannot route a later s
   assert.equal(noTool['hadToolCall'], false)
 })
 
-test('a verify/repair loop runs until maxSteps, not two visits', () => {
+test('a bare repair loop burns the budget and settles failed, never done-without-terminal', () => {
   const loop = plan([
     { from: 'a', to: 'b', kind: 'control', when: { op: 'fact', key: 'lastOk', equals: false } },
     { from: 'a', to: 'd', kind: 'control' },
@@ -166,6 +166,45 @@ test('a verify/repair loop runs until maxSteps, not two visits', () => {
   }
   assert.equal(advances, 6)
   assert.equal(topology.done(), true)
+  // A cap without a reached terminal is not success (audit 2026-11-09 §4.3).
+  assert.equal(topology.status(), 'failed')
+})
+
+test('step facts classify shell effects, arrows, read_image and toolSucceeded', () => {
+  const shellRead = deriveStepFacts(
+    [{ name: 'bash', isError: false, arguments: JSON.stringify({ command: 'cat README.md' }) }],
+    true,
+  )
+  assert.equal(shellRead['readFile'], true, 'a shell cat is a read')
+  assert.equal(shellRead['wroteFile'], false)
+  assert.equal(shellRead['toolSucceeded'], true)
+
+  const shellWrite = deriveStepFacts(
+    [{ name: 'bash', isError: false, arguments: JSON.stringify({ command: 'printf x > out.txt' }) }],
+    true,
+  )
+  assert.equal(shellWrite['wroteFile'], true, 'a shell redirect writes a file')
+  assert.equal(shellWrite['readFile'], false)
+  assert.equal(shellWrite['toolSucceeded'], true)
+
+  const arrow = deriveStepFacts(
+    [{ name: 'bash', isError: false, arguments: JSON.stringify({ command: 'python3 -c "print(\'a->b\')"' }) }],
+    true,
+  )
+  assert.equal(arrow['wroteFile'], false, '-> is not a shell redirect')
+  assert.equal(arrow['toolSucceeded'], true)
+
+  const image = deriveStepFacts([{ name: 'read_image', isError: false }], true)
+  assert.equal(image['readFile'], true, 'read_image is an inspect tool')
+  assert.equal(image['wroteFile'], false, 'read_image must never satisfy a mutation stage')
+
+  const failedOnly = deriveStepFacts([{ name: 'bash', isError: true }], false)
+  assert.equal(failedOnly['toolSucceeded'], false, 'an all-error step succeeded at nothing')
+  const mixed = deriveStepFacts(
+    [{ name: 'bash', isError: true }, { name: 'present', isError: false }],
+    true,
+  )
+  assert.equal(mixed['toolSucceeded'], true, 'any non-error tool is a success')
 })
 
 test('an exhausted plan continues while the model is still calling tools', async () => {

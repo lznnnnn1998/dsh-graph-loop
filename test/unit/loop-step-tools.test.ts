@@ -117,6 +117,36 @@ test('mutationObserved recognizes writer tools and real shell mutations only', (
   assert.equal(mutationObserved([{ name: 'bash', isError: false, arguments: 'mv old.ts new.ts' }]), true)
   assert.equal(mutationObserved([{ name: 'bash', isError: false, arguments: "sed -i 's/a/b/' src/x.ts" }]), true)
   assert.equal(mutationObserved([{ name: 'bash', isError: false, arguments: 'echo hi > out.txt' }]), true)
+  assert.equal(mutationObserved([{ name: 'bash', isError: false, arguments: 'printf x > out.txt' }]), true,
+    'a real redirect writes a file')
+  assert.equal(mutationObserved([{ name: 'bash', isError: false, arguments: JSON.stringify({ command: 'printf x > out.txt' }) }]), true,
+    'the JSON tool arguments are unwrapped before classification')
+  assert.equal(mutationObserved([{ name: 'bash', isError: false, arguments: 'echo hi >> out.txt' }]), true,
+    'an append redirect writes a file')
+  assert.equal(mutationObserved([{ name: 'bash', isError: false, arguments: 'cat in.txt 2> err.txt' }]), true,
+    'a stderr redirect writes a file')
+  assert.equal(mutationObserved([{ name: 'bash', isError: false, arguments: 'python3 -c "print(\'a->b\')"' }]), false,
+    'an arrow inside an argument is not a redirect')
+  assert.equal(mutationObserved([{ name: 'bash', isError: false, arguments: 'python3 -c "print(1 > 0)"' }]), false,
+    'a comparison inside quoted interpreter code is not a redirect')
+  assert.equal(mutationObserved([{ name: 'bash', isError: false, arguments: 'echo "cp x y"' }]), false,
+    'a command word inside quotes is not executed')
+  assert.equal(mutationObserved([{ name: 'bash', isError: false, arguments: 'python3 -c "open(\'out.txt\', \'w\').write(\'x\')"' }]), true,
+    'an interpreter open(..., "w") is a mutation')
+  assert.equal(mutationObserved([{ name: 'bash', isError: false, arguments: 'python3 build.py > out.txt' }]), true,
+    'a redirect outside the interpreter argument still writes')
+  assert.equal(mutationObserved([{ name: 'bash', isError: false, arguments: 'bash -c "printf x > out.txt"' }]), true,
+    'a redirect inside a shell wrapper -c argument writes')
+  assert.equal(mutationObserved([{ name: 'bash', isError: false, arguments: "sh -c 'echo hi >> f'" }]), true,
+    'the wrapper payload is checked for append redirects too')
+  assert.equal(mutationObserved([{ name: 'bash', isError: false, arguments: 'bash -lc "python3 -c \'print(1 > 0)\'"' }]), false,
+    'a comparison inside a nested interpreter wrapper is still not a write')
+  assert.equal(mutationObserved([{ name: 'bash', isError: false, arguments: 'node -e "const f = x => x"' }]), false,
+    'a lambda arrow is not a redirect')
+  assert.equal(mutationObserved([{ name: 'bash', isError: false, arguments: 'cat in.txt 2>&1' }]), false,
+    'descriptor duplication is not a file write')
+  assert.equal(mutationObserved([{ name: 'bash', isError: false, arguments: 'echo hi > /dev/null' }]), false,
+    'discarding output is not a workspace mutation')
   assert.equal(mutationObserved([{ name: 'bash', isError: false, arguments: 'npm test' }]), false)
   assert.equal(mutationObserved([{ name: 'bash', isError: false, arguments: 'echo debug > /dev/null' }]), false)
   assert.equal(mutationObserved([]), false)

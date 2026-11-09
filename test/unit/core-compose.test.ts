@@ -290,7 +290,7 @@ test('the legacy top-level maxSteps is honoured by the cap and the plan budget a
   assert.equal(validateTaskPlan(graph, result.plan).ok, true)
 })
 
-test('every composed stage classifies its own progress; failure exits precede the budget exit', () => {
+test('every composed stage classifies its own progress; the budget exit precedes the failure exits', () => {
   const graph = graphOf({ tools: CORE_TOOLS })
   const envelope = buildEnvelope({
     roles: [role('workspace-read'), role('workspace-write'), role('shell'), role('verification')],
@@ -301,29 +301,54 @@ test('every composed stage classifies its own progress; failure exits precede th
     envelope: envelope.envelope,
   })
   const stages = {
-    n_inspect: { key: 'readFile', next: 'n_mutate' },
+    n_inspect: { key: 'toolSucceeded', next: 'n_mutate' },
     n_mutate: { key: 'wroteFile', next: 'n_verify' },
     n_verify: { key: 'verificationRan', next: 'n_answer' },
   }
   for (const [stage, expected] of Object.entries(stages)) {
     const out = result.plan.edges.filter(edge => edge.from === stage)
-    assert.ok(out.some(edge => edge.when?.op === 'budget'), `${stage} must answer when the step budget is nearly gone`)
-    assert.ok(out.some(edge => edge.to === `${stage}_repair`
-      && edge.when?.op === 'fact' && edge.when.key === 'lastOk' && edge.when.equals === false), `${stage} must repair a failed step`)
-    assert.ok(out.some(edge => edge.to === expected.next && edge.when?.op === 'fact'
-      && edge.when.key === expected.key && edge.when.equals === true), `${stage} must have its own success classifier`)
-    assert.ok(out.some(edge => edge.to === `${stage}_repair` && edge.when?.op === 'fact'
-      && edge.when.key === expected.key && edge.when.equals === false), `${stage} must repair on no progress`)
-    // A false success fact must not fall through to `next`: there is no
-    // unconditional stage exit, because silently advancing is what the 2026-11-08
-    // audit found (P1-4).
-    assert.ok(!out.some(edge => edge.when === undefined), `${stage} must not have an unconditional exit`)
+    const budgetIndex = out.findIndex(edge => edge.when?.op === 'budget')
     const failureIndex = out.findIndex(edge => edge.to === `${stage}_repair`
       && edge.when?.op === 'fact' && edge.when.equals === false)
-    const budgetIndex = out.findIndex(edge => edge.when?.op === 'budget')
-    assert.ok(failureIndex !== -1 && budgetIndex !== -1 && failureIndex < budgetIndex,
-      `${stage} failure must be evaluated before the budget exit (P1-5)`)
-    assert.ok(result.plan.edges.some(edge => edge.from === `${stage}_repair` && edge.to === stage), `${stage}_repair must return to ${stage}`)
+    assert.ok(budgetIndex !== -1 && failureIndex !== -1 && budgetIndex < failureIndex,
+      `${stage}: the budget exit must be evaluated before the failure exits (audit 2026-11-09 §5.6)`)
+    assert.ok(out.some(edge => edge.to === expected.next && edge.when?.op === 'fact'
+      && edge.when.key === expected.key && edge.when.equals === true),
+    `${stage}: success must use ${expected.key} -> ${expected.next}`)
+    // A false success fact must not fall through to `next`: there is no
+    // unconditional stage exit (the 2026-11-08 audit's P1-4).
+    assert.ok(!out.some(edge => edge.when === undefined), `${stage} must not have an unconditional exit`)
+
+    // The repair node is not a dead end: it has the stage's own success
+    // classifier, a budget/failure answer exit, and no back-edge to the stage
+    // (audit 2026-11-09 §4.1, §5.6).
+    const repairOut = result.plan.edges.filter(edge => edge.from === `${stage}_repair`)
+    assert.ok(repairOut.some(edge => edge.to === expected.next && edge.when?.op === 'fact'
+      && edge.when.key === expected.key && edge.when.equals === true),
+    `${stage}_repair must have the stage's success exit`)
+    assert.ok(repairOut.some(edge => edge.to === 'n_answer' && edge.when?.op === 'budget'),
+      `${stage}_repair must answer on budget`)
+    assert.ok(repairOut.some(edge => edge.to === 'n_answer' && edge.when?.op === 'fact'
+      && edge.when.equals === false),
+    `${stage}_repair must answer on failure/no-progress`)
+    assert.ok(!repairOut.some(edge => edge.to === stage),
+      `${stage}_repair must not return to ${stage}`)
   }
+  assert.equal(validateTaskPlan(graph, result.plan).ok, true)
+})
+
+test('discover success uses the generic toolSucceeded classifier', () => {
+  const graph = graphOf({ tools: CORE_TOOLS })
+  const envelope = buildEnvelope({ roles: [role('workspace-read'), role('workspace-search')] }, graph)
+  const result = synthesizeComposition({
+    fingerprint: fingerprint({ intent: 'code-question' }),
+    graph,
+    envelope: envelope.envelope,
+  })
+  assert.deepEqual(result.stages.map(stage => stage.stage), ['discover', 'inspect'])
+  const out = result.plan.edges.filter(edge => edge.from === 'n_discover')
+  assert.ok(out.some(edge => edge.to === 'n_inspect' && edge.when?.op === 'fact'
+    && edge.when.key === 'toolSucceeded' && edge.when.equals === true))
+  assert.ok(!out.some(edge => edge.when?.op === 'fact' && edge.when.key === 'readFile'))
   assert.equal(validateTaskPlan(graph, result.plan).ok, true)
 })

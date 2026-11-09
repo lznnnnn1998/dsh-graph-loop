@@ -348,7 +348,10 @@ export function synthesizeComposition(input: ComposeInput): ComposeResult {
       kind: 'agent-step',
       executor: 'step',
       capabilityId: planned.tool.id,
-      instruction: `The ${planned.stage} step failed. Diagnose the exact failure from the last output and retry the ${planned.stage} work with ${toolName}; do not repeat unrelated steps.`,
+      // One repair attempt only. It may use an equivalent tool: the stage
+      // contract is the outcome, not a literal tool name. If it still cannot
+      // complete, the tool-enabled answer node finishes the abandoned work.
+      instruction: `Last attempt at the ${planned.stage} step: diagnose the exact failure, then retry the ${planned.stage} work with ${toolName} or an equivalent tool. If it still cannot complete, the answer step will finish the work.`,
       budget: { maxSteps: 1 },
     })
     stageNodes.push({
@@ -378,26 +381,37 @@ export function synthesizeComposition(input: ComposeInput): ComposeResult {
     executor: 'step',
     instruction: generic
       ? 'Complete the task using the available tools and report the result.'
-      : 'Summarize what was produced, what was verified, and any remaining risk. If the task still needs work, continue with the available tools; otherwise answer.',
+      : 'Finish any abandoned stage work first with any suitable tools. Then summarize what was produced, what was verified, and any remaining risk.',
     budget: { maxSteps: 1 },
   })
 
-  // Every stage gets a real exit table, not one hardcoded successor:
-  //   tool error                  -> stage repair -> stage (bounded by maxSteps)
-  //   stage-specific failure      -> stage repair (evaluated BEFORE the budget)
-  //   budget exhausted            -> answer
-  //   stage-specific success      -> next stage
-  // The guards are generic facts/artifacts the runtime folds from tool calls;
-  // no task-kind branch appears here. The failure exits are declared first: both
-  // engines take the first matching edge, so at the answer reserve boundary a
-  // failed stage must still repair instead of being reported as the answer.
+  // Every stage gets a reachable exit table, evaluated in declaration order by
+  // both engines:
+  //   budget exhausted            -> answer (FIRST)
+  //   tool error / lastOk=false   -> one repair attempt
+  //   stage-specific failure      -> the same repair attempt
+  //   stage-specific success      -> next stage (or the answer)
+  // The budget edge is declared first on purpose (audit 2026-11-09 §4.3): at
+  // the answer reserve boundary a stage that keeps failing must be able to
+  // leave, otherwise its failure guard wins forever and the kernel ends the run
+  // as GRAPH_FAILED with the work unfinished. The guards are generic
+  // facts/artifacts the runtime folds from tool calls; no task-kind branch
+  // appears here. The repair node never returns to its stage: exactly one
+  // attempt per stage, then the tool-enabled answer node continues any
+  // unfinished work. Escalation is the answer, not a livelock.
   const successGuard = (node: (typeof stageNodes)[number]): PlanEdge['when'] => {
     switch (node.stage) {
       case 'discover':
-        // Discovery's contract is "look something up", not a specific artifact.
-        return { op: 'fact', key: 'hadToolCall', equals: true }
+        // Discovery's contract is "some tool call succeeded", not a literal
+        // search/read tool name: a shell `grep`, an MCP lookup or a craft tool
+        // is real discovery too. `toolSucceeded` is the generic work classifier
+        // written by the runtime on every step (audit 2026-11-09 §4.2).
+        return { op: 'fact', key: 'toolSucceeded', equals: true }
       case 'inspect':
-        return { op: 'fact', key: 'readFile', equals: true }
+        // Same generic contract: any successful non-error tool call inspected
+        // something. The old `readFile` name set missed shell reads and
+        // third-party readers, so a stage could loop after doing real work.
+        return { op: 'fact', key: 'toolSucceeded', equals: true }
       case 'mutate':
         return { op: 'fact', key: 'wroteFile', equals: true }
       case 'author':
@@ -425,9 +439,9 @@ export function synthesizeComposition(input: ComposeInput): ComposeResult {
   const failureGuards = (node: (typeof stageNodes)[number]): PlanEdge['when'][] => {
     switch (node.stage) {
       case 'discover':
-        return [{ op: 'fact', key: 'hadToolCall', equals: false }]
+        return [{ op: 'fact', key: 'toolSucceeded', equals: false }]
       case 'inspect':
-        return [{ op: 'fact', key: 'readFile', equals: false }]
+        return [{ op: 'fact', key: 'toolSucceeded', equals: false }]
       case 'mutate':
         return [{ op: 'fact', key: 'wroteFile', equals: false }]
       case 'author':
@@ -445,21 +459,36 @@ export function synthesizeComposition(input: ComposeInput): ComposeResult {
   }
   for (const [index, node] of stageNodes.entries()) {
     const next = stageNodes[index + 1]?.id ?? answerId
+    const success = successGuard(node)
+    const budgetExit: PlanEdge['when'] = { op: 'budget', axis: 'steps', remainingAtMost: ANSWER_RESERVE_STEPS }
+    // 1. Budget first: it must outrank every failure guard so a stage that
+    //    never succeeds still reaches the answer instead of looping to failure.
+    edges.push({ from: node.id, to: answerId, kind: 'control', when: budgetExit })
+    // 2. Tool-invocation failure and an explicitly failed step: one repair try.
     edges.push({ from: node.id, to: node.repairId, kind: 'control', when: { op: 'callFailed', tool: node.toolName } })
     edges.push({ from: node.id, to: node.repairId, kind: 'control', when: { op: 'fact', key: 'lastOk', equals: false } })
+    // 3. Stage-specific no-progress (the failure guards make success exclusive).
     for (const failure of failureGuards(node)) {
       edges.push({ from: node.id, to: node.repairId, kind: 'control', when: failure })
     }
-    // Only after the failure exits: a stage that failed at the reserve boundary
-    // repairs rather than becoming the answer.
-    edges.push({ from: node.id, to: answerId, kind: 'control', when: { op: 'budget', axis: 'steps', remainingAtMost: ANSWER_RESERVE_STEPS } })
-    const success = successGuard(node)
+    // 4. Success -> next stage, or the tool-enabled answer.
     if (success !== undefined) edges.push({ from: node.id, to: next, kind: 'control', when: success })
-    // No unconditional edge off a stage: success and failure guards are
-    // exhaustive on every step the live path drives, so "nothing matched" would
-    // mean a missing fact, and silently advancing would hide that. The repair
-    // node keeps its unconditional return edge to the stage.
-    edges.push({ from: node.repairId, to: node.id, kind: 'control' })
+
+    // Repair node: exactly one attempt. Priority mirrors the stage so the
+    // success predicate cannot mask a failure: budget and every failure exit
+    // answer first; only then may a clean success advance. A verify repair that
+    // ran a check which exited non-zero has verificationRan=true AND
+    // verificationFailed=true, so failure must win over success. There is
+    // deliberately no repair -> stage back-edge.
+    edges.push({ from: node.repairId, to: answerId, kind: 'control', when: budgetExit })
+    edges.push({ from: node.repairId, to: answerId, kind: 'control', when: { op: 'callFailed', tool: node.toolName } })
+    edges.push({ from: node.repairId, to: answerId, kind: 'control', when: { op: 'fact', key: 'lastOk', equals: false } })
+    for (const failure of failureGuards(node)) {
+      edges.push({ from: node.repairId, to: answerId, kind: 'control', when: failure })
+    }
+    if (success !== undefined) edges.push({ from: node.repairId, to: next, kind: 'control', when: success })
+    // No-progress fallback: if no guard above matched, answer rather than stall.
+    edges.push({ from: node.repairId, to: answerId, kind: 'control' })
   }
 
   const toolUniverse = [...input.envelope.tools.universe].sort()

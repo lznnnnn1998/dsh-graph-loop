@@ -515,7 +515,7 @@ test('a research fan-out reaches its answer node once (frontier, subagent batch)
 // ---------------------------------------------------------------------------
 
 for (const engine of ENGINES) {
-  engineTest(`a composed verify stage fails twice by shell exit code, then passes [${engine}]`, engine, async () => {
+  engineTest(`a composed verify failure repairs once, and the repair work answers [${engine}]`, engine, async () => {
     const { graph, plan } = coreComposition()
     assert.equal(canKernelDrive(plan), true, 'the composed plan must be kernel-drivable')
     const verifyFailure = (code: number): StepOutcome => ({
@@ -525,26 +525,18 @@ for (const engine of ENGINES) {
       ok: true,
       tools: [{ name: 'bash', isError: false, output: `FAIL tests/loader.test.ts\n[exit code: ${code}]` }],
     })
+    const verifyPass = (): StepOutcome => ({
+      ok: true,
+      tools: [{ name: 'bash', isError: false, output: 'PASS\n[exit code: 0]' }],
+    })
     const stream: StepOutcome[] = [
-      { ok: true, tools: [{ name: 'read', isError: false }] },     // inspect (readFile)
+      { ok: true, tools: [{ name: 'read', isError: false }] },     // inspect (toolSucceeded)
       { ok: true, tools: [{ name: 'edit', isError: false }] },     // mutate (wroteFile)
       verifyFailure(1),                                            // verify -> repair
-      { ok: true },                                                // repair -> verify
-      verifyFailure(2),                                            // verify -> repair again
-      { ok: true },                                                // repair -> verify
-      { ok: true, tools: [{ name: 'bash', isError: false, output: 'PASS\n[exit code: 0]' }] },
+      verifyPass(),                                                // repair does the work -> answer
       { ok: true },                                                // answer
     ]
-    const expected = [
-      'n_inspect',
-      'n_mutate',
-      'n_verify',
-      'n_verify_repair',
-      'n_verify',
-      'n_verify_repair',
-      'n_verify',
-      'n_answer',
-    ]
+    const expected = ['n_inspect', 'n_mutate', 'n_verify', 'n_verify_repair', 'n_answer']
 
     const driver = createGraphTurnDriver({ mode: 'dynamic', kernel: kernelOption(engine), graphProvider: () => graph })
     const started = await driver.beginTurn({ text: 'fix the failing test in the loader' })
@@ -554,6 +546,29 @@ for (const engine of ENGINES) {
     assert.equal(driver.done(), true)
     assert.equal(driver.status?.(), 'done')
     assert.equal(driver.snapshot().replans, 0, 'the composed repair exit must not need a boundary replan')
+    driver.endTurn()
+  })
+}
+
+for (const engine of ENGINES) {
+  engineTest(`a no-op repair of a failed verify answers instead of returning to verify [${engine}]`, engine, async () => {
+    const { graph, plan } = coreComposition()
+    assert.equal(canKernelDrive(plan), true, 'the composed plan must be kernel-drivable')
+    const stream: StepOutcome[] = [
+      { ok: true, tools: [{ name: 'read', isError: false }] },     // inspect
+      { ok: true, tools: [{ name: 'edit', isError: false }] },     // mutate
+      { ok: true, tools: [{ name: 'bash', isError: false, output: 'FAIL\n[exit code: 1]' }] }, // verify -> repair
+      { ok: true },                                                // repair: no tool, no progress -> answer
+      { ok: true },                                                // answer
+    ]
+    const expected = ['n_inspect', 'n_mutate', 'n_verify', 'n_verify_repair', 'n_answer']
+
+    const driver = createGraphTurnDriver({ mode: 'dynamic', kernel: kernelOption(engine), graphProvider: () => graph })
+    await driver.beginTurn({ text: 'fix the failing test in the loader' })
+    const trail = await walkDriver(driver, stream)
+    assert.deepEqual(trail, expected, `engine=${engine}: a no-op repair must answer, not retry verify`)
+    assert.equal(driver.done(), true)
+    assert.equal(driver.status?.(), 'done')
     driver.endTurn()
   })
 }
@@ -672,10 +687,11 @@ for (const engine of ENGINES) {
 }
 
 for (const engine of ENGINES) {
-  engineTest(`at maxSteps 5 a failed verify repairs instead of becoming the answer [${engine}]`, engine, async () => {
+  engineTest(`at maxSteps 5 a failed verify reaches the answer, not a repair dead end [${engine}]`, engine, async () => {
     // maxSteps 5: inspect, mutate, verify (fails with exit 1) leaves exactly the
-    // answer reserve (2). The failure exit must be evaluated before the budget
-    // exit, or a failed verification is reported as a successful run (P1-5).
+    // answer reserve (2). The budget exit is evaluated first, so the failed
+    // verify reaches the tool-enabled answer instead of a repair node the
+    // kernel cannot run (audit 2026-11-09 §4.3, §5.6).
     const graph = graphOf({ tools: CORE_TOOLS })
     const envelope = buildEnvelope({
       roles: [role('workspace-read'), role('workspace-write'), role('shell'), role('verification')],
@@ -691,13 +707,12 @@ for (const engine of ENGINES) {
     await driver.advance({ ok: true, tools: [{ name: 'read', isError: false }] })
     await driver.advance({ ok: true, tools: [{ name: 'edit', isError: false }] })
     await driver.advance({ ok: true, tools: [{ name: 'bash', isError: false, output: 'FAIL\n[exit code: 1]' }] })
-    assert.equal(driver.current()?.id, 'n_verify_repair',
-      `engine=${engine}: a failed verify at the reserve boundary must repair, not answer`)
-    // Walk the rest of the run: the answer must never be reached on a failed
-    // verification, whatever the step cap does at the end.
-    while (!driver.done()) await driver.advance({ ok: true })
-    assert.ok(!driver.snapshot().trail.some(row => row.id === 'n_answer'),
-      `engine=${engine}: the run must not end at n_answer after a failed verify`)
+    assert.equal(driver.current()?.id, 'n_answer',
+      `engine=${engine}: a failed verify at the reserve boundary must answer, not repair forever`)
+    assert.notEqual(driver.status?.(), 'failed')
+    await driver.advance({ ok: true })
+    assert.equal(driver.status?.(), 'done')
+    driver.endTurn()
   })
 }
 
@@ -757,10 +772,10 @@ for (const engine of ENGINES) {
     failed.adopt(plan)
     await failed.advance({ ok: false, failedTool: 'acme_render', tools: [{ name: 'acme_render', isError: true }] })
     assert.equal(failed.current()?.id, 'n_author_0_repair')
+    // The repair performs the author's work: it has the same success exit and
+    // advances to the next node (the answer), not back to the author stage.
     await failed.advance({ ok: true, tools: [{ name: 'acme_render', isError: false }] })
-    assert.equal(failed.current()?.id, 'n_author_0', 'the repair node must return to the author stage')
-    await failed.advance({ ok: true, tools: [{ name: 'acme_render', isError: false }] })
-    assert.equal(failed.current()?.id, 'n_answer')
+    assert.equal(failed.current()?.id, 'n_answer', 'repair success must advance, not restart the author')
     await failed.advance({ ok: true })
     assert.equal(failed.status?.(), 'done')
     failed.endTurn()

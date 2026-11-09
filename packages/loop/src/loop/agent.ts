@@ -524,7 +524,10 @@ export class ReactLoopAgent implements Agent {
     phase.turn = turn
     let turnEnds: TurnEndReason | null = null
     let formatRetries = 0
-    let mutationRetries = 0
+    // Per-node, not per-turn: a turn can visit several mutating nodes (a plan's
+    // `n_*_mutate` stages, then a repair node), and one node's retry must not
+    // consume a later node's correction. Keyed by node id; each node gets one.
+    const mutationRetries = new Map<string, number>()
     let target: InboxTarget = 'next-turn'
     try {
       // beginTurn runs inside the turn boundary: a failing graph start must
@@ -657,15 +660,17 @@ export class ReactLoopAgent implements Agent {
         // is a common failure on long tasks: the model lists files and never
         // writes. Retry the same node once with a direct correction instead of
         // advancing; the node's own intent decides, so the composed `n_mutate`
-        // is enforced exactly like the dynamic `d_edit`.
+        // is enforced exactly like the dynamic `d_edit`. The budget is per node
+        // id: a plan that visits several mutating nodes still corrects each of
+        // them, instead of spending the turn's single retry on the first one.
         if (this.benchGuards
           && this.turnGraph !== undefined
           && retryNode !== undefined
           && isMutatingNode(retryNode)
           && !mutationObserved(stepTools)
-          && mutationRetries < 1
+          && (mutationRetries.get(retryNode.id) ?? 0) < 1
           && !signal.aborted) {
-          mutationRetries += 1
+          mutationRetries.set(retryNode.id, (mutationRetries.get(retryNode.id) ?? 0) + 1)
           this.inject(createBenchRetryCorrection('This node must perform the requested change. Call a mutating tool (`write` for a new artifact, `edit`/`str_replace_editor` for an in-place change) or a shell mutation now; do not run more exploratory commands.'))
           continue
         }

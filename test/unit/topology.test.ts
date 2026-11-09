@@ -146,6 +146,41 @@ test('frontier bounds a callFailed self-loop by maxSteps (H3)', () => {
   assert.equal(topology.steps(), 3)
 })
 
+test('frontier cap reports done when one alternative terminal was reached', () => {
+  // `terminals` are alternative endpoints, not a checklist: a branch reaches
+  // only one of them. At the exact cap, that reached terminal is a successful
+  // run even though its sibling branch never executed (audit 2026-11-09 §4.4).
+  const plan: TaskPlan = {
+    id: 'branch-at-cap',
+    templateId: 'test',
+    version: 1,
+    entry: 'a',
+    terminals: ['b', 'c'],
+    nodes: [
+      { id: 'a', kind: 'agent-step', executor: 'step', instruction: 'choose a branch' },
+      { id: 'b', kind: 'terminal', executor: 'step', instruction: 'branch b' },
+      { id: 'c', kind: 'terminal', executor: 'step', instruction: 'branch c' },
+    ],
+    edges: [
+      { from: 'a', to: 'b', kind: 'control' },
+      { from: 'a', to: 'c', kind: 'control' },
+    ],
+    budget: { maxNodes: 3, maxSteps: 2, maxTokens: 1_000, maxWallMs: 1_000, maxReplans: 0 },
+    toolUniverse: [],
+    gatePolicy: 'cold',
+    fallback: false,
+    confidence: 1,
+    compiledDigest: 'branch-at-cap',
+  }
+  const topology = new FrontierTopology(plan)
+  assert.equal(topology.current()?.id, 'a')
+  topology.advance({ ok: true })             // a -> branch b (c stays pending)
+  assert.equal(topology.current()?.id, 'b')
+  topology.advance({ ok: true })             // b at the cap; c is still unreached
+  assert.equal(topology.status(), 'done')
+  assert.equal(topology.done(), true)
+})
+
 test('proposal validation rejects unsafe shapes and keeps a bounded retry loop', () => {
   const invalidWhen = validateProposal({
     entry: 'n1',

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 from pathlib import Path
 from typing import override
@@ -38,6 +39,12 @@ NODE_BASE = f"https://nodejs.org/dist/v{NODE_VERSION}/node-v{NODE_VERSION}-linux
 PROFILE = "tb"
 PATCH = "/tmp/dsh-tool-policy.patch.yml"
 PLUGIN_TARBALL = "/tmp/dsh-graph-loop.tgz"
+# The graph loop's designed terminal when recovery/replan is exhausted. It exits 1, so
+# the aggregate needs an explicit marker to tell it apart from infrastructure failures
+# (docs/EVALUATION.md "Trial validity" rule 2); the loop writes
+# `dsh: GRAPH_FAILED: graph run ended ...`. Anchor to that line so model prose that
+# happens to mention GRAPH_FAILED cannot turn a transport crash into a valid trial.
+GRAPH_FAILED_RE = re.compile(r"(?m)^dsh: GRAPH_FAILED:")
 
 # Host proxy configuration is required inside the task container: Docker does
 # not inherit the host environment, and the benchmark container needs npm plus
@@ -206,10 +213,13 @@ class DshAgent(BaseAgent):
         (self.logs_dir / "dsh-stdout.log").write_text(result.stdout or "")
         (self.logs_dir / "dsh-stderr.log").write_text(result.stderr or "")
         transport_failed = "TRANSPORT" in (result.stderr or "") or "TRANSPORT" in (result.stdout or "")
+        # Marker, not a second exit code: `agent_exit` stays the integer DSH returned.
+        graph_failed = bool(GRAPH_FAILED_RE.search((result.stdout or "") + "\n" + (result.stderr or "")))
         context.metadata = {
             "agent": "dsh",
             "plugin": "dsh-graph-loop" if not self.stock else "stock",
             "tool_policy": "preset",
             "agent_exit": result.return_code,
             "transport_failed": transport_failed,
+            "graph_failed": graph_failed,
         }

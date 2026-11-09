@@ -10,6 +10,7 @@
 
 import type { RoutingArtifact } from 'dsh-graph-loop-core/condition'
 import type { ArtifactType, Json, RegistryNode } from 'dsh-graph-loop-core/graph-schema'
+import { mutationObserved, readObserved } from './loop/step-tools.ts'
 
 /** One tool call as the agent loop reports it. */
 export interface ObservedTool {
@@ -22,7 +23,6 @@ export interface ObservedTool {
 }
 
 const MUTATION_TOOLS = new Set(['write', 'edit', 'str_replace_editor', 'multi_edit', 'apply_patch'])
-const READ_TOOLS = new Set(['read', 'read_image', 'glob', 'grep'])
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.tif', '.tiff'])
 const PATCH_EXTENSIONS = new Set(['.patch', '.diff'])
 
@@ -73,6 +73,10 @@ function artifactTypeFor(path: string): ArtifactType {
  * cannot match a later `callFailed(<tool>)` guard, and `verificationRan` /
  * `verificationFailed` are both always present so the verify stage can classify
  * "ran and failed", "ran and passed" and "did not run" separately.
+ *
+ * `wroteFile` / `readFile` are not name sets: both delegate to `loop/step-tools.ts`
+ * so the graph, the composer's stage guards and the benchmark retry agree on what
+ * a mutation is, including shell writes and shell reads.
  */
 export function deriveStepFacts(tools: readonly ObservedTool[], ok: boolean, failedTool?: string): Record<string, Json> {
   let exitFailure = false
@@ -101,19 +105,23 @@ export function deriveStepFacts(tools: readonly ObservedTool[], ok: boolean, fai
     failedTool: failedTool ?? false,
   }
   let failed = 0
-  let mutated = false
-  let read = false
   for (const tool of tools) {
     if (tool.isError) failed += 1
-    if (MUTATION_TOOLS.has(tool.name) && !tool.isError) mutated = true
-    if (READ_TOOLS.has(tool.name) && !tool.isError) read = true
     facts[`tool.${tool.name}.ok`] = !tool.isError
     if (tool.isError) facts[`tool.${tool.name}.failed`] = true
   }
   facts['failedToolCount'] = failed
   facts['allToolsFailed'] = tools.length > 0 && failed === tools.length
-  facts['wroteFile'] = mutated
-  facts['readFile'] = read
+  // Effects come from ONE classifier shared with the benchmark retry
+  // (`loop/step-tools.ts`): a successful writer tool or a mutating shell writes,
+  // a successful reader tool or a reading shell reads. Two classifiers made the
+  // graph route on the narrower one — a shell `cat > f`, `cp`, `sed -i` was a
+  // real mutation the graph reported as `wroteFile=false` (audit 2026-11-09 §4.2).
+  facts['wroteFile'] = mutationObserved(tools)
+  facts['readFile'] = readObserved(tools)
+  // "Some call was answered" is the weakest durable signal that the step did
+  // anything at all; unlike `lastOk` it survives an unrelated failing call.
+  facts['toolSucceeded'] = tools.some(tool => !tool.isError)
   return facts
 }
 
@@ -121,8 +129,9 @@ export function deriveStepFacts(tools: readonly ObservedTool[], ok: boolean, fai
  * Aggregate facts for a planned capability whose tool name is not one of the
  * DSH names the reducer knows.
  *
- * `deriveStepFacts` classifies by tool name (`read`/`grep` read, `write`/`edit`
- * write). A composed inspect or mutate stage can be filled by a third-party or
+ * `deriveStepFacts` classifies by the shared effect classifier (`read`/`grep`/
+ * shell readers read, `write`/`edit`/shell mutations write). A composed inspect
+ * or mutate stage can be filled by a third-party or
  * MCP tool, so the capability's own contract supplies the same step-scoped
  * signal when *that* tool ran successfully: a read-only filesystem producer
  * counts as reading, and a `mutation`-tagged tool counts as writing. Without

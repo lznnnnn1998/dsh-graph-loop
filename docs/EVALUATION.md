@@ -152,8 +152,8 @@ every trial is valid under (1)–(3), and the marker ends `_EXIT`. A run that fa
 second product20). The stopped 2026-11-09 run is **not citable**
 ([`INVALID.md`](../bench/official/results/2026-11-09-product20/INVALID.md)); the corrected run
 (`…/2026-11-09-product20b/`) becomes citable only when its own 40 rows pass (1)–(3) and its marker
-closes. `GRAPH_FAILED` exit 1 is valid even alongside a scored 1.0 — `run-subset.sh`'s
-`agent_invalid_rows` currently miscounts it (deferred code fix).
+closes. `GRAPH_FAILED` exit 1 is valid even alongside a scored 1.0; since the 2026-11-09 fix the
+adapter records a `graph_failed` marker and `run-subset.sh`'s `agent_invalid_rows` exempts it.
 
 ## Row schema
 
@@ -162,7 +162,7 @@ Every row written by `run-subset.sh` must carry:
 | Field | Meaning |
 |---|---|
 | `task`, `arm`, `score`, `n_trials`, `n_errors`, `exit` | trial outcome |
-| `agent_exit`, `transport_failed` | DSH's own process exit and transport flag from the adapter metadata (since `da3d598`); `null` means the adapter never returned, **not** "valid" |
+| `agent_exit`, `transport_failed`, `graph_failed` | DSH's own process exit, transport flag and `GRAPH_FAILED` marker from the adapter metadata (since `da3d598`; `graph_failed` only on rows written since 2026-11-09); `agent_exit: null` means the adapter never returned, **not** "valid" |
 | `commit` | `git rev-parse HEAD` at run start |
 | `model` | model id used by both arms |
 | `image_env`, `image_verifier` | task image tags actually used |
@@ -177,11 +177,13 @@ values.
 **Fields added at `da3d598`:** `agent_exit` (the DSH process code from the adapter's
 `result.return_code`) and `transport_failed` are written by **both** arms into
 `agent_result.metadata`, and `run-subset.sh` copies them onto the row (the post-fix smoke shows
-`{"agent_exit":0,"transport_failed":false}` on both arms). **Still deferred:** `write_capped` /
-`artifact_writable` (from a readiness probe) is not in the row — grep each trial session for
-`Current DSH file policy` and the sandbox-denial quote instead. The residual interpretation fixes
-(`GRAPH_FAILED` exemption, `TRANSPORT` signature narrowing, fail-closed `null` metadata,
-`write_capped`/`tarball_sha256` fields) are listed under
+`{"agent_exit":0,"transport_failed":false}` on both arms). **Added 2026-11-09:** `graph_failed` is
+a boolean marker derived from the `dsh: GRAPH_FAILED:` signature, so `agent_exit: 1` can be
+classified without re-reading the stdout log; the legacy string form `agent_exit: "GRAPH_FAILED"`
+is still accepted. **Still deferred:** `write_capped` / `artifact_writable` (from a readiness
+probe) is not in the row — grep each trial session for `Current DSH file policy` and the
+sandbox-denial quote instead. The remaining interpretation fixes (`TRANSPORT` signature narrowing,
+fail-closed `null` metadata, `write_capped`/`tarball_sha256` fields) are listed under
 [Instrument defects](#instrument-defects-open).
 
 <a id="instrument-defects-open"></a>
@@ -191,10 +193,11 @@ These are harness defects, not agent results. **Defects 1 and 2 below were fixed
 verified by the post-fix smoke**
 ([`2026-11-09-smoke-sandbox`](../bench/official/results/2026-11-09-smoke-sandbox/README.md): oracle /
 graph / stock 1.0; both agent sessions print `Current DSH file policy: danger-full-access`; trial
-metadata carries `agent_exit`/`transport_failed`). The policy fix lives in
-`bench/official/terminal-bench/dsh_agent.py` and did not require a plugin repack. What remains
-deferred is the code work listed under defect 2 — **do not edit the live runner while PID `61129`
-runs**, because it re-reads `run-subset.sh` incrementally and re-imports `criteria.py` per row.
+metadata carries `agent_exit`/`transport_failed` and, since 2026-11-09, `graph_failed`). The policy
+fix lives in `bench/official/terminal-bench/dsh_agent.py` and did not require a plugin repack. What
+remains deferred is the code work listed under defect 2 — **do not edit a live runner**, because it
+re-reads `run-subset.sh` incrementally and re-imports `criteria.py` per row (the aborted run's PID
+`61129` is stopped).
 
 ### 1. `workspace-write` capped artifacts outside `/app` — FIXED at `da3d598`
 
@@ -231,13 +234,13 @@ corrected run. A per-trial **`write_capped` / writable-artifact probe is still d
 Before the fix `run-subset.sh` wrote only `exit`, which is Harbor's process status; `dsh_agent.py`
 logged `DSH exited {code}; verifier will score the workspace as-is` and returned normally, so a
 transport crash became an ordinary `0.0` row with `n_errors: 0` and `exit: 0`. Since `da3d598` the
-adapter writes `agent_exit`/`transport_failed` into `agent_result.metadata` for both arms, and
-`run-subset.sh` copies them onto the row; smoke trials carry
-`{"agent_exit":0,"transport_failed":false}`. **Deferred interpretation fixes (documented, do not
-implement while live):**
+adapter writes `agent_exit`/`transport_failed` and (since 2026-11-09) the `graph_failed` marker
+into `agent_result.metadata` for both arms, and `run-subset.sh` copies them onto the row; smoke
+trials carry `{"agent_exit":0,"transport_failed":false}`. **Deferred interpretation fixes
+(documented, do not implement while live):**
 
-- `run-subset.sh`'s `agent_invalid_rows` counts agent exit 1 + `GRAPH_FAILED` as invalid, although
-  `GRAPH_FAILED` is the loop's designed terminal and valid — exempt it.
+- ~~`run-subset.sh`'s `agent_invalid_rows` counts agent exit 1 + `GRAPH_FAILED` as invalid~~ —
+  fixed 2026-11-09: the adapter records `graph_failed`, and the aggregate exempts it.
 - `transport_failed` is still a whole-transcript `TRANSPORT` substring; narrow it to the
   `dsh: TRANSPORT: DeepSeek Messages transport failed` signature so a valid logistics transcript is
   not flagged.

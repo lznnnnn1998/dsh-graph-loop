@@ -514,6 +514,17 @@ export class FrontierTopology {
     return false
   }
 
+  /**
+   * True when the run reached a valid endpoint. `TaskPlan.terminals` are
+   * alternative endpoints — validation requires each to be a leaf, and a branch
+   * plan legitimately reaches only one of them — so any reached terminal counts.
+   * Using `every` would mark a branch completion as failed whenever a different
+   * terminal stayed unreached (audit 2026-11-09 §4.4).
+   */
+  private terminalsReached(): boolean {
+    return this.basePlan.terminals.some(terminal => this.completed.has(terminal))
+  }
+
   /** True when `to` is reachable from `from` over control edges (back-edge test). */
   private reaches(from: string, to: string): boolean {
     const seen = new Set<string>()
@@ -572,7 +583,11 @@ export class FrontierTopology {
     }
 
     if (this.stepCount >= this.maxSteps) {
-      this.state = 'done'
+      // The step cap is not success. Report done only when the plan actually
+      // reached a terminal; otherwise the run stops mid-plan and must settle as
+      // failed (audit 2026-11-09 §4.3/§4.4). Treating the cap as done reported
+      // a truncated run as a completed turn.
+      this.state = this.terminalsReached() ? 'done' : 'failed'
       return undefined
     }
     // A guarded edge is an alternative, not a parallel branch: at most one

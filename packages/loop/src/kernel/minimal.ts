@@ -590,14 +590,11 @@ class MinimalRunHandle implements KernelRunHandle {
       return this.settle({ kind: 'done', state: this.state, terminal: this.state.next ?? END })
     }
 
-    if (!this.skipPauseOnce) {
-      const pause = this.deps.pauseWhen?.(this.state)
-      if (pause !== undefined) {
-        return { kind: 'paused', reason: pause, state: this.state }
-      }
-    }
-    this.skipPauseOnce = false
-
+    // The step cap is checked before the pause hook: a paused step is still a
+    // step the host can execute, so checking pause first lets the host run one
+    // extra step past the cap (audit 2026-11-09 §6.3). Budget first keeps the
+    // effective cap at `deps.maxSteps` (the plan budget plus the adapter's one
+    // reserve for a budget-routed answer).
     if (this.state.superstep >= this.deps.maxSteps) {
       return this.settle(
         this.failed({
@@ -608,6 +605,14 @@ class MinimalRunHandle implements KernelRunHandle {
         }),
       )
     }
+
+    if (!this.skipPauseOnce) {
+      const pause = this.deps.pauseWhen?.(this.state)
+      if (pause !== undefined) {
+        return { kind: 'paused', reason: pause, state: this.state }
+      }
+    }
+    this.skipPauseOnce = false
 
     let executed
     try {
