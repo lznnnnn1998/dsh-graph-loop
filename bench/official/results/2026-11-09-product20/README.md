@@ -46,5 +46,26 @@
   later cycle. Also do not delete this OUT_DIR, `raw/`, `jobs/`, `rows.jsonl`, the tarball, or the
   task images until the runner exits and the marker has `_EXIT`.
 
-**No aggregate is citable until all 20 tasks have `n_trials >= 1` and the runner exits.** A
-`n_trials: 0` row is an infrastructure error. Do not merge the ad-hoc vpp retests into this run.
+**No aggregate is citable until all 20 tasks have both arms, every trial is valid, and the runner
+exits.** `n_trials: 0` is an infrastructure error, and so are two classes the row schema does not
+show ([trial validity](../../../../docs/EVALUATION.md#trial-validity)):
+
+- **Transport crashes.** At the 29-row point (05:28Z audit) 6 trials were
+  `dsh: TRANSPORT: DeepSeek Messages transport failed` crashes recorded as ordinary `0.0` rows with
+  `n_errors: 0` and `exit: 0` — graph `cargo`, graph `medical`, stock `foodstuff`, stock
+  `interleaved`, stock `pretrain`, stock `vpp`. They are **not trials**; do not score them 0.0 or
+  read them as capability gaps. (`exit` is Harbor's run status, not the agent's.)
+- **File-policy caps.** 6 rows (intrastat ×2, roy ×2, vpp ×2) cannot write their declared
+  `task.toml` artifacts because DSH runs under the default `workspace-write` policy rooted at `/app`
+  (`/workspace/out`, `/results`, installed `site-packages`); `freight-dispatch-shift`
+  (`/workspace/dispatch`) will be capped the same way. Those criteria counts are **ceilings for both
+  arms**, not capability results.
+
+A completed run that contains such rows is **incomplete for citation**, even at 40/40 rows. An
+**infrastructure re-run** of the affected trials/tasks into a **new `OUT_DIR`** is authorized without
+an instrument change and does not count as a second product20
+([completed-run gate](../../../../docs/EVALUATION.md#trial-validity)). The fixes — adapter write
+access for both arms, a row `agent_exit`/`transport_failed` field, and a readiness check that every
+declared artifact path is writable — are deferred until `_EXIT`
+([instrument defects](../../../../docs/EVALUATION.md#instrument-defects-open)); do not edit the live
+runner. Do not merge the ad-hoc vpp retests into this run.

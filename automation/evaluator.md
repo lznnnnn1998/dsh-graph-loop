@@ -74,9 +74,13 @@ The instrument was repaired on 2026-11-09; see
   and does not register its tools natively. The original vendor sidecar was amd64-only and never
   became healthy under qemu; that was fixed on 2026-11-09 with an arm64-native sidecar built from
   `mcr.microsoft.com/playwright:v1.56.0-noble` + `@playwright/mcp@0.0.64`. The prepared task compose
-  points `playwright-mcp` at `tb-arm64-medical-claims-sidecar:latest`. Both arms now have valid
-  trials (graph 2/27, stock 22/27); the reward is still expected 0 because DSH does not expose the
-  MCP tools natively, but it is a **valid trial, not infra**.
+  points `playwright-mcp` at `tb-arm64-medical-claims-sidecar:latest`. The 03:50 diagnostic
+  ([`2026-11-09-medical-fix`](../bench/official/results/2026-11-09-medical-fix/), 94 KB graph stdout
+  ending `GRAPH_FAILED`) has **valid** trials (graph 2/27, stock 22/27); the reward is still expected
+  0 because DSH does not expose the MCP tools natively, but it is a **valid trial, not infra**. Do
+  not read 2/27 as the graph arm's medical capability: the live product20 graph medical row (07:27)
+  reproduced 2/27 only because its trial was a 262 B `TRANSPORT` crash (see the trial-validity rule
+  below).
 - Historical 2026-11-08 blockers (900 s timeout, missing formal-crypto verifier, formal-crypto /
   shadow-relay CPUs=8, shadow overlay, sidecar TLS, old Node) are fixed; do not re-report them as
   current without checking. The 2026-11-09 diagnostic exercised the execution paths and found two
@@ -86,7 +90,14 @@ The instrument was repaired on 2026-11-09; see
   (in-container npm) and `heat-pump-warranty` (sidecar/compose) produced valid trials. Both vpp
   images were patched and now score 4/5 both arms; `bench/official/terminal-bench/build-arm64-task.sh`
   still invokes plain `docker build`, so a **canonical** vpp rebuild would reproduce the heredoc
-  defect — do not rebuild vpp from that script without forcing BuildKit/de-heredoc.
+  defect — do not rebuild vpp from that script without forcing BuildKit/de-heredoc. **Separate,
+  still-open defect:** DSH runs each trial under the default `workspace-write` file policy rooted at
+  `/app`, so `intrastat-meldung` (`/workspace/out`), `roy-polymorph-cn` (`/results`),
+  `vpp-loss-divergence` (installed `site-packages`) and the not-yet-run `freight-dispatch-shift`
+  (`/workspace/dispatch`) cannot write their declared artifacts. Those rows have `n_trials: 1` but
+  **no valid trial** — their criteria counts are ceilings, not capability results. The fix is a
+  post-`_EXIT` adapter/profile change (both arms) plus a readiness check; see
+  [`docs/EVALUATION.md`](../docs/EVALUATION.md#instrument-defects-open). Do not implement it now.
 
 A full product20 run is allowed **after the pre-run diagnostic gate below passes** and only when the
 **live-run guard** above reports no benchmark in progress. The 2026-11-09 gate has already passed
@@ -148,10 +159,20 @@ gate PASSES and the full product20 is live (started 2026-11-09 04:18:32 +08, PID
 `bench/official/results/2026-11-09-product20/`).
 
 Decision rule: a row with `n_trials: 0` is a real infrastructure failure — diagnose and fix it, or
-block and report it; **do not start the full 20**. A `0.0` with `n_trials >= 1` is a valid trial (a
-near-miss, not a pass) and does not block. `medical-claims-processing` now has valid 0.0 trials on
-the arm64 sidecar (2/27 graph, 22/27 stock). This gate is a readiness check: it is not scored, and its rows are not
-part of the product20 aggregate.
+block and report it; **do not start the full 20**. **`n_trials >= 1` alone is not validity.** A valid
+trial is all three of:
+
+1. a Harbor trial (`n_trials >= 1`, `n_errors: 0`);
+2. a healthy agent terminal — exit 0, or exit 1 with `GRAPH_FAILED` (the loop's designed terminal,
+   which can co-occur with a scored 1.0) — and no `TRANSPORT` / any other agent exit 1;
+3. every declared `task.toml` artifact path writable, so no trial is capped by the `workspace-write`
+   policy.
+
+A `0.0` that satisfies all three is a valid near-miss and does not block. A `0.0` that fails (2) or
+(3) is infrastructure and is **not evidence**. `medical-claims-processing` has valid 0.0 trials on
+the arm64 sidecar (2/27 graph, 22/27 stock, 03:50 diagnostic). This gate is a readiness check: it is
+not scored, and its rows are not part of the product20 aggregate. Full definition and evidence:
+[`docs/EVALUATION.md`](../docs/EVALUATION.md#trial-validity).
 
 Give the diagnostic its own `OUT_DIR` (`run-subset.sh` truncates `rows.jsonl` and has no resume); it
 re-runs the smoke gate unless `SKIP_SMOKE=1`, which is safe to set once this cycle's smoke passed.
@@ -195,23 +216,43 @@ Reporting rules:
 - **First run the live-run guard above.** If a benchmark is in progress, report its PID, OUT_DIR and
   live `rows.jsonl` path and stop; never start a second product20 and never kill the running one.
 - **Rerun on instrument change, not on HEAD.** Run only if all 20 tasks are ready, the diagnostic
-  gate above passed, AND **either** no product20 result exists **or** the instrument changed since
-  the last completed product20. The instrument is a change under `packages/`,
-  `bench/official/terminal-bench/`, `bench/official/subsets/` or `scripts/`, or a different
-  `dist/dsh-graph-loop-bench.tgz` sha256. A completed product20 is identified by its **run commit**
-  and **tarball sha256** (both recorded in its result README); docs/results-only commits after it do
-  **not** justify a rerun. Check:
+  gate above passed, AND **either** no product20 result exists **or** a **non-documentation**
+  instrument file changed since the last completed product20. The instrument is a non-doc change
+  under `packages/`, `bench/official/terminal-bench/`, `bench/official/subsets/` or `scripts/`, or a
+  different `dist/dsh-graph-loop-bench.tgz` sha256. Documentation means `README.md` at any depth and
+  anything under `docs/`. A `.md` that is task content
+  (`bench/official/terminal-bench/smoke-task/**`) is **instrument, not documentation**, so it stays
+  in the predicate — do not use a blind `*.md` filter. A completed product20 is identified by its
+  **run commit** and **tarball sha256** (both recorded in its result README); docs/results-only
+  commits after it do **not** justify a rerun, and **a docs-only edit inside an instrument path does
+  not authorize a rerun**. Check:
 
   ```sh
   LAST_RUN=<run commit recorded in the last completed product20 README>
-  git diff --stat "$LAST_RUN"..HEAD -- packages/ bench/official/terminal-bench/ \
-    bench/official/subsets/ scripts/   # empty output -> no source/bench change
-  shasum -a 256 dist/dsh-graph-loop-bench.tgz   # equal to the completed run's sha -> same tarball
+  git diff --name-only "$LAST_RUN"..HEAD -- packages/ bench/official/terminal-bench/ \
+    bench/official/subsets/ scripts/ \
+    | grep -vE '(^|/)README\.md$' \
+    | grep -vE '(^|/)docs/' \
+    | grep -v '^$'
+  # non-empty -> a non-documentation instrument file changed -> rerun allowed
+  shasum -a 256 dist/dsh-graph-loop-bench.tgz   # different sha also allows a rerun
   ```
 
-  If both are unchanged, report "completed product20 still current" and do not start another run.
-  (The 2026-11-09 run commit is `11fe18f`; docs-only commits `f36b445`, `84a1913` and `eaf0d75` are
-  ahead of it, and that pattern does not authorize a second run.)
+  An empty list means no instrument change (`grep -v` exits 1 when it filters everything; that is
+  the "still current" case, not an error). If the filtered list is empty and the tarball sha is
+  unchanged, report "completed product20 still current" and do not start another run — even when
+  `git diff` over the same paths is non-empty because only docs changed. (The 2026-11-09 run commit
+  is `11fe18f`; docs-only commits after it include `f36b445`, `84a1913`, `f4b1c69`, `eaf0d75` and
+  `3c30ae2`, and this pass adds more — the generic clause covers them, and that pattern does not
+  authorize a second run.)
+- **A completed product20 is citable only when the whole run is valid.** Require: 40 rows (20 tasks
+  × 2 arms), every row `n_trials >= 1`, **every trial agent-valid** (no `TRANSPORT`, no agent exit 1
+  other than `GRAPH_FAILED`) **and no trial capped by the file policy** (every declared artifact path
+  writable), and the marker ends `_EXIT`. A run that fails either trial-validity clause is
+  **incomplete for citation**, not a completed product20: re-running the affected trials/tasks into
+  a **new `OUT_DIR`** is authorized **without an instrument change** and does **not** count as a
+  second product20. The live 2026-11-09 run is **not citable** while its transport-failed and
+  write-capped rows exist.
 - Command: `TASKS_DIR=/tmp/tb-arm-dsh bash bench/official/subsets/run-product20.sh`.
 - There is **no resume**: `run-subset.sh` truncates `<OUT_DIR>/rows.jsonl` and re-iterates every
   task, so an interrupted run starts over. Give the run its own `OUT_DIR` and keep it.
@@ -252,6 +293,13 @@ Reporting rules:
   prompt/billed tokens and steps. The runner writes `commit`, `model`, `agent_timeout_sec`,
   `agent_setup_timeout_multiplier`, `image_env`, `image_verifier`, `criteria` and a durable
   `result` copy under `<OUT_DIR>/raw/`; do not merge rows that lack them.
+- **Known row-schema gap (fix deferred until `_EXIT`).** The row has no field for the agent's own
+  exit or a `TRANSPORT` failure: `run-subset.sh` records only Harbor's `exit`, which is the run
+  status, not the agent's. Until the row carries `agent_exit`/`transport_failed`/`write_capped`,
+  read the trial's `jobs/<job>/<trial>/agent/dsh-stdout.log` tail — a `dsh: TRANSPORT: …` tail, or a
+  few hundred bytes of stdout where the agent never started, is infrastructure — and treat
+  `exit: 0` as "the Harbor process exited 0", never as "the trial is valid". Do not edit the live
+  runner to add the fields; a docs-only note is all that is allowed while the benchmark runs.
 
 ## Reply
 

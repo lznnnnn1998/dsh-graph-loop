@@ -75,8 +75,48 @@ otherwise safe (results live under `bench/official/results/`, outside it). The p
 "(run commit is `11fe18f`; docs-only commits `f36b445`, `84a1913` and `eaf0d75` are ahead of it)" also
 omits `f4b1c69`; the generic clause covers it, so it reads as illustrative rather than exhaustive.
 
+## Correction — 2026-11-09T05:35Z (cycle `20261109-1318`, HEAD `3c30ae2` + docs pass)
+
+The text above is the record as written; these corrections supersede three claims. No row, result or
+`jobs/` file was changed.
+
+1. **"All 0.0 rows are valid trials, not infrastructure" (line 53) is false.** Of the 18 rows
+   visible at this pass, 4 were agent-side `TRANSPORT` crashes recorded as ordinary `0.0` rows:
+   graph `medical-claims-processing` (262 B stdout, agent never started), stock
+   `foodstuff-beta-activity`, stock `pretrain-shard-corruption`, stock `vpp-loss-divergence`
+   (65 min, died before writing). By the 29-row point the live run had 6 `TRANSPORT` rows (graph
+   `cargo`, graph `medical`, stock `foodstuff`, stock `interleaved`, stock `pretrain`, stock `vpp`).
+   Those rows are **infrastructure, not trials**: do not read them as near-misses, capability gaps or
+   evidence that stock is worse.
+2. **"0 rows with `exit != 0`" (line 29) is only Harbor's run status.** The agent process exited
+   non-zero in **14 of the 29 trials**: 8 by-design `GRAPH_FAILED` (valid — `html-js-filter` graph
+   scored **1.0** with it) and 6 `TRANSPORT` (infrastructure). `exit: 0` never means "healthy trial";
+   the row schema has no agent-exit field yet (deferred, `docs/EVALUATION.md#instrument-defects-open`).
+3. **"`n_trials >= 1` with `n_errors: 0` means a valid trial" is insufficient.** A valid trial also
+   requires a healthy agent terminal and writable declared artifact paths; the three-part test and
+   its evidence are in [`docs/EVALUATION.md#trial-validity`](../../../../docs/EVALUATION.md#trial-validity).
+   Six of 29 rows (intrastat ×2, roy ×2, vpp ×2) are also **structurally capped** by the
+   `workspace-write` policy — vpp's 4/5 above is a **ceiling for both arms**, not a near-miss — see
+   [`docs/EVALUATION.md#instrument-defects-open`](../../../../docs/EVALUATION.md#instrument-defects-open).
+
+**Rerun-rule residual hole (lines 55–76) is now fixed.** `automation/evaluator.md` (Product20 section)
+uses the non-doc predicate — `git diff --name-only "$LAST_RUN"..HEAD -- packages/
+bench/official/terminal-bench/ bench/official/subsets/ scripts/`, then drops `README.md` at any depth
+and anything under `docs/`, while **keeping** `bench/official/terminal-bench/smoke-task/**` because
+that is task content, not documentation. A docs-only edit inside an instrument path does **not**
+authorize a rerun; the tarball-sha branch is unchanged. (This file is a README outside the instrument
+paths, so this correction authorizes nothing.)
+
+**Citation status: the live product20 is not citable** while its `TRANSPORT` and file-policy-capped
+rows exist. A completed-run gate was added to `automation/evaluator.md` and
+[`docs/EVALUATION.md#trial-validity`](../../../../docs/EVALUATION.md#trial-validity): an infra-invalid
+run does not block an **infrastructure re-run** of the affected trials into a **new `OUT_DIR`**, and
+that does not count as a second product20.
+
 ## Blocker check
 
 None. The run is healthy; remaining work is 11 of 20 tasks (interleaved-vigenere live, then
 cargo-flight-dispatch → heat-pump-warranty). No aggregate is citable until all 20 tasks have
-`n_trials >= 1` and `/tmp/product20-shard-full.log` ends with `_EXIT`.
+`n_trials >= 1` **and every trial is valid** under
+[`docs/EVALUATION.md#trial-validity`](../../../../docs/EVALUATION.md#trial-validity), and
+`/tmp/product20-shard-full.log` ends with `_EXIT`.

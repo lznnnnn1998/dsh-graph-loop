@@ -56,7 +56,10 @@ executes arbitrary graphs.
   2026-11-09 04:18:32 +08, `OUT_DIR` `bench/official/results/2026-11-09-product20/` (`runner.pid`,
   `rows.jsonl` growing per trial), log `/tmp/product20-2026-11-09.log`, marker
   `/tmp/product20-shard-full.log` with no `_EXIT` yet. **No aggregate exists**; do not cite accuracy,
-  parity, token or cost from partial rows. Canonical state:
+  parity, token or cost from partial rows. The live rows also fail the trial-validity gate (6
+  `TRANSPORT` crashes and 6 file-policy-capped trials at the 05:28Z audit), so the run is **not
+  citable** as it stands and would need an infrastructure re-run into a new `OUT_DIR` — see
+  [`docs/EVALUATION.md`](docs/EVALUATION.md#trial-validity). Canonical state:
   [`docs/STATUS.md`](docs/STATUS.md#current-benchmark-state).
 - **vpp/medical repaired locally for this run; canonical rebuild deferred.**
   `medical-claims-processing` now has valid expected-0.0 trials (graph 2/27, stock 22/27) on an
@@ -66,7 +69,11 @@ executes arbitrary graphs.
   `bench/official/terminal-bench/build-arm64-task.sh` still uses Docker's legacy builder, which drops
   heredoc `RUN` bodies. **Do not rebuild vpp/medical or reset the task dirs while the run is live**;
   the BuildKit/de-heredoc fix and a scripted medical compose patch are deferred until the runner
-  exits, and a canonical rebuild would reproduce both defects.
+  exits, and a canonical rebuild would reproduce both defects. Separately, the default
+  `workspace-write` file policy rooted at `/app` caps `intrastat-meldung`, `roy-polymorph-cn` and
+  `vpp-loss-divergence` for **both** arms (and will cap `freight-dispatch-shift`); that is an
+  instrument defect, not a capability result, and its fix waits for `_EXIT`
+  ([`docs/EVALUATION.md`](docs/EVALUATION.md#instrument-defects-open)).
 - **No product benchmark aggregate.** Terminal-Bench easy10 + medium10 is defined in
   [`bench/official/subsets/product20.json`](bench/official/subsets/product20.json); no aggregate
   exists for the current instrument. The **historical** 2026-11-08 partial run

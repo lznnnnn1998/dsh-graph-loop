@@ -35,7 +35,10 @@ features.
       `n_errors: 0`). The full run is **running**: PID `38616`, started 2026-11-09 04:18:32 +08,
       OUT_DIR `bench/official/results/2026-11-09-product20/`, log `/tmp/product20-2026-11-09.log`,
       marker `/tmp/product20-shard-full.log` without `_EXIT`; `rows.jsonl` grows per trial. **No
-      aggregate** — do not cite accuracy, parity, token or cost from partial rows. **Historical:**
+      aggregate** — do not cite accuracy, parity, token or cost from partial rows. The live rows also
+      fail the trial-validity gate (6 `TRANSPORT` crashes, 6 file-policy-capped trials at 05:28Z), so
+      the run is **not citable** as it stands and needs an infrastructure re-run into a new `OUT_DIR`
+      (`docs/EVALUATION.md#trial-validity`). **Historical:**
       the tracked 2026-11-08 partial run (`bench/official/results/2026-11-08-product20-partial/`) was
       taken on the pre-repair instrument and attempted **19/20** tasks: **11 graph / 3 stock** valid
       trials, only **2 paired-valid** tasks (`bun-sourcemap-leak`, `cargo-flight-dispatch`), all
@@ -58,7 +61,10 @@ features.
       56m57s). **Remaining debt:** `build-arm64-task.sh` still uses plain `docker build`, so a
       canonical rebuild reproduces the defect. Force BuildKit/`docker buildx` (or convert the
       heredoc), rebuild both images and re-verify both arms **after** the live runner exits — do not
-      rebuild or retag anything now.
+      rebuild or retag anything now. Note also that the default `workspace-write` policy rooted at
+      `/app` caps intrastat/roy/vpp on **both** arms (freight will be capped too): a separate
+      instrument defect, fix deferred until after `_EXIT`
+      (`docs/EVALUATION.md#instrument-defects-open`).
 - [ ] Graph termination, remaining part: the tool-stripping/forced-summary defect is fixed (the
       answer keeps tools and an exhausted plan gets a continuation step), but that continuation is a
       graph-to-stock hand-off bounded by the per-turn `maxSteps`, not graph routing. Decide whether

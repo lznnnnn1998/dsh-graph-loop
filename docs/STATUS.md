@@ -13,9 +13,15 @@ in `bench/official/results/2026-11-09-product20/` (`runner.pid`, `rows.jsonl` gr
 log `/tmp/product20-2026-11-09.log`, marker `/tmp/product20-shard-full.log` without `_EXIT`). Do not
 start a second product20 and do not run the smoke gate while any of those live signals says the
 benchmark is in progress. The live `rows.jsonl` is the canonical partial record; **no aggregate,
-accuracy, parity, token or cost number is citable** until all 20 tasks have `n_trials >= 1` and the
-runner exits. vpp/medical are repaired locally for this run (see Known gaps 4) — do not rebuild
-either or reset the task dirs now.
+accuracy, parity, token or cost number is citable** until all 20 tasks have `n_trials >= 1`, the
+runner exits, **and every trial passes the validity test** in
+[`docs/EVALUATION.md`](EVALUATION.md#trial-validity) (healthy agent terminal; every declared artifact
+path writable). `n_trials >= 1` alone is not enough, and the live rows already contain 6 `TRANSPORT`
+crashes and 6 file-policy-capped trials, so this run is **not citable as it stands**: those
+trials/tasks would have to be re-run into a new `OUT_DIR` (an infrastructure re-run, not a second
+product20). vpp/medical are repaired locally for this run (see Known gaps 4) — do not rebuild either
+or reset the task dirs now; the `workspace-write` cap that hits intrastat/roy/vpp/freight is a third,
+still-open instrument defect.
 
 ## Works today
 
@@ -120,18 +126,22 @@ Both faults were then repaired and the four tasks were rerun
 
 | task | graph | stock | verdict |
 |---|---|---|---|
-| `vpp-loss-divergence` | 1 trial, 4/5 | 1 trial, 4/5 (56m57s) | valid; only `test_losses_match_reference` failed |
-| `intrastat-meldung` | 1 trial, 0/47 | 1 trial, 42/47 | valid near-misses |
+| `vpp-loss-divergence` | 1 trial, 4/5 | 1 trial, 4/5 (56m57s) | Harbor-valid but **capped** by the file policy (4/5 is the ceiling) |
+| `intrastat-meldung` | 1 trial, 0/47 | 1 trial, 42/47 | Harbor-valid but **capped** (`/workspace/out` denied) |
 | `heat-pump-warranty` | 1 trial, 1/21 | 1 trial, 16/21 | valid near-misses |
 | `medical-claims-processing` | 1 trial, 2/27 | 1 trial, 22/27 | valid (arm64 sidecar) |
 
 All eight rows have `n_trials: 1` and `n_errors: 0`; **the readiness gate now passes**. Rewards are
-still 0.0 because reward is binary, so the criteria are the diagnostic. The vpp images were patched
-out-of-band (the repo build script still uses the legacy builder and would reproduce the heredoc
-defect on a canonical rebuild), and the medical task's prepared compose points at a local arm64
-sidecar tag. The full product20 run started at **04:18:32 +08** (PID `38616`; see Current benchmark
-state); it is **live**, and there is no product aggregate yet. The vpp/medical repairs are local to
-this environment and are deferred code debt.
+still 0.0 because reward is binary, so the criteria are the diagnostic. **Caveat added
+2026-11-09T13:35Z:** `n_trials: 1` is not full validity — intrastat and vpp fail the
+artifact-writable clause of [`docs/EVALUATION.md`](EVALUATION.md#trial-validity), so their counts are
+ceilings for both arms, and intrastat's 0/47 (graph) or 42/47 (stock) and vpp's 4/5 must not be read
+as capability. heat-pump and medical write inside `/app` and are unaffected. The vpp images were
+patched out-of-band (the repo build script still uses the legacy builder and would reproduce the
+heredoc defect on a canonical rebuild), and the medical task's prepared compose points at a local
+arm64 sidecar tag. The full product20 run started at **04:18:32 +08** (PID `38616`; see Current
+benchmark state); it is **live**, and there is no product aggregate yet. The vpp/medical repairs are
+local to this environment and are deferred code debt.
 
 The former local 20-task run is not part of this tree and is not citable as current evidence.
 
@@ -160,6 +170,14 @@ The former local 20-task run is not part of this tree and is not citable as curr
    answer keeps its tools and an exhausted plan gets a continuation step. That continuation is a
    graph-to-stock hand-off (one `fallbackPlan` node, `maxReplans: 0`) bounded by the per-turn
    `maxSteps`, not graph routing; decide whether that is the intended contract before comparing arms.
+   **Third, still-open instrument defect:** the Harbor adapter runs DSH under the default
+   `workspace-write` file policy rooted at `/app`, so both arms are denied `intrastat-meldung`'s
+   `/workspace/out`, `roy-polymorph-cn`'s `/results` and `vpp-loss-divergence`'s installed
+   `site-packages` writes, and `freight-dispatch-shift` (`/workspace/dispatch`) will be when it runs.
+   The fix — a post-`_EXIT` adapter/profile change (container-scoped `danger-full-access` or a
+   declared-artifact allow-list, applied to **both** arms) plus a readiness check that every declared
+   artifact path is writable — is documented in
+   [`docs/EVALUATION.md`](EVALUATION.md#instrument-defects-open) and is **not** implemented now.
 5. **Fork debt**: source copy of DSH's loop; enforced by `scripts/diff-upstream.sh --check`.
 6. **Benchmark heuristics off by default** (`benchGuards: false`); they are harness-specific.
 
@@ -175,11 +193,17 @@ The former local 20-task run is not part of this tree and is not citable as curr
      echo "_EXIT" >> /tmp/product20-shard-full.log
    ```
 
-   Verify every task has `n_trials >= 1`; a `n_trials: 0` row is infrastructure, not a score. Do not
-   start a second run and do not run the smoke gate while it is live.
+   Verify every task has `n_trials >= 1`; a `n_trials: 0` row is infrastructure, not a score. Then
+   apply the full validity test ([`docs/EVALUATION.md`](EVALUATION.md#trial-validity)): no
+   `TRANSPORT`/agent exit 1 other than `GRAPH_FAILED`, and every declared artifact path writable.
+   `TRANSPORT`-crashed or write-capped trials are infrastructure too; re-run those trials/tasks into
+   a new `OUT_DIR` (an infrastructure re-run, not a second product20). Do not start a second run and
+   do not run the smoke gate while it is live.
 2. Produce the aggregate from `bench/official/results/2026-11-09-product20/rows.jsonl` and the trial
    session logs: accuracy parity, prompt/billed tokens, steps, and criteria-level near-misses
-   (`docs/EVALUATION.md` has the extraction paths). No claim from partial rows.
+   (`docs/EVALUATION.md` has the extraction paths). Use **only valid trials** — exclude
+   `TRANSPORT`/agent-crashed rows and file-policy-capped rows rather than scoring them 0.0 — and no
+   claim from partial rows.
 3. After the runner exits: make the vpp repair reproducible (BuildKit/`docker buildx` or
    de-heredoc), rebuild and re-verify both arms, and script/re-apply the medical arm64 sidecar
    compose patch before any task-dir reset. Do not rebuild either while the run is live.

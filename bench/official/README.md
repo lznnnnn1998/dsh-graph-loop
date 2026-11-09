@@ -20,15 +20,20 @@ snapshot) and [`results/2026-11-09-smoke-prep`](results/2026-11-09-smoke-prep/RE
 The four-task pre-run diagnostic first **failed**
 ([`results/2026-11-09-prediag-0122`](results/2026-11-09-prediag-0122/README.md)):
 `intrastat-meldung` (graph 0/47, stock 42/47 criteria) and `heat-pump-warranty` (graph 1/21, stock
-16/21) were valid 0.0 near-misses, while `vpp-loss-divergence` (`/opt/verifier_pristine` emptied by
+16/21) produced Harbor-valid trials, while `vpp-loss-divergence` (`/opt/verifier_pristine` emptied by
 the legacy builder's heredoc drop) and `medical-claims-processing` (amd64 `playwright-mcp` sidecar
 never healthy under qemu) were `n_trials: 0` on both arms. Both faults were repaired and the four
 tasks reran ([`results/2026-11-09-prediag-fixes`](results/2026-11-09-prediag-fixes/README.md)): vpp
 4/5 both arms, medical 2/27 graph / 22/27 stock, all eight rows `n_trials: 1` / `n_errors: 0`; the
 gate passes and the full run is live. The repairs are local-only: `build-arm64-task.sh` still invokes
 Docker's legacy builder, so a canonical vpp rebuild reproduces the defect, and the medical compose
-image tag is a local edit. Do not rebuild or reset either while the run is live; the code fix is
-deferred.
+image tag is a local edit. **A third, still-open defect caps the numbers above:** DSH runs each trial
+under the default `workspace-write` policy rooted at `/app`, so neither arm can write intrastat's
+`/workspace/out/reconciliation.json` or vpp's installed `site-packages`; intrastat's 0/47 / 42/47 and
+vpp's 4/5 are **ceilings, not capability near-misses** (`roy-polymorph-cn` and the not-yet-run
+`freight-dispatch-shift` are capped the same way). Do not rebuild or reset either while the run is
+live; the code fix is deferred, and the file-policy fix waits for `_EXIT` (see
+[`docs/EVALUATION.md`](../../docs/EVALUATION.md#instrument-defects-open)).
 
 The tracked [`results/2026-11-08-product20-partial`](results/2026-11-08-product20-partial/README.md)
 run is **historical**: it was taken on the pre-repair instrument, attempted 19/20 tasks, produced 11
@@ -66,7 +71,11 @@ TASKS_DIR=/tmp/tb-arm-dsh bash subsets/run-product20.sh
 Results default to `results/terminal-bench-product20/`. Tracked runs are committed under
 `results/<date>-<name>/` with a `README.md`, plus `rows.jsonl`, `summary.json` and `raw/` copies of
 Harbor results where the run produced them; `jobs/` stays git-ignored. Keep `rows.jsonl` as
-canonical; a row with `n_trials: 0` is an infrastructure error, not a score.
+canonical; a row with `n_trials: 0` is an infrastructure error, not a score. **`n_trials >= 1` is
+not by itself validity** — also require a healthy agent terminal (no `TRANSPORT`; `GRAPH_FAILED` is
+valid) and every declared artifact path writable, and treat transport-failed/write-capped trials as
+an infrastructure re-run into a new `OUT_DIR`
+([trial validity](../../docs/EVALUATION.md#trial-validity)).
 
 ## Adapter
 

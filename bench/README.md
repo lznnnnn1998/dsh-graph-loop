@@ -15,7 +15,10 @@ was removed.
   04:18:32 +08, OUT_DIR `official/results/2026-11-09-product20/` (`runner.pid`, `rows.jsonl` growing
   per trial), log `/tmp/product20-2026-11-09.log`, marker `/tmp/product20-shard-full.log` without
   `_EXIT`. Do not start a second run and do not run the smoke gate while it is live. Canonical
-  state: [`docs/STATUS.md`](../docs/STATUS.md#current-benchmark-state).
+  state: [`docs/STATUS.md`](../docs/STATUS.md#current-benchmark-state). **A run is citable only when
+  every trial is valid** — `n_trials >= 1`, a healthy agent terminal, and writable declared artifact
+  paths ([trial validity](../docs/EVALUATION.md#trial-validity)); the live rows already include
+  `TRANSPORT` crashes and file-policy-capped trials, so no number from it is citable yet.
 - The **historical** tracked
   [`2026-11-08-product20-partial`](official/results/2026-11-08-product20-partial/README.md) run was
   taken on the pre-repair instrument and attempted 19/20 tasks (`formal-crypto` had no verifier
@@ -40,8 +43,14 @@ The four-task pre-run diagnostic first **failed** on two infrastructure faults
 arms, medical 2/27 graph / 22/27 stock, all eight rows `n_trials: 1` / `n_errors: 0`; the gate
 passes and the full run is live. The repairs are **local**: `build-arm64-task.sh` still uses Docker's
 legacy builder (a canonical vpp rebuild reproduces the heredoc defect), and medical's compose points
-at the local `tb-arm64-medical-claims-sidecar:latest` tag (a task-dir reset loses it). Do not rebuild
-or reset either while the run is live; the code fix is deferred. The 2026-11-08 readiness records
+at the local `tb-arm64-medical-claims-sidecar:latest` tag (a task-dir reset loses it). A **separate,
+still-open** instrument defect also caps these numbers: DSH runs each trial under the default
+`workspace-write` policy rooted at `/app`, so neither arm can write `intrastat`'s
+`/workspace/out/reconciliation.json` or vpp's installed `site-packages` — intrastat's 0/47 / 42/47 and
+vpp's 4/5 are **ceilings**, not near-misses (and `roy-polymorph-cn`/`freight-dispatch-shift` are
+capped the same way). Do not rebuild or reset either while the run is live; the code fix and the
+file-policy fix are both deferred, the latter until after `_EXIT` (see
+[instrument defects](../docs/EVALUATION.md#instrument-defects-open)). The 2026-11-08 readiness records
 ([`2026-11-08-eval-1525`](official/results/2026-11-08-eval-1525/README.md),
 [`2026-11-08-smoke-1525`](official/results/2026-11-08-smoke-1525/README.md)) are historical.
 
