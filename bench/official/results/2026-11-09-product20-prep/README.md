@@ -110,5 +110,8 @@ Both diagnostic faults were repaired and the four tasks rerun. Final table:
 
 All eight rows have `n_trials: 1`, `n_errors: 0`; the gate **passes**. The vpp images were patched
 out-of-band (the repo build script is still legacy-builder and would reproduce the defect), and the
-medical task's prepared compose points at a local arm64 sidecar tag. The full product20 is now
-allowed and has not been started; there is no aggregate.
+medical task's prepared compose points at a local arm64 sidecar tag. The full product20 then
+**started at 2026-11-09 04:18:32 +08** and is **live** (PID `38616`, OUT_DIR
+[`../2026-11-09-product20/`](../2026-11-09-product20/README.md), `rows.jsonl` growing per trial); do
+not start a second run. **No aggregate is citable** while it is live; see the live run README and
+[`docs/STATUS.md`](../../../../docs/STATUS.md#current-benchmark-state).

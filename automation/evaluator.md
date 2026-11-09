@@ -20,6 +20,13 @@ and **do not start another product20**. `bash scripts/ci-local.sh` stays safe. N
 `__env` check alone: on 2026-11-09 at 05:19 only the verifier container existed and at 05:20 no
 container existed, while the run was live and appending rows.
 
+**Liveness is not log mtime.** The runner log and `rows.jsonl` are written only at arm boundaries,
+so both can sit unchanged for an hour or more while one long trial runs (on 2026-11-09 stock
+`vpp-loss-divergence` ran 60+ min with both frozen at the previous row). Before calling a stall,
+check the live PID in `runner.pid`, the current job's `result.json` (`n_running_trials: 1`), and the
+`__env` container (`docker ps`; read its node CPU time if needed). A quiet log plus any live signal
+is **normal**, not a stall and not an exit.
+
 ## Readiness first
 
 - 20 product tasks must each have `tb-arm64-<task>-env:latest` and `-verifier:latest`, plus
@@ -187,8 +194,24 @@ Reporting rules:
 
 - **First run the live-run guard above.** If a benchmark is in progress, report its PID, OUT_DIR and
   live `rows.jsonl` path and stop; never start a second product20 and never kill the running one.
-- Run only if all 20 tasks are ready, the diagnostic gate above passed, AND (the repo commit changed
-  since the last completed product20 OR no product20 result exists).
+- **Rerun on instrument change, not on HEAD.** Run only if all 20 tasks are ready, the diagnostic
+  gate above passed, AND **either** no product20 result exists **or** the instrument changed since
+  the last completed product20. The instrument is a change under `packages/`,
+  `bench/official/terminal-bench/`, `bench/official/subsets/` or `scripts/`, or a different
+  `dist/dsh-graph-loop-bench.tgz` sha256. A completed product20 is identified by its **run commit**
+  and **tarball sha256** (both recorded in its result README); docs/results-only commits after it do
+  **not** justify a rerun. Check:
+
+  ```sh
+  LAST_RUN=<run commit recorded in the last completed product20 README>
+  git diff --stat "$LAST_RUN"..HEAD -- packages/ bench/official/terminal-bench/ \
+    bench/official/subsets/ scripts/   # empty output -> no source/bench change
+  shasum -a 256 dist/dsh-graph-loop-bench.tgz   # equal to the completed run's sha -> same tarball
+  ```
+
+  If both are unchanged, report "completed product20 still current" and do not start another run.
+  (The 2026-11-09 run commit is `11fe18f`; docs-only commits `f36b445`, `84a1913` and `eaf0d75` are
+  ahead of it, and that pattern does not authorize a second run.)
 - Command: `TASKS_DIR=/tmp/tb-arm-dsh bash bench/official/subsets/run-product20.sh`.
 - There is **no resume**: `run-subset.sh` truncates `<OUT_DIR>/rows.jsonl` and re-iterates every
   task, so an interrupted run starts over. Give the run its own `OUT_DIR` and keep it.

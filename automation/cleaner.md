@@ -24,6 +24,12 @@ the marker ends with `_EXIT`. Typecheck, `npm test` and `ci-local.sh` are safe; 
 repacking are not. When the runner exits, do not delete the marker — append `_EXIT` if the watcher
 did not (see the product20 README).
 
+The live `rows.jsonl`, `raw/` and `runner.pid` are **untracked, not ignored**. While the run is live,
+never run `git clean` (any flags), never `git add -A` / `git add .` / `git add -u`, and never stage
+or commit the live `rows.jsonl`, `raw/` or `runner.pid`: partial rows are not citable evidence, and
+`git clean` would delete the only partial record. Commit the final `rows.jsonl`, `summary.json` and
+`raw/` only after the runner exits and the marker ends with `_EXIT`.
+
 ## Remove
 
 - stale logs, temp dirs, empty dirs, generated job trees, old build tarballs that are not current

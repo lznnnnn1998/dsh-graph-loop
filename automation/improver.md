@@ -10,9 +10,13 @@ architecture B.
 - Preserve current tests, evidence, README, LICENSE, marketplace and current docs unless the audit
   explicitly says they are stale and misleading.
 - Do not add new benchmarks, products, or a general agent framework.
-- **Live benchmark:** while `/tmp/product20-shard-full.log` has no `_EXIT` line, the PID in
+- **Live benchmark:** while `/tmp/product20-shard-full.log` has no `_EXIT` line, any
+  `/tmp/product20-shard*.log` lacks its matching `*_EXIT` line (the finished A–D shards end
+  `A_EXIT=0` … `D_EXIT=0`), the PID in
   `bench/official/results/2026-11-09-product20/runner.pid` is alive, or a Harbor `__env` container is
-  running, restrict changes to docs and role files. Do not touch the live product20 `OUT_DIR`
+  running, restrict changes to docs and role files. A quiet runner log or `rows.jsonl` is not the
+  opposite signal: they advance only at arm boundaries, so liveness is the PID plus the container,
+  not the files' mtime (see the evaluator's liveness note). Do not touch the live product20 `OUT_DIR`
   (`rows.jsonl`, `raw/`, `jobs/`, `runner.pid`), `dist/dsh-graph-loop-bench.tgz`, `/tmp/product20-*`,
   `/tmp/tb-arm-dsh/*`, the task images or Docker; do not repack, rebuild or start any benchmark; and
   do not commit source changes that would make HEAD no longer the tarball's source. Defer that work
