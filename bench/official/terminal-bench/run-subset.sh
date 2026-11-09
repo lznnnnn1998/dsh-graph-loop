@@ -154,8 +154,17 @@ import json, os, statistics, sys
 from pathlib import Path
 rows = [json.loads(line) for line in Path(sys.argv[1]).read_text().splitlines() if line.strip()]
 summary = {}
+graph_failed_rows = []
 for arm in ('stock', 'graph'):
-    arm_rows = [r for r in rows if r['arm'] == arm and r['score'] is not None]
+    scored_rows = [r for r in rows if r['arm'] == arm and r['score'] is not None]
+    # A GRAPH_FAILED row is a valid agent terminal but, since 4561008, a graph/kernel
+    # fault: a composed plan that exhausts its staged repairs continues in n_answer, so
+    # GRAPH_FAILED should not arise from stage exhaustion. Keep those rows out of the
+    # capability mean and report them separately; any such row makes the run non-citable
+    # until the cause is investigated (audit 20261109-1319 P1-3).
+    fault_rows = [r for r in scored_rows if r.get('graph_failed') is True]
+    graph_failed_rows.extend(fault_rows)
+    arm_rows = [r for r in scored_rows if r.get('graph_failed') is not True]
     scores = [r['score'] for r in arm_rows]
     criteria_rows = [
         r for r in arm_rows
@@ -167,6 +176,8 @@ for arm in ('stock', 'graph'):
         'n': len(arm_rows),
         'mean': statistics.mean(scores) if scores else None,
         'scores': {r['task']: r['score'] for r in arm_rows},
+        'graph_failed': {r['task']: r['score'] for r in fault_rows},
+        'graph_failed_rows': len(fault_rows),
         'criteria': {
             'tasks_with_criteria': len(criteria_rows),
             'passed': criteria_passed,
@@ -174,14 +185,14 @@ for arm in ('stock', 'graph'):
             'micro_rate': (criteria_passed / criteria_total) if criteria_total else None,
         },
         # A healthy agent terminal is exit 0, or GRAPH_FAILED: the graph loop's designed
-        # terminal when recovery/replan is exhausted, and a valid trial outcome even when
-        # it co-occurs with a scored 0.0/1.0 (docs/EVALUATION.md, "Trial validity" rule 2).
-        # The marker is `graph_failed` from dsh_agent.py metadata (dsh_agent.py keeps
-        # agent_exit as the integer); the string form stays valid for older rows. Any
+        # terminal when recovery/replan is exhausted, and a Harbor-valid trial outcome even
+        # when it co-occurs with a scored 0.0/1.0 (docs/EVALUATION.md, "Trial validity"
+        # rule 2). The marker is `graph_failed` from dsh_agent.py metadata (dsh_agent.py
+        # keeps agent_exit as the integer); the string form stays valid for older rows. Any
         # other nonzero agent exit, and a transport failure, remain agent-invalid rows
         # (audit docs/audits/20261109-1158.md §6.4).
         'agent_invalid_rows': sum(
-            1 for r in arm_rows
+            1 for r in scored_rows
             if r.get('transport_failed') is True
             or (
                 r.get('graph_failed') is not True
@@ -189,13 +200,21 @@ for arm in ('stock', 'graph'):
             )
         ),
     }
+graph_failed_tasks = sorted({r['task'] for r in graph_failed_rows})
+agent_invalid_total = sum(summary[arm]['agent_invalid_rows'] for arm in ('stock', 'graph'))
 meta = {
     'commit': os.environ.get('GIT_COMMIT'),
     'model': 'deepseek/deepseek-flash',
     'agent_setup_timeout_multiplier': 5,
     'timeout_policy': "per-task [agent].timeout_sec; DSH_AGENT_TIMEOUT_CAP overrides; a timeout is an infrastructure failure, not a score",
+    'graph_failed_rows': len(graph_failed_rows),
+    'graph_failed_tasks': graph_failed_tasks,
+    'citable': len(graph_failed_rows) == 0 and agent_invalid_total == 0,
 }
 Path(sys.argv[2]).write_text(json.dumps({'meta': meta, 'rows': rows, 'summary': summary}, indent=2) + '\n')
 print(json.dumps(summary, indent=2))
+if graph_failed_rows:
+    print(f"WARNING: {len(graph_failed_rows)} GRAPH_FAILED row(s) — graph/kernel fault, run is NOT "
+          f"citable: {', '.join(graph_failed_tasks)}")
 PY
 echo "PASS subset finished: $OUT_DIR"

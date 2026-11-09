@@ -14,9 +14,11 @@ A benchmark is **in progress** while **any** of these is true:
   text is live (read its `pid=`, then check that PID);
 - **any** `bench/official/results/*/runner.pid` names a PID that is still alive:
   `for f in bench/official/results/*/runner.pid; do ps -p "$(cat "$f")" >/dev/null && echo "LIVE $f"; done`.
-  The current run is `bench/official/results/2026-11-09-product20b/runner.pid` (PID `61129`). The
-  stopped run's `bench/official/results/2026-11-09-product20/runner.pid` holds the dead `38616` and
-  **is not a liveness signal** on its own; never key the guard on that one path.
+  As of 2026-11-09 21:41 +08 **no benchmark is live**: the corrected run
+  (`…/2026-11-09-product20b/`) is aborted at 5/40 with the marker ending `_EXIT`, and both
+  `runner.pid` PIDs (`61129`, `38616`) are dead. A dead PID is not a liveness signal; never key the
+  guard on the stopped run's `…-product20/` path, and re-check every predicate before trusting this
+  note.
 
 **Liveness is the marker text plus the live PID it names.** The marker is one shared file that each
 launcher **truncates** (`printf … >`), so it belongs only to the run in its own `pid=` line. If that
@@ -71,10 +73,10 @@ The instrument was repaired on 2026-11-09; see
 - Colima is **8 vCPU / 20 GiB / 150 GiB**; the old 4-CPU and 11-GB blockers are gone.
 - All 20 env images carry the `tb-dsh-base` overlay: `/opt/node` (v24.9.0) + `/opt/dsh`
   (0.2.2-rc.1); freight's Node 24 is first on PATH.
-- `tb-dsh-base:latest` and the plugin tarball are present. `dist/dsh-graph-loop-bench.tgz` is
-  223,458 B, sha256 `f7a961a797ca5e17fdd68d52c0bd6dfeec50ec4151f42d84bbd7405069b12064`, and
-  `npm pack` in `packages/loop` reproduces it byte for byte from this HEAD: **verify the sha** and
-  record it; a repack is idempotent, not required.
+- `tb-dsh-base:latest` is present. The plugin tarball is **stale**: `dist/dsh-graph-loop-bench.tgz`
+  is the pre-`4561008` bundle (223,458 B, sha256 `f7a961…`), while a pack from HEAD is 225,595 B /
+  `45de8539…` and contains `toolSucceeded`. **Repack from HEAD before any rerun** and record the new
+  sha; the old sha is not the HEAD artifact.
 - All product20 sidecar images are pulled (heat-pump 6, medical-claims 2, intrastat 5,
   legacy-triage 2, freight 1, nextjs 1).
 - Smoke: oracle 1.0 / graph 1.0 / stock 1.0
@@ -88,7 +90,7 @@ The instrument was repaired on 2026-11-09; see
   ([`2026-11-09-medical-fix`](../bench/official/results/2026-11-09-medical-fix/), 94 KB graph stdout
   ending `GRAPH_FAILED`) has **valid** trials (graph 2/27, stock 22/27); the reward is still expected
   0 because DSH does not expose the MCP tools natively, but it is a **valid trial, not infra**. Do
-  not read 2/27 as the graph arm's medical capability: the live product20 graph medical row (07:27)
+  not read 2/27 as the graph arm's medical capability: the stopped run's graph medical row (07:27)
   reproduced 2/27 only because its trial was a 262 B `TRANSPORT` crash (see the trial-validity rule
   below).
 - Historical 2026-11-08 blockers (900 s timeout, missing formal-crypto verifier, formal-crypto /
@@ -108,16 +110,20 @@ The instrument was repaired on 2026-11-09; see
   Both arms now run under a shared `sandbox-policy: danger-full-access` profile patch; the post-fix
   smoke (`../2026-11-09-smoke-sandbox/`) prints `Current DSH file policy: danger-full-access` in
   **both** arms. The pre-fix diagnostic criteria counts (`intrastat` 0/47 / 42/47, vpp 4/5) are
-  ceilings measured before that fix — re-verify them from the corrected run's rows instead. What
+  ceilings measured before that fix — re-verify them from a future completed run's rows instead. What
   remains deferred is only the per-trial `write_capped` field / writable-artifact probe, listed in
-  [`docs/EVALUATION.md`](../docs/EVALUATION.md#instrument-defects-open). Do not edit the live runner.
+  [`docs/EVALUATION.md`](../docs/EVALUATION.md#instrument-defects-open). Do not edit a runner while
+  one is live (none is now).
 
 A full product20 run is allowed **after the pre-run diagnostic gate below passes** and only when the
-**live-run guard** above reports no benchmark in progress. The 2026-11-09 gate has already passed
-after the vpp/medical fixes; see the `2026-11-09-prediag-fixes` table below. The corrected product20
-is live now (PID `61129`, OUT_DIR `bench/official/results/2026-11-09-product20b/`, log
-`/tmp/product20b-2026-11-09.log`), so this role reports it as in progress instead of starting a second
-one. The earlier 04:18:32 run (PID `38616`, OUT_DIR `…/2026-11-09-product20/`) was **stopped at 31/40**
+**live-run guard** above reports no benchmark in progress. The 2026-11-09 gate passed for the harness
+(the `2026-11-09-prediag-fixes` table below), but it is **pre-HEAD**: the smoke installed the pre-fix
+`f7a961…` tarball and the diagnostic predates `da3d598`. No benchmark is live now; the corrected run
+was **aborted at 5/40** on 2026-11-09 19:44 +08 (PID `61129` dead, marker `_EXIT`, OUT_DIR
+`bench/official/results/2026-11-09-product20b/`, five rows, no summary), and its rows are not citable.
+A rerun is blocked on a HEAD tarball repack and a bounded post-HEAD real-model pre-run (audit
+`20261109-1319` P0-2/P0-3). The earlier 04:18:32 run (PID `38616`, OUT_DIR
+`…/2026-11-09-product20/`) was **stopped at 31/40**
 and is **NOT CITABLE** ([`INVALID.md`](../bench/official/results/2026-11-09-product20/INVALID.md)).
 
 ## Gate
@@ -170,11 +176,11 @@ Result of the 2026-11-09 attempt: the first run FAILED (`vpp-loss-divergence` an
 valid near-misses). The two faults were fixed and the four tasks rerun; final table
 `bench/official/results/2026-11-09-prediag-fixes/README.md`: vpp graph/stock 4/5, medical graph 2/27 /
 stock 22/27, plus the two earlier valid tasks. All eight rows have `n_trials: 1`, `n_errors: 0`; the
-gate PASSES. The first full run started 2026-11-09 04:18:32 +08 (PID `38616`, OUT_DIR
+gate PASSES (pre-HEAD). The first full run started 2026-11-09 04:18:32 +08 (PID `38616`, OUT_DIR
 `bench/official/results/2026-11-09-product20/`) but was **stopped at 31/40 and is NOT CITABLE**
-(`…/2026-11-09-product20/INVALID.md`); the corrected product20 is live (started 2026-11-09 17:19 +08,
-PID `61129`, OUT_DIR `bench/official/results/2026-11-09-product20b/`, log
-`/tmp/product20b-2026-11-09.log`).
+(`…/2026-11-09-product20/INVALID.md`); the corrected product20 was then **aborted at 5/40**
+(started 17:19 +08, stopped 19:44 +08; PID `61129` dead, marker `_EXIT`, OUT_DIR
+`bench/official/results/2026-11-09-product20b/`, five rows, no summary — not citable).
 
 Decision rule: a row with `n_trials: 0` is a real infrastructure failure — diagnose and fix it, or
 block and report it; **do not start the full 20**. **`n_trials >= 1` alone is not validity.** A valid
@@ -261,12 +267,12 @@ Reporting rules:
   unchanged, report "completed product20 still current" and do not start another run — even when
   `git diff` over the same paths is non-empty because only docs changed. There is **no hard-coded
   `LAST_RUN`**: read it from the last **completed** product20's own README (run commit + full tarball
-  sha256). The corrected 2026-11-09 run executed commit `da3d598`
-  (`da3d598113449e62718e5b810e1d5ce77234585a`, 13:58; **every row carries it**) and tarball sha256
-  `f7a961a797ca5e17fdd68d52c0bd6dfeec50ec4151f42d84bbd7405069b12064` (223,458 B); both are recorded in
-  `bench/official/results/2026-11-09-product20b/README.md`. Its wrapper commit `b3e9af7` only added
-  that README and landed **after** the runner started, so do not use it as the executed commit;
-  confirm `LAST_RUN` against the rows' `commit` field. **`11fe18f` must never be used as
+  sha256). The aborted 2026-11-09 `product20b` run executed `da3d598` and tarball `f7a961…`, but it
+  is **not a completed product20** (5/40), so it must **not** be used as `LAST_RUN`. There is
+  currently no completed product20 on a HEAD tarball; a rerun is allowed subject to the tarball
+  repack and bounded pre-run gate. Its wrapper commit `b3e9af7` only added that README and landed
+  **after** the runner started, so do not use it as an executed commit either. **`11fe18f` must never
+  be used as
   `LAST_RUN`:** it is the **stopped 31-row invalid run** (`…/2026-11-09-product20/INVALID.md`) and
   predates the instrument fix, so `git diff 11fe18f..HEAD` over these paths is non-empty and would
   authorize a spurious full rerun.
@@ -277,9 +283,10 @@ Reporting rules:
   **incomplete for citation**, not a completed product20: re-running the affected trials/tasks into
   a **new `OUT_DIR`** is authorized **without an instrument change** and does **not** count as a
   second product20. The stopped 2026-11-09 run is **not citable** (`…/2026-11-09-product20/INVALID.md`);
-  the corrected run (`…/2026-11-09-product20b/`) becomes citable only when its own 40 rows pass both
-  trial-validity clauses. `GRAPH_FAILED` co-occurring with a scored 1.0 is valid; see the residual
-  interpretation rules below.
+  the aborted `product20b` run (5/40, marker `_EXIT`) is **not a completed run** either; a future run
+  on a HEAD tarball becomes citable only when its own 40 rows pass both trial-validity clauses.
+  `GRAPH_FAILED` co-occurring with a scored 1.0 is a valid agent terminal but, after `4561008`, a
+  graph/kernel fault to report separately; see the residual interpretation rules below.
 - Command: `TASKS_DIR=/tmp/tb-arm-dsh bash bench/official/subsets/run-product20.sh`.
 - There is **no resume**: `run-subset.sh` truncates `<OUT_DIR>/rows.jsonl` and re-iterates every
   task, so an interrupted run starts over. Give the run its own `OUT_DIR` and keep it.
@@ -309,7 +316,8 @@ Reporting rules:
   read as "benchmark in progress" forever. Each launcher starts a watcher that appends it when that
   run's PID dies. The marker is shared and **truncated** by each launcher, so an `_EXIT` you append is
   read by every role as the close of the run named in the marker. `…/2026-11-09-product20/runner.pid`
-  is the **stopped** run (`38616`, dead) and proves nothing about the live corrected run. Append by
+  is the **stopped** run (`38616`, dead) and proves nothing about any other run; the 2026-11-09
+  marker is already closed (`_EXIT`) and must not be appended to or truncated again. Append by
   hand only when **all** of these hold:
 
   1. the marker names the run you are closing (`pid=<pid>` in its first line);
@@ -319,8 +327,8 @@ Reporting rules:
      prints nothing.
 
   Otherwise report "marker/PID mismatch" to the Lead and **do not append**. Never delete the marker;
-  `_EXIT` is the documented close. Keep the live `OUT_DIR` and its `runner.pid` (they are the durable
-  liveness record).
+  `_EXIT` is the documented close. Keep the aborted/finished `OUT_DIR` and its `runner.pid` (they are
+  the durable liveness record).
 - Keep `rows.jsonl` canonical; a row with `n_trials: 0` is an infrastructure error, not a score.
 - Record commit, model, image tags, per-task scores, **criteria passed/total**, accuracy,
   prompt/billed tokens and steps. The runner writes `commit`, `model`, `agent_timeout_sec`,
@@ -329,10 +337,12 @@ Reporting rules:
 - **Row validity fields — fixed at `da3d598`; three interpretation rules stay (deferred code fixes).**
   `dsh_agent.py` now writes `agent_exit`/`transport_failed` into `agent_result.metadata` for **both**
   arms and `run-subset.sh` copies them onto the row, so a corrected-run row carries the agent's own
-  exit. Do not edit the live runner. Until the deferred code fixes land, adjudicate from the trials and
+  exit. Do not edit a runner while one is live (none is now). Until the deferred code fixes land,
+  adjudicate from the trials and
   apply these rules:
-  - `agent_invalid_rows` counts a designed agent exit 1 + `GRAPH_FAILED` as invalid, but it **is
-    valid** (the loop's designed terminal, even alongside a scored 1.0) — exempt it by hand.
+  - `GRAPH_FAILED` is exempt from `agent_invalid_rows` (the loop's designed terminal, even alongside a
+    scored 1.0), but after `4561008` it is a **graph/kernel fault**: `run-subset.sh` reports those rows
+    separately and marks the summary non-citable. Report them separately, never as capability.
   - `transport_failed` is still a whole-transcript `TRANSPORT` substring; the real signature is the
     line `dsh: TRANSPORT: DeepSeek Messages transport failed`. A valid transcript that merely mentions
     transport can be flagged — check the trial's `agent/dsh-stdout.log`.
@@ -341,11 +351,11 @@ Reporting rules:
   - `write_capped`/artifact-writable is still **absent** from the row; grep each trial session for the
     sandbox-denial quote and its `Current DSH file policy` line instead.
   Also treat `exit: 0` as "the Harbor process exited 0", never as "the trial is valid".
-- **Run identity is read from the run's own README and the rows.** The corrected run executed
-  `da3d598` (every row carries `commit: da3d598…`) + tarball sha256
+- **Run identity is read from the run's own README and the rows.** The aborted `product20b` run
+  executed `da3d598` (every row carries `commit: da3d598…`) + pre-fix tarball sha256
   `f7a961a797ca5e17fdd68d52c0bd6dfeec50ec4151f42d84bbd7405069b12064`; its wrapper commit `b3e9af7`
-  is docs-only and landed after the runner started. Record both the executed commit and the tarball
-  sha in the aggregate.
+  is docs-only and landed after the runner started. It is not a completed run. Record the executed
+  commit and tarball sha of any completed run in the aggregate.
 
 ## Reply
 

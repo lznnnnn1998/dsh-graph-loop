@@ -20,9 +20,13 @@ Rules:
   benchmark lock: a background product20 may outlive the cycle, and the next cycle's benchmark rule
   is what prevents a second benchmark, not the lock. A benchmark counts as live if **any** of these
   holds: a Harbor `__env` container is running, any `/tmp/product20-shard*.log` lacks its `*_EXIT`
-  line, a live PID sits in the product20 `runner.pid`, or `/tmp/product20-shard-full.log` exists
-  without `_EXIT`. The `__env` check alone is false between trials. When the runner exits, its watcher
-  appends `_EXIT` to the full marker; if the watcher is gone, append it by hand (never delete the
-  marker). A lock left in place by a finished cycle is cleared by the Lead.
+  line, **any** `bench/official/results/*/runner.pid` names a live PID, or
+  `/tmp/product20-shard-full.log` exists without `_EXIT`. The `__env` check alone is false between
+  trials. **No benchmark is live as of 2026-11-09 21:41 +08**: the corrected run is aborted at 5/40,
+  the marker ends `_EXIT`, and both `runner.pid` PIDs are dead. The next run requires a HEAD tarball
+  repack and a bounded post-HEAD pre-run (audit `20261109-1319` P0-2/P0-3); nothing may start one
+  without the Lead. When the runner exits, its watcher appends `_EXIT` to the full marker; if the
+  watcher is gone, append it by hand (never delete the marker). A lock left in place by a finished
+  cycle is cleared by the Lead.
 - All four inherit the same non-negotiables: architecture B, no DSH source edits, local git only,
   no push/publish/tokens, no new benchmark or product line, preserve current evidence.

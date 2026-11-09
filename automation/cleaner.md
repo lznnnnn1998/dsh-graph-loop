@@ -9,35 +9,35 @@ a reference broken by your cleanup.
 A benchmark is live while **any** of these holds: the shared marker `/tmp/product20-shard-full.log`
 has no `_EXIT` line **and** names a live PID (read its `pid=`, then check that PID), any
 `/tmp/product20-shard*.log` lacks its `*_EXIT` line, **any** `bench/official/results/*/runner.pid`
-names a live process, or a Harbor `__env` container is running. The current run is
-`…/2026-11-09-product20b/runner.pid` (PID `61129`); the stopped run's
-`…/2026-11-09-product20/runner.pid` holds the dead `38616` and is **not** a liveness signal. While it
-is live, do **not** delete, move or rewrite:
+names a live process, or a Harbor `__env` container is running. **No benchmark is live as of
+2026-11-09 21:41 +08:** the corrected run is **aborted at 5/40**, the marker ends `_EXIT`, and both
+`bench/official/results/*/runner.pid` PIDs (`61129`, `38616`) are dead. Re-check the predicate
+before relying on that note. While any run is live, do **not** delete, move or rewrite:
 
-- `bench/official/results/2026-11-09-product20b/**` — its `README.md`, `rows.jsonl`, `raw/`, `jobs/`,
-  `runner.pid` and per-arm logs are the live run's only durable progress record;
+- the live run's `OUT_DIR` — its `README.md`, `rows.jsonl`, `raw/`, `jobs/`, `runner.pid` and
+  per-arm logs are its only durable progress record;
 - `dist/dsh-graph-loop-bench.tgz` — every later trial installs that exact tarball; do not repack it;
 - the task images (`tb-arm64-*`, `tb-dsh-base`, `tb-arm64-medical-claims-sidecar`), any Docker
   container, `/tmp/product20-*` (run log and marker), or `/tmp/tb-arm-dsh/*` (`run-subset.sh` is
   reading them).
 
 "Generated job trees" and "old build tarballs" in Remove mean finished, non-live results; they do not
-cover the live product20b tree or the current tarball. Preserve those until the runner exits **and**
-the marker ends with `_EXIT`. Typecheck, `npm test` and `ci-local.sh` are safe; Docker pruning and
-repacking are not. When the run defined in the marker exits, do not delete the marker: append `_EXIT`
-only under the **marker close** rule in [`automation/evaluator.md`](evaluator.md#product20) (the marker
-names its run, that PID is dead, and no `bench/official/results/*/runner.pid` is live) — never because
-a different, stopped run's PID is dead.
+cover the preserved `product20b` tree (`rows.jsonl`, `raw/`, `jobs/`, `runner.pid`) or the dist
+tarball. The `product20b` tree is the aborted run's only evidence: preserve it, do not prune it as a
+finished run. Typecheck, `npm test` and `ci-local.sh` are safe. Docker pruning is out. A **tarball
+repack from HEAD is required before the next run**, but it is the evaluator/improver's explicitly
+authorized step, not cleanup — do not repack here. The marker is already closed; do not append to or
+delete it.
 
 The stopped first run (`bench/official/results/2026-11-09-product20/`, 31 rows) is preserved evidence
 for [`INVALID.md`](../bench/official/results/2026-11-09-product20/INVALID.md); it is not live but its
-rows/jobs must not be deleted or merged into the corrected run.
+rows/jobs must not be deleted or merged into any later run.
 
-The live `rows.jsonl`, `raw/` and `runner.pid` are **untracked, not ignored**. While the run is live,
-never run `git clean` (any flags), never `git add -A` / `git add .` / `git add -u`, and never stage
-or commit the live `rows.jsonl`, `raw/` or `runner.pid`: partial rows are not citable evidence, and
-`git clean` would delete the only partial record. Commit the final `rows.jsonl`, `summary.json` and
-`raw/` only after the runner exits and the marker ends with `_EXIT`.
+The aborted run's `rows.jsonl`, `raw/` and `runner.pid` are **untracked, not ignored**. Never run
+`git clean` (any flags) while any run's evidence is the only record, never `git add -A` / `git add .`
+/ `git add -u`, and never stage or commit the aborted `product20b` rows: they are the routing bug's
+evidence and are not citable. Commit a **completed** run's final `rows.jsonl`, `summary.json` and
+`raw/` only after it finished and the Lead records that run.
 
 ## Remove
 

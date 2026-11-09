@@ -11,18 +11,21 @@ was removed.
 - Gate: smoke task 1.0, then the four-task pre-run diagnostic (passed 2026-11-09 after the
   vpp/medical fixes; see [`automation/evaluator.md`](../automation/evaluator.md)), then all 20 tasks;
   report accuracy, prompt tokens, billed cost and steps.
-- Status: **the corrected full product20 is live (2026-11-09); no aggregate yet.** PID `61129`,
-  started 17:19 +08, OUT_DIR `official/results/2026-11-09-product20b/` (`runner.pid`, `rows.jsonl`
-  growing per trial), log `/tmp/product20b-2026-11-09.log`, marker `/tmp/product20-shard-full.log`
-  without `_EXIT`; executed run commit `da3d598` (rows carry it; `b3e9af7` is the README-only
-  wrapper committed after start), tarball `f7a961a797ca5e17…`. Do not start a second run and
-  do not run the smoke gate while it is live. Canonical state:
+- Status: **the corrected full product20 was aborted at 5/40 on 2026-11-09 19:44 +08; no aggregate
+  yet.** The graph arm hit the stage-routing bug fixed at `4561008`, so the five rows are not citable
+  ([`ABORTED.md`](official/results/2026-11-09-product20b/ABORTED.md)); the marker
+  `/tmp/product20-shard-full.log` ends `_EXIT`, PID `61129` is dead, both
+  `official/results/*/runner.pid` PIDs are dead, and no Harbor `__env` container is running. The run
+  executed `da3d598` with the pre-fix tarball `f7a961a797ca5e17…`. No benchmark is live. A rerun is
+  blocked on repacking `dist/dsh-graph-loop-bench.tgz` from HEAD and passing a bounded post-HEAD
+  real-model pre-run (audit `20261109-1319` P0-2/P0-3). Canonical state:
   [`docs/STATUS.md`](../docs/STATUS.md#current-benchmark-state). The earlier 04:18:32 run (PID `38616`,
   OUT_DIR `official/results/2026-11-09-product20/`) was **stopped at 31/40 and is NOT CITABLE**
   ([`INVALID.md`](official/results/2026-11-09-product20/INVALID.md)). **A run is citable only when
   every trial is valid** — `n_trials >= 1`, a healthy agent terminal, and writable declared artifact
   paths ([trial validity](../docs/EVALUATION.md#trial-validity)); the `workspace-write` cap behind the
-  last clause was fixed at `da3d598` for both arms, so no number from the stopped run is citable.
+  last clause was fixed at `da3d598` for both arms, and `GRAPH_FAILED` rows are reported separately
+  after `4561008`.
 - The **historical** tracked
   [`2026-11-08-product20-partial`](official/results/2026-11-08-product20-partial/README.md) run was
   taken on the pre-repair instrument and attempted 19/20 tasks (`formal-crypto` had no verifier
@@ -35,8 +38,10 @@ was removed.
 Readiness (2026-11-09): **20/20 env and 20/20 verifier** images including `formal-crypto`, Colima
 **8 vCPU / 20 GiB / 150 GiB**, the `tb-dsh-base` overlay (Node 24.9.0 + DSH 0.2.2-rc.1) on every env
 image, product20 sidecars pulled, `ci-local.sh` and the smoke gate passing (1.0 / 1.0 / 1.0). The
-benchmark tarball is `f7a961a797ca5e17…` (223,458 B) and reproduces from HEAD, so verifying the sha
-is enough — no repack is required.
+benchmark tarball in `dist/` is the **pre-`4561008`** bundle: `f7a961a797ca5e17…` (223,458 B), while a
+pack from HEAD is 225,595 B / `45de8539…` and contains `toolSucceeded`. **Repack from HEAD before any
+rerun** — verifying the old sha is not enough, and the smoke/diagnostic above installed the old
+plugin.
 
 The four-task pre-run diagnostic first **failed** on two infrastructure faults
 ([`2026-11-09-prediag-0122`](official/results/2026-11-09-prediag-0122/README.md)):
@@ -45,7 +50,8 @@ The four-task pre-run diagnostic first **failed** on two infrastructure faults
 `n_trials: 0` on both arms. Both faults were repaired and the four tasks reran
 ([`2026-11-09-prediag-fixes`](official/results/2026-11-09-prediag-fixes/README.md)): vpp 4/5 both
 arms, medical 2/27 graph / 22/27 stock, all eight rows `n_trials: 1` / `n_errors: 0`; the gate
-passes and the corrected run is live. The repairs are **local**: `build-arm64-task.sh` still uses
+passed (pre-HEAD, so it does not cover `4561008`). The repairs are **local**: `build-arm64-task.sh`
+still uses
 Docker's legacy builder (a canonical vpp rebuild reproduces the heredoc defect), and medical's compose
 points at the local `tb-arm64-medical-claims-sidecar:latest` tag (a task-dir reset loses it). A
 **separate** instrument defect capped these numbers when they were measured: DSH ran each trial under
@@ -53,9 +59,10 @@ the default `workspace-write` policy rooted at `/app`, so neither arm could writ
 `/workspace/out/reconciliation.json` or vpp's installed `site-packages` — intrastat's 0/47 / 42/47 and
 vpp's 4/5 are **ceilings**, not near-misses (and `roy-polymorph-cn`/`freight-dispatch-shift` were
 capped the same way). That defect is **fixed at `da3d598`** for both arms
-(`sandbox-policy: danger-full-access`), so re-measure those tasks from the corrected run rather than
-citing the pre-fix ceilings. Do not rebuild or reset either while the run is live; the vpp/medical
-code fixes remain deferred until after `_EXIT`. The per-trial `write_capped` probe is still deferred
+(`sandbox-policy: danger-full-access`), so re-measure those tasks from a future completed run rather
+than citing the pre-fix ceilings. The runner is stopped, but do not rebuild or reset either before the
+builder/compose fixes land; the vpp/medical code fixes remain deferred. The per-trial `write_capped`
+probe is still deferred
 (see [instrument defects](../docs/EVALUATION.md#instrument-defects-open)). The 2026-11-08 readiness
 records
 ([`2026-11-08-eval-1525`](official/results/2026-11-08-eval-1525/README.md),

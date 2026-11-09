@@ -5,34 +5,34 @@ Architecture: **B**. `packages/loop` is a dedicated graph-loop plugin that repla
 
 ## Current benchmark state
 
-**The corrected full product20 is live; no aggregate exists yet.** The instrument was fixed at
-`da3d598` — both arms get a shared `sandbox-policy: danger-full-access` profile patch (`llm-deepseek`
-retries 3) and rows carry `agent_exit`/`transport_failed` from the adapter metadata — and verified by
-the post-fix smoke
-([record](../bench/official/results/2026-11-09-smoke-sandbox/README.md): oracle 1.0 / graph 1.0 /
-stock 1.0; both agent sessions print `Current DSH file policy: danger-full-access`). The corrected run
-started on **2026-11-09 17:19 +08** as PID `61129` in
-`bench/official/results/2026-11-09-product20b/` (`runner.pid`, `rows.jsonl` growing per trial, log
-`/tmp/product20b-2026-11-09.log`, marker `/tmp/product20-shard-full.log` without `_EXIT`; a watcher
-appends `_EXIT` when PID `61129` exits). Its executed run commit is `da3d598` (every row carries
-it; `b3e9af7` is the README-only wrapper committed ~2 min after the runner started) and its tarball is
-`f7a961a797ca5e17…b12064` (223,458 B); both are recorded in the run README.
+**The corrected full product20 is aborted at 5/40 (2026-11-09 19:44 +08); no aggregate exists.**
+The graph arm hit the stage-routing bug fixed at `4561008`, so the run was stopped and its five rows
+are **not citable** ([`ABORTED.md`](../bench/official/results/2026-11-09-product20b/ABORTED.md)). No
+liveness signal remains: `/tmp/product20-shard-full.log` ends `_EXIT`, PID `61129` is dead, both
+`bench/official/results/*/runner.pid` PIDs are dead, and no Harbor `__env` container is running. The
+run executed `da3d598` (every row carries it) with the tarball
+`f7a961a797ca5e17fdd68d52c0bd6dfeec50ec4151f42d84bbd7405069b12064` (223,458 B, pre-HEAD). Do not
+merge, score or cite those rows, and never point a new `OUT_DIR` at
+`bench/official/results/2026-11-09-product20b/` (`run-subset.sh` truncates `rows.jsonl`).
 
 The earlier full run (started 04:18:32 +08 as PID `38616` in
 `bench/official/results/2026-11-09-product20/`) was **stopped at 31/40** and is **NOT CITABLE**:
 [`INVALID.md`](../bench/official/results/2026-11-09-product20/INVALID.md) names the 6 `TRANSPORT`
 crashes and the 6 file-policy-capped trials; its rows are preserved as evidence of the broken
-instrument. Do not merge them into the corrected run.
+instrument. Do not merge them into any later run.
 
-Do not start a second product20 and do not run the smoke gate while any live signal says the benchmark
-is in progress (the marker **and the live PID its text names**, any `bench/official/results/*/runner.pid`
-naming a live process, or a Harbor `__env` container). The corrected run's `rows.jsonl` is the canonical
-partial record; **no aggregate, accuracy, parity, token or cost number is citable** until all 20 tasks
-have `n_trials >= 1`, the runner exits, **and every trial passes the validity test** in
-[`docs/EVALUATION.md`](EVALUATION.md#trial-validity) (healthy agent terminal; every declared artifact
-path writable). The `da3d598` fix removes the `/app` sandbox cap, but the per-trial `write_capped` field
-is still absent, so confirm the policy from each trial's session log. vpp/medical are repaired locally
-for this run (see Known gaps 4) — do not rebuild either or reset the task dirs now.
+**No benchmark is live.** Before any rerun: (1) repack `dist/dsh-graph-loop-bench.tgz` from HEAD
+(the dist bundle is the pre-fix `f7a961…`; a HEAD pack is 225,595 B / `45de8539…` and contains
+`toolSucceeded`), (2) run a bounded post-HEAD real-model pre-run on the new tarball that includes a
+shell-write/routing task (audit 2026-11-09T13:19 P0-2/P0-3), and (3) only
+then start product20 with a fresh `OUT_DIR`. The 2026-11-09 smoke and four-task diagnostic installed
+the pre-fix plugin and do not cover `4561008`. **No aggregate, accuracy, parity, token or cost
+number is citable** until all 20 tasks have `n_trials >= 1`, the runner exits, **and every trial
+passes the validity test** in [`docs/EVALUATION.md`](EVALUATION.md#trial-validity) (healthy agent
+terminal; every declared artifact path writable). The `da3d598` fix removes the `/app` sandbox cap,
+but the per-trial `write_capped` field is still absent, so confirm the policy from each trial's
+session log. vpp/medical are repaired locally for this environment (see Known gaps 4) — do not
+rebuild either or reset the task dirs before the builder/compose fixes land.
 
 ## Works today
 
@@ -45,7 +45,7 @@ for this run (see Known gaps 4) — do not rebuild either or reset the task dirs
 | Composition | envelope / role resolution / capability composer live in dynamic mode |
 | UI | Graph tab + `/graph-chat`; installed e2e passes |
 | Packaging | tarball install + packed-loop runtime e2e passes; `build:check` reproducible |
-| Tests | `npm test` **256/256** (0 fail, 0 skipped) on the current tree; three engines in the transition matrix |
+| Tests | `npm test` **277/277** (0 fail, 0 skipped) on the current tree; three engines in the transition matrix |
 
 ## Kernel coverage (exact)
 
@@ -69,20 +69,40 @@ composed verify stage repairs when verification failed **or** never ran. `verifi
 the node's planned verification tool to have run, so a verify step filled by `read` (or any other
 non-verification tool) repairs, an inspect/mutate step that runs `grep`/`diff` (exit 1) is not sent
 to repair, and a no-tool verify is not read as a pass.
-`lastOk` stays about tool invocation. Every composed stage also classifies its own progress with a
-step-scoped fact (`hadToolCall` for discover, `readFile`, `wroteFile`, `produced.<artifact>` for the
-author's declared artifact type) and has a no-progress exit to its repair node, so no stage advances
-on a false success. Failure exits are declared before the budget exit, so a stage that fails at the
-answer reserve repairs instead of becoming the answer. The kernel adapter also reserves the one step
-a budget-routed wrap-up node needs; the frontier stops at the plan's step cap, which only differs for
-a guard that fires with zero steps left.
+`lastOk` stays about tool invocation.
+
+**Composed routing policy at `4561008`** (`packages/core/src/compose.ts:459-491`). Each stage
+declares, in evaluation order: (1) a **budget exit** to the tool-enabled `n_answer` at
+`remainingAtMost: 2`; (2) its failure exits — `callFailed`, `lastOk=false` and its own no-progress
+guards — to **one repair node**; (3) its success guard to the next stage (or the answer). The repair
+node mirrors the budget/failure exits to `n_answer`, carries the same success edge and ends with an
+unconditional answer fallback; there is **no repair→stage back-edge**, so a stage gets exactly one
+repair attempt and the tool-enabled answer continues abandoned work. Success guards are step-scoped:
+`toolSucceeded` for discover/inspect (any successful tool call, including shell and third-party
+tools), the shell-aware `wroteFile` for mutate, `produced.<artifact>` for author, and
+`verificationRan`/`verificationFailed` for verify. The benchmark mutation retry is keyed by node,
+not by turn. A frontier that exhausts its step budget reports `done` only when it reached a
+terminal, otherwise `failed`.
+
+**Reserve boundary.** Because the budget exit is declared first, a stage that keeps failing at the
+answer reserve goes to `n_answer` instead of repairing forever. `n_answer` is a **continuation, not
+a success claim**: the turn machine reports `done`, but the failed verify step's tool output
+(`[exit code: N]`) remains in the node trail and session log (its step-scoped
+`verificationFailed` fact is what routed it), and the
+answer step is instructed to finish abandoned work and report risk. This is the shipped contract
+pinned by `test/unit/transition-matrix.test.ts` ("at maxSteps 5 a failed verify reaches the answer,
+not a repair dead end"). The pre-`4561008` failure-before-budget order was the dead end and is not
+current.
+
+The kernel adapter also reserves the one step a budget-routed wrap-up node needs; the frontier stops
+at the plan's step cap, which only differs for a guard that fires with zero steps left.
 
 No claim is made that LangGraph executes arbitrary graphs.
 
 ## Evidence
 
-**Product evidence is incomplete: the full product20 is running and no aggregate exists for the
-repaired instrument.** The active suite is Terminal-Bench easy10 + medium10
+**Product evidence is incomplete: the full product20 was aborted at 5/40 and no aggregate exists for
+the repaired instrument.** The active suite is Terminal-Bench easy10 + medium10
 ([`bench/official/subsets/product20.json`](../bench/official/subsets/product20.json)). The tracked
 **historical** 2026-11-08 partial run
 ([result](../bench/official/results/2026-11-08-product20-partial/README.md)) was taken on the
@@ -149,13 +169,15 @@ artifact-writable clause of [`docs/EVALUATION.md`](EVALUATION.md#trial-validity)
 so their counts are ceilings for both arms, and intrastat's 0/47 (graph) or 42/47 (stock) and vpp's
 4/5 must not be read as capability. That cap was **fixed at `da3d598`** (both arms now run under
 `sandbox-policy: danger-full-access`; the per-trial `write_capped` probe is still deferred) —
-re-measure intrastat/vpp from the corrected run's rows, not from this table. heat-pump and medical
+re-measure intrastat/vpp from a future completed run's rows, not from this table or from the
+aborted `product20b` rows. heat-pump and medical
 write inside `/app` and were unaffected. The vpp images were patched out-of-band (the repo build
 script still uses the legacy builder and would reproduce the heredoc defect on a canonical rebuild),
 and the medical task's prepared compose points at a local arm64 sidecar tag. The corrected full
-product20 is **live** (PID `61129`, OUT_DIR `bench/official/results/2026-11-09-product20b/`, started
-17:19 +08; see Current benchmark state); there is no product aggregate yet. The vpp/medical repairs
-are local to this environment and are deferred code debt.
+product20 was **aborted at 5/40** (PID `61129`, OUT_DIR
+`bench/official/results/2026-11-09-product20b/`, stopped 2026-11-09 19:44 +08; see Current
+benchmark state); there is no product aggregate. The vpp/medical repairs are local to this
+environment and are deferred code debt.
 
 The former local 20-task run is not part of this tree and is not citable as current evidence.
 
@@ -171,16 +193,17 @@ The former local 20-task run is not part of this tree and is not citable as curr
 3. **Budget boundary**: the kernel adapter reserves one extra step for a budget-routed wrap-up node;
    the frontier stops at the plan's step cap. Composed plans target `ANSWER_RESERVE_STEPS` (2), so
    both engines have room in practice; one rule in both engines is still open.
-4. **Product20 live, aggregate pending; repair debt deferred.** The instrument is repaired (above),
-   so the historical 2026-11-08 blockers — 900 s fixed timeout, missing `formal-crypto` verifier,
-   `cpus = 8` requests on a 4-CPU VM, missing shadow overlay, sidecar TLS, old-Node images — are
-   fixed; do not re-report them as current without checking. The 2026-11-09 diagnostic found two
-   infrastructure faults, both repaired **locally only**: `medical-claims-processing` now runs on an
-   arm64-native Playwright sidecar, but its compose image tag is a local edit that a task-dir reset
-   loses; `vpp-loss-divergence` images were patched out-of-band, but the canonical
+4. **Product20 aborted; aggregate pending; repair debt deferred.** The instrument is repaired
+   (above), so the historical 2026-11-08 blockers — 900 s fixed timeout, missing `formal-crypto`
+   verifier, `cpus = 8` requests on a 4-CPU VM, missing shadow overlay, sidecar TLS, old-Node
+   images — are fixed; do not re-report them as current without checking. The 2026-11-09 diagnostic
+   found two infrastructure faults, both repaired **locally only**: `medical-claims-processing` now
+   runs on an arm64-native Playwright sidecar, but its compose image tag is a local edit that a
+   task-dir reset loses; `vpp-loss-divergence` images were patched out-of-band, but the canonical
    `build-arm64-task.sh` still uses the legacy builder, which drops the heredoc patches. Both code
    fixes (a scripted medical compose patch, BuildKit/de-heredoc plus rebuild and re-verify) are
-   deferred until the live runner exits. The pre-fix plan's tool-stripping is fixed: the composed
+   deferred; the runner is stopped, but do not rebuild or reset the task dirs before those fixes
+   land. The pre-fix plan's tool-stripping is fixed: the composed
    answer keeps its tools and an exhausted plan gets a continuation step. That continuation is a
    graph-to-stock hand-off (one `fallbackPlan` node, `maxReplans: 0`) bounded by the per-turn
    `maxSteps`, not graph routing; decide whether that is the intended contract before comparing arms.
@@ -198,33 +221,26 @@ The former local 20-task run is not part of this tree and is not citable as curr
 
 ## Next
 
-1. Wait for the corrected full product20 (PID `61129`, OUT_DIR
-   `bench/official/results/2026-11-09-product20b/`) to finish. Its watcher appends `_EXIT` to the
-   shared marker `/tmp/product20-shard-full.log` when **that** PID exits. The marker is truncated by
-   each launcher, so it belongs to the run in its own `pid=` line; **never** append `_EXIT` because the
-   stopped run's PID `38616` is dead. Append by hand only when the marker names the PID you are
-   closing, that PID is dead, and **no** `bench/official/results/*/runner.pid` names a live process —
-   otherwise report the marker/PID mismatch.
-
-   Verify every task has `n_trials >= 1`; a `n_trials: 0` row is infrastructure, not a score. Then
-   apply the full validity test ([`docs/EVALUATION.md`](EVALUATION.md#trial-validity)): no
-   `TRANSPORT`/agent exit 1 other than `GRAPH_FAILED`, and every declared artifact path writable (the
-   policy is fixed; the row's `write_capped` field is still absent, so check the trial sessions).
-   `TRANSPORT`-crashed trials are infrastructure; re-run those trials/tasks into a new `OUT_DIR` (an
-   infrastructure re-run, not a second product20). Do not start a second run and do not run the smoke
-   gate while it is live.
-2. Produce the aggregate from `bench/official/results/2026-11-09-product20b/rows.jsonl` and the trial
-   session logs: accuracy parity, prompt/billed tokens, steps, and criteria-level near-misses
-   (`docs/EVALUATION.md` has the extraction paths). Use **only valid trials** — exclude
-   `TRANSPORT`/agent-crashed rows (and any capped row, if one is found) rather than scoring them 0.0 —
-   and no claim from partial rows. The aggregate must name the run identity: executed commit
-   `da3d598` (rows carry it) +
-   tarball sha256 `f7a961a797ca5e17…b12064`, instrument `da3d598`.
-3. After the runner exits: make the vpp repair reproducible (BuildKit/`docker buildx` or
+1. Repack `dist/dsh-graph-loop-bench.tgz` from HEAD (audit `20261109-1319` P0-2) and record its
+   size/sha; the current dist is the pre-fix `f7a961…` bundle. Do not launch any run before this.
+2. Run the bounded post-HEAD gate on the new tarball into a **new** `OUT_DIR`: the smoke gate plus a
+   real-model check that includes at least one shell-write/routing task (audit P0-3). The aborted
+   `product20b` rows and the pre-HEAD smoke/diagnostic are not a substitute.
+3. Only then start product20 with a fresh `OUT_DIR`. Verify every task has `n_trials >= 1`; a
+   `n_trials: 0` row is infrastructure, not a score. Then apply the full validity test
+   ([`docs/EVALUATION.md`](EVALUATION.md#trial-validity)): no `TRANSPORT`/agent exit 1 other than
+   `GRAPH_FAILED`, and every declared artifact path writable (the policy is fixed; the row's
+   `write_capped` field is still absent, so check the trial sessions). Produce the aggregate from
+   the completed run's `rows.jsonl`, naming its executed commit and tarball sha256; use only valid
+   trials and no partial rows. `GRAPH_FAILED` remains a Harbor-valid agent terminal but is a
+   graph/kernel fault after `4561008` — report it separately and treat a run containing one as
+   non-citable until investigated.
+4. After a completed run: make the vpp repair reproducible (BuildKit/`docker buildx` or
    de-heredoc), rebuild and re-verify both arms, and script/re-apply the medical arm64 sidecar
-   compose patch before any task-dir reset. Do not rebuild either while the run is live.
-4. Only after those numbers exist: decide whether the graph loop has a product claim.
-5. Then durable checkpoint consumer and kernel breadth.
+   compose patch before any task-dir reset. Do not rebuild while a benchmark is live; none is live
+   now, but the builder defect must be fixed first.
+5. Only after those numbers exist: decide whether the graph loop has a product claim.
+6. Then durable checkpoint consumer and kernel breadth.
 
 ## Commands
 

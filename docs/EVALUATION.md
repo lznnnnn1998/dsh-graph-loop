@@ -1,25 +1,36 @@
 # Evaluation — product20
 
-Status: **instrument fixed and smoke-verified, the pre-run diagnostic gate passed, and the corrected
-full product20 is running; no stock-vs-graph aggregate exists yet.** The first 2026-11-09 diagnostic
-failed on two infrastructure faults; both were fixed and the four tasks were rerun
+Status: **the corrected full product20 was aborted at 5/40 on 2026-11-09 19:44 +08; no
+stock-vs-graph aggregate exists.** The graph arm hit the stage-routing bug fixed at `4561008`, so its
+five rows are evidence of that bug, not a product result
+([`ABORTED.md`](../bench/official/results/2026-11-09-product20b/ABORTED.md)). No liveness signal
+remains: the marker `/tmp/product20-shard-full.log` ends `_EXIT`, PID `61129` is dead, both
+`bench/official/results/*/runner.pid` PIDs are dead, and no Harbor `__env` container is running. The
+run executed `da3d598` (every row carries it) with the pre-fix tarball
+`f7a961a797ca5e17fdd68d52c0bd6dfeec50ec4151f42d84bbd7405069b12064` (223,458 B). No product claim
+until a completed run on a HEAD tarball has all 20 tasks with valid stock and graph trials, and an
+oracle control shows the harness can score a pass on the task. **"Valid" is the three-part test in
+[Trial validity](#trial-validity)**: a Harbor trial, a healthy agent terminal, and writable declared
+artifact paths. `n_trials >= 1` alone is not enough. The `workspace-write` cap behind the third
+clause is **fixed at `da3d598`** (both arms run under `sandbox-policy: danger-full-access`, verified
+by smoke); the per-trial `write_capped` field is still deferred
+([Instrument defects](#instrument-defects-open)).
+
+**A rerun is blocked on two P0 items** (audit 2026-11-09T13:19): (1) `dist/dsh-graph-loop-bench.tgz` is the **pre-fix**
+bundle (223,458 B, sha `f7a961…`; a pack from HEAD is 225,595 B, sha `45de8539…`) and must be
+repacked from HEAD; (2) there is **no post-HEAD bounded real-model pre-run** — the smoke ran after
+`da3d598` but installed the pre-fix plugin, and the four-task diagnostic predates `da3d598`. Do both,
+into a new `OUT_DIR`, before starting product20. The earlier 04:18:32 run (PID `38616`, OUT_DIR
+`…/2026-11-09-product20/`) was **stopped at 31/40 and is NOT CITABLE**
+([`INVALID.md`](../bench/official/results/2026-11-09-product20/INVALID.md)).
+
+The first 2026-11-09 diagnostic failed on two infrastructure faults; both were fixed and the four
+tasks were rerun
 ([final table](../bench/official/results/2026-11-09-prediag-fixes/README.md)): all eight rows have
 `n_trials: 1` and `n_errors: 0`, including `vpp-loss-divergence` (4/5 both arms) and
-`medical-claims-processing` (2/27 graph, 22/27 stock) on an arm64 sidecar. The corrected run started
-2026-11-09 17:19 +08 as PID `61129` with OUT_DIR
-`bench/official/results/2026-11-09-product20b/`; its `rows.jsonl` grows per trial and is the canonical
-partial record. Executed run commit `da3d598` (every row carries it); wrapper `b3e9af7` is
-README-only and landed after the runner started; tarball sha256
-`f7a961a797ca5e17fdd68d52c0bd6dfeec50ec4151f42d84bbd7405069b12064` (223,458 B). Do not start a second
-run or run the smoke gate while it is live. The earlier 04:18:32 run (PID `38616`, OUT_DIR
-`…/2026-11-09-product20/`) was **stopped at 31/40 and is NOT CITABLE**
-([`INVALID.md`](../bench/official/results/2026-11-09-product20/INVALID.md)). No product claim until all
-20 tasks have valid stock and graph trials, and an oracle control shows the harness can score a pass
-on the task. **"Valid" is the three-part test in [Trial validity](#trial-validity)**: a Harbor trial,
-a healthy agent terminal, and writable declared artifact paths. `n_trials >= 1` alone is not enough.
-The `workspace-write` cap behind the third clause is **fixed at `da3d598`** (both arms run under
-`sandbox-policy: danger-full-access`, verified by smoke); the per-trial `write_capped` field is still
-deferred ([Instrument defects](#instrument-defects-open)). Readiness:
+`medical-claims-processing` (2/27 graph, 22/27 stock) on an arm64 sidecar. That table validates the
+harness only: it predates `da3d598` and the `4561008` plugin, so its intrastat/vpp counts are
+pre-fix ceilings. Readiness:
 [`2026-11-09-product20-prep`](../bench/official/results/2026-11-09-product20-prep/README.md)
 (historical snapshot from before the first run).
 
@@ -95,16 +106,19 @@ That run's timeout class is therefore a harness-policy artifact, not a task outc
    check passed (Python 3.12.14, SageMath 10.7). The first full product20 ran from 04:18:32 +08 (PID
    `38616`, OUT_DIR `bench/official/results/2026-11-09-product20/`) but was **stopped at 31/40 and is
    NOT CITABLE** ([`INVALID.md`](../bench/official/results/2026-11-09-product20/INVALID.md)); the
-   corrected run is live (PID `61129`, OUT_DIR `bench/official/results/2026-11-09-product20b/`). If
-   that final table exists, do not repeat the diagnostic; if a benchmark is live, report "benchmark in
-   progress" instead of starting another run.
+   corrected run was then **aborted at 5/40** on the routing bug fixed at `4561008`
+   ([`ABORTED.md`](../bench/official/results/2026-11-09-product20b/ABORTED.md)). If that final table
+   exists, do not repeat the diagnostic; if a benchmark is live, report "benchmark in progress"
+   instead of starting another run. The table is not a post-HEAD gate: it predates `4561008`, so a
+   bounded post-HEAD pre-run on the new tarball is still required (see Status).
 
    **Caveat on those eight rows (added 2026-11-09T13:35Z, reworded after the fix):**
    `intrastat-meldung` and `vpp-loss-divergence` failed the artifact-writable clause **when measured**
    — both arms were then denied `/workspace/out/reconciliation.json` and the installed-`site-packages`
    edit respectively — so intrastat's 0/47 / 42/47 and vpp's 4/5 are **pre-fix ceilings, not
-   capability near-misses**. That cap is fixed at `da3d598`; re-measure those tasks from the corrected
-   run ([Instrument defects](#instrument-defects-open)). `heat-pump-warranty` and
+   capability near-misses**. That cap is fixed at `da3d598`; re-measure those tasks from a future
+   completed run's rows ([Instrument defects](#instrument-defects-open)); the aborted `product20b`
+   rows are not citable. `heat-pump-warranty` and
    `medical-claims-processing` write inside `/app` and were unaffected; medical 2/27 / 22/27 is
    genuine diagnostic evidence, while the stopped run's graph medical 2/27 was a different,
    `TRANSPORT`-crashed row — do not conflate them.
@@ -128,8 +142,12 @@ A row's `n_trials >= 1` is **necessary, not sufficient**. A trial is valid only 
    infrastructure, not a score.
 2. **Healthy agent terminal.** The DSH process exited 0, or exited 1 with `GRAPH_FAILED` — the
    loop's designed terminal when recovery/replan is exhausted (`packages/loop/src/loop/agent.ts`).
-   `GRAPH_FAILED` is valid even when it co-occurs with a scored 1.0, so it must never be filtered.
-   Any other agent exit 1 is infrastructure: in practice a
+   `GRAPH_FAILED` is a valid *agent terminal* even when it co-occurs with a scored 1.0, so it must
+   never be filtered as a transport crash. **After `4561008` it is no longer a normal composed
+   outcome**: a composed plan that exhausts its staged repairs now continues in `n_answer`, so a
+   post-fix `graph_failed` row is a graph/kernel fault. Count and report those rows separately and
+   do not present their scores as ordinary capability results (see [Citable-run
+   gate](#trial-validity)). Any other agent exit 1 is infrastructure: in practice a
    `dsh: TRANSPORT: DeepSeek Messages transport failed` tail, or a few hundred bytes of stdout where
    the agent never started. **The row's `exit` field is Harbor's run status, not the agent's**, so
    `exit: 0` does not mean the trial was healthy.
@@ -150,10 +168,43 @@ every trial is valid under (1)–(3), and the marker ends `_EXIT`. A run that fa
 **incomplete for citation**, not a completed reference: re-running the affected trials/tasks into a
 **new `OUT_DIR`** is an infrastructure re-run (authorized without an instrument change, and not a
 second product20). The stopped 2026-11-09 run is **not citable**
-([`INVALID.md`](../bench/official/results/2026-11-09-product20/INVALID.md)); the corrected run
-(`…/2026-11-09-product20b/`) becomes citable only when its own 40 rows pass (1)–(3) and its marker
-closes. `GRAPH_FAILED` exit 1 is valid even alongside a scored 1.0; since the 2026-11-09 fix the
-adapter records a `graph_failed` marker and `run-subset.sh`'s `agent_invalid_rows` exempts it.
+([`INVALID.md`](../bench/official/results/2026-11-09-product20/INVALID.md)); the aborted
+`…/2026-11-09-product20b/` run (5/40, marker `_EXIT`) is **not a completed run and not citable**.
+`GRAPH_FAILED` exit 1 remains a valid agent terminal for rule (2) even alongside a scored 1.0;
+since the 2026-11-09 fix the adapter records a `graph_failed` marker and `run-subset.sh`'s
+`agent_invalid_rows` exempts it. But after `4561008` any `graph_failed` row is a graph/kernel fault:
+`run-subset.sh` now reports `graph_failed_rows`/`graph_failed_tasks` separately and sets
+`citable: false`; the aggregate must not include those rows in the arm mean or present them as
+capability scores. A run with any `graph_failed` row is non-citable until its cause is investigated.
+
+## Graph routing contract (current)
+
+Shipped at `4561008` (`packages/core/src/compose.ts:459-491`);
+`test/unit/transition-matrix.test.ts` and `test/unit/stage-routing-regression.test.ts` pin it on the
+frontier, minimal and LangGraph engines.
+
+- Each composed stage declares its exits in evaluation order: **budget** (`remainingAtMost: 2`) to
+  the tool-enabled `n_answer`; then `callFailed`, `lastOk=false` and the stage's no-progress guards
+  to **one** repair node; then its success guard to the next stage. The repair node mirrors the
+  budget/failure exits to `n_answer`, carries the same success edge and has an unconditional answer
+  fallback. There is **no repair→stage back-edge**.
+- Success guards are step-scoped: discover/inspect on `toolSucceeded` (any successful tool call,
+  including shell and third-party tools), mutate on the shell-aware `wroteFile`, author on
+  `produced.<type>`, verify on `verificationRan` + `verificationFailed` (`[exit code: N]`).
+- The benchmark mutation retry is keyed per node, not per turn.
+- A frontier that exhausts its step budget reports `done` only when it reached a terminal; otherwise
+  it reports `failed`.
+
+<a id="reserve-boundary"></a>
+### Reserve boundary
+
+The budget exit is declared before every failure exit, so a stage that cannot succeed at the answer
+reserve goes to `n_answer` instead of repairing forever. `n_answer` is a **continuation, not a
+success claim**: the turn machine reports `done`, but the failed verify step and its tool output
+(`[exit code: N]`) remain in the node trail and the trial session log, and the answer step is
+instructed to finish abandoned work and report risk. Consumers must therefore not read `done` as
+"verified". The pre-`4561008` failure-before-budget order is the dead end and is not current; do not
+switch the order back without an explicit decision and updated tests.
 
 ## Row schema
 
@@ -195,9 +246,9 @@ verified by the post-fix smoke**
 graph / stock 1.0; both agent sessions print `Current DSH file policy: danger-full-access`; trial
 metadata carries `agent_exit`/`transport_failed` and, since 2026-11-09, `graph_failed`). The policy
 fix lives in `bench/official/terminal-bench/dsh_agent.py` and did not require a plugin repack. What
-remains deferred is the code work listed under defect 2 — **do not edit a live runner**, because it
-re-reads `run-subset.sh` incrementally and re-imports `criteria.py` per row (the aborted run's PID
-`61129` is stopped).
+remains deferred is the code work listed under defect 2. No benchmark is live now, but do not edit a
+runner while one is live: it re-reads `run-subset.sh` incrementally and re-imports `criteria.py` per
+row (the aborted run's PID `61129` is stopped).
 
 ### 1. `workspace-write` capped artifacts outside `/app` — FIXED at `da3d598`
 
@@ -237,7 +288,7 @@ transport crash became an ordinary `0.0` row with `n_errors: 0` and `exit: 0`. S
 adapter writes `agent_exit`/`transport_failed` and (since 2026-11-09) the `graph_failed` marker
 into `agent_result.metadata` for both arms, and `run-subset.sh` copies them onto the row; smoke
 trials carry `{"agent_exit":0,"transport_failed":false}`. **Deferred interpretation fixes
-(documented, do not implement while live):**
+(documented; no run is live, but do not edit a runner while one is):**
 
 - ~~`run-subset.sh`'s `agent_invalid_rows` counts agent exit 1 + `GRAPH_FAILED` as invalid~~ —
   fixed 2026-11-09: the adapter records `graph_failed`, and the aggregate exempts it.
@@ -275,7 +326,7 @@ measured).
 
 ## Current evidence
 
-- Current tree: `ci-local.sh` PASS, `npm test` **256/256** (0 fail, 0 skipped), typecheck and
+- Current tree: `ci-local.sh` PASS, `npm test` **277/277** (0 fail, 0 skipped), typecheck and
   `build:check` green; the transition matrix drives the frontier, the minimal kernel and the default
   LangGraph kernel.
 - Readiness (2026-11-09): **20/20 env and 20/20 verifier** images, `formal-crypto` included (SageMath
@@ -292,26 +343,25 @@ measured).
   ([final table](../bench/official/results/2026-11-09-prediag-fixes/README.md)): vpp 4/5 both arms
   (stock 56m57s), medical 2/27 / 22/27, all eight rows `n_trials: 1` / `n_errors: 0`; **the gate
   passes**. The repairs are local-only: `build-arm64-task.sh` still uses the legacy builder, so a
-  canonical vpp rebuild reproduces the defect, and the medical compose tag is a local edit. Do not
-  rebuild or reset either while the run is live; the code fixes and retests are deferred until the
-  runner exits. The **separate** `workspace-write` defect capped `intrastat` and `vpp` **before**
+  canonical vpp rebuild reproduces the defect, and the medical compose tag is a local edit. The
+  runner is stopped, but do not rebuild or reset either before the builder/compose fixes land; the
+  code fixes and retests are deferred. The **separate** `workspace-write` defect capped `intrastat`
+  and `vpp` **before**
   `da3d598`; their counts here are pre-fix ceilings, and the defect itself is fixed
   ([Instrument defects](#instrument-defects-open)).
-- Corrected full product20 (**live**, 2026-11-09): started 17:19 +08, PID `61129`, OUT_DIR
-  `bench/official/results/2026-11-09-product20b/`, log `/tmp/product20b-2026-11-09.log`, marker
-  `/tmp/product20-shard-full.log` without `_EXIT`. `rows.jsonl` grows per trial; rows carry
-  `commit da3d598…`, `agent_exit`/`transport_failed`, model, image tags, timeout, criteria and a
-  durable `raw/` result. Executed run commit `da3d598`; wrapper `b3e9af7` (README-only, after start);
-  tarball
-  `f7a961a797ca5e17…b12064`. **No aggregate yet**; partial rows are not citable. The marker's watcher
-  closes it when PID `61129` exits — never append `_EXIT` because the **stopped** run's PID (`38616`)
-  is dead; see the marker-close rule in
-  [`automation/evaluator.md`](../automation/evaluator.md#product20).
+- Corrected full product20 (**aborted, not citable**): started 17:19 +08 and stopped 2026-11-09
+  19:44 +08 at 5/40 because the graph arm hit the routing bug fixed at `4561008`. OUT_DIR
+  `bench/official/results/2026-11-09-product20b/` (five rows, `raw/`, `ABORTED.md`, no summary);
+  marker `/tmp/product20-shard-full.log` ends `_EXIT`; PID `61129` is dead. Executed run commit
+  `da3d598` (rows carry it); tarball `f7a961a797ca5e17…b12064` (pre-HEAD). Its rows are evidence of
+  the bug and are **not citable**; do not merge, score or reuse that `OUT_DIR`. A future run's rows
+  carry `commit`, `agent_exit`/`transport_failed`, `graph_failed`, model, image tags, timeout,
+  criteria and a durable `raw/` result.
 - First full product20 (**stopped, not citable**): started 04:18:32 +08, PID `38616`, OUT_DIR
   `bench/official/results/2026-11-09-product20/`, 31/40 rows. It is invalid
   ([`INVALID.md`](../bench/official/results/2026-11-09-product20/INVALID.md)): at the 05:28Z audit
   6 rows were `TRANSPORT` crashes and 6 (`intrastat` ×2, `roy` ×2, `vpp` ×2) were capped by the file
-  policy. Do not merge its rows into the corrected run; the instrument was fixed afterwards.
+  policy. Do not merge its rows into any later run; the instrument was fixed afterwards.
 - Sandbox instrument fix (2026-11-09, `da3d598`): both arms receive a shared profile patch with
   `sandbox-policy: danger-full-access` (the container is the sandbox) and `llm-deepseek` retries 3;
   the adapter also records `agent_exit`/`transport_failed` in the trial metadata. Verified by the
@@ -322,12 +372,15 @@ measured).
   `smoke/answer-42` task ([record](../bench/official/results/2026-11-09-smoke-prep/README.md));
   harness plumbing only, not product evidence. The raw `result.json` files live in that run's
   git-ignored `jobs/` dir. The 2026-11-08 smoke records are historical.
-- Benchmark tarball: `dist/dsh-graph-loop-bench.tgz` is 223,458 B, sha256
-  `f7a961a797ca5e17fdd68d52c0bd6dfeec50ec4151f42d84bbd7405069b12064`, and
-  `npm pack` in `packages/loop` reproduces it byte for byte at this HEAD — a repack is idempotent, so
-  verify the sha rather than treating the artifact as stale. `packages/*/lib` matches a fresh build
-  (`build:check` green). The tarball's `package/lib` differs from the checked-out `lib` only in
-  esbuild source-path comments (0 non-comment differences).
+- Benchmark tarball (**stale — repack required**): `dist/dsh-graph-loop-bench.tgz` is the pre-`4561008`
+  bundle, 223,458 B, sha256
+  `f7a961a797ca5e17fdd68d52c0bd6dfeec50ec4151f42d84bbd7405069b12064`. A pack from this HEAD in
+  `packages/loop` is 225,595 B, sha256
+  `45de85397ac0d07fa2b836290375bfec31c499c723bc4d98157b4d22b84070dc`, and it contains the fix
+  (`toolSucceeded` occurs 5 times in `package/lib/index.js`, versus 0 in the dist bundle).
+  `run-subset.sh`/`run-smoke.sh` default `DSH_PLUGIN_TARBALL` to the dist path, so a rerun launched
+  today would install the **pre-fix** loop and reproduce the routing bug. Repack from HEAD before any
+  run; `packages/*/lib` matches a fresh build (`build:check` green).
 - 2026-11-08 product20 partial (**historical**): 19/20 tasks attempted (`formal-crypto` had no
   verifier image); 11 graph / 3 stock valid; only 2 paired-valid (`bun-sourcemap-leak`,
   `cargo-flight-dispatch`); all valid scores 0.0. **Invalid as a product aggregate** — that run was

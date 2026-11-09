@@ -16,7 +16,9 @@
  *   5. every composed stage classifies its own success: discover/inspect/mutate
  *      with no tool, a `file.image` author fed only `file.text`, and a verify
  *      that never ran all repair instead of advancing;
- *   6. failure exits outrank the budget exit at the answer reserve boundary;
+ *   6. the budget exit is evaluated before every failure exit at the answer reserve
+ *      boundary, so a failed verify continues in the tool-enabled answer (a
+ *      continuation, not a success claim) and its non-zero exit stays in the trail;
  *   7. the `budget` guard at `maxSteps - 1`, `maxSteps - 2` and the last
  *      planned step;
  *   8. removed token/wall budget axes and data-edge conditions are rejected
@@ -709,6 +711,12 @@ for (const engine of ENGINES) {
     await driver.advance({ ok: true, tools: [{ name: 'bash', isError: false, output: 'FAIL\n[exit code: 1]' }] })
     assert.equal(driver.current()?.id, 'n_answer',
       `engine=${engine}: a failed verify at the reserve boundary must answer, not repair forever`)
+    // The answer is a continuation, not a success claim: the failed verify step and its
+    // non-zero exit remain observable in the node trail even though the turn reports
+    // `done` (P1-2 diagnostic; see docs/EVALUATION.md#reserve-boundary).
+    const verifyTrail = driver.snapshot().trail.at(-1)
+    assert.equal(verifyTrail?.id, 'n_verify')
+    assert.match(verifyTrail?.tools?.[0]?.output ?? '', /\[exit code: 1\]/u)
     assert.notEqual(driver.status?.(), 'failed')
     await driver.advance({ ok: true })
     assert.equal(driver.status?.(), 'done')

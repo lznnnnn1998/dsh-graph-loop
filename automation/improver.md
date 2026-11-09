@@ -15,17 +15,17 @@ architecture B.
   `/tmp/product20-shard*.log` lacks its matching `*_EXIT` line (the finished A–D shards end
   `A_EXIT=0` … `D_EXIT=0`); **any** `bench/official/results/*/runner.pid` names a live process; or a
   Harbor `__env` container is running. Read the marker's `pid=` and check **that** PID: liveness is the
-  marker text plus the live PID it names, never a hard-coded path. The current run is
-  `…/2026-11-09-product20b/runner.pid` (PID `61129`); the stopped run's
-  `…/2026-11-09-product20/runner.pid` holds the dead `38616` and is **not** a liveness signal. While
-  live, restrict changes to docs and role files. A quiet runner log or `rows.jsonl` is not the
-  opposite signal: they advance only at arm boundaries, so liveness is the PID plus the container,
-  not the files' mtime (see the evaluator's liveness note). Never append `_EXIT` to a marker of a live
-  run and never key the guard on a stale run's dead PID. Do not touch the live product20b `OUT_DIR`
-  (`rows.jsonl`, `raw/`, `jobs/`, `runner.pid`), `dist/dsh-graph-loop-bench.tgz`, `/tmp/product20-*`,
-  `/tmp/tb-arm-dsh/*`, the task images or Docker; do not repack, rebuild or start any benchmark; and
-  do not commit source changes that would make HEAD no longer the tarball's source. Defer that work
-  until the runner exits and the marker has `_EXIT`.
+  marker text plus the live PID it names, never a hard-coded path. **No benchmark is live as of
+  2026-11-09 21:41 +08:** the corrected run is **aborted at 5/40**, the marker ends `_EXIT`, and both
+  `bench/official/results/*/runner.pid` PIDs (`38616`, `61129`) are dead. Re-check the predicate
+  yourself before relying on that note; a stale run's `runner.pid` is **not** a liveness signal.
+  While live, restrict changes to docs and role files and never touch the live `OUT_DIR`,
+  `dist/dsh-graph-loop-bench.tgz`, `/tmp/product20-*`, `/tmp/tb-arm-dsh/*`, the task images, Docker,
+  or start/stop any benchmark. The aborted product20b `OUT_DIR` is preserved evidence, not a live
+  run: do not modify or reuse it.
+- The dist tarball is still the **pre-fix** bundle (`f7a961…`, 223,458 B); a pack from HEAD is
+  `45de8539…` (225,595 B). A repack from HEAD is required before any rerun, but it is a separate,
+  explicitly authorized step — do not repack or start a benchmark from this role unless the Lead asks.
 - If there is no safe P0/P1, leave the code unchanged and say so.
 
 ## Work

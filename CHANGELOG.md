@@ -33,9 +33,19 @@
   `grep`/`diff` are not repaired); repair loops are bounded by `maxSteps`. `produced.<type>` and
   `failedTool` are step-scoped too, so a stale artifact type or failing-tool name cannot route a later
   step.
-- A composed stage's failure exits are evaluated before its budget exit: a failed stage at the answer
-  reserve repairs instead of becoming `n_answer`, so a failed verification is not reported as a
-  successful run.
+- Composed routing at `4561008`: each stage declares a budget exit to the tool-enabled answer first,
+  one repair node for failure/no-progress with **no repair→stage back-edge**, then its success exit.
+  Discover/inspect succeed on `toolSucceeded`, mutate on the shell-aware `wroteFile`, author on the
+  step-scoped `produced.<type>`, and verify on `verificationRan`/`verificationFailed`. A failed stage
+  at the answer reserve becomes a continuation step in `n_answer`, not a success claim
+  (`docs/EVALUATION.md#reserve-boundary`).
+- One effect classifier (`loop/step-tools.ts`) feeds the graph's `wroteFile`/`readFile` facts and the
+  benchmark mutation retry, so shell reads/writes, `read_image` and `sed -i` classify consistently;
+  the benchmark retry is keyed per node rather than per turn.
+- The frontier reports `done` at its step cap only when it reached a terminal; otherwise `failed`.
+- Regression coverage at `4561008`: `test/unit/stage-routing-regression.test.ts` (all three engines)
+  pins reachable repair exits, shell mutation, `->` non-writes, cap→answer and no-op-repair→answer;
+  the suite is 277 tests.
 - Fan-in joins are ordered on the frontier: a forward join waits for every entered predecessor
   (depth-2+ branches included) and a join on a cycle runs once per iteration, while explicit repair
   back-edges still re-enter; the kernel adapter reserves the step a budget-routed wrap-up node needs.
@@ -58,11 +68,14 @@
   (`bench/official/results/2026-11-09-product20/INVALID.md`: transport crashes + `workspace-write`
   caps). The sandbox instrument was fixed at `da3d598` (shared `sandbox-policy: danger-full-access`
   for both arms, `agent_exit`/`transport_failed` row fields; smoke-verified), and the corrected
-  product20 is running at 17:19 +08 (PID `61129`,
-  `bench/official/results/2026-11-09-product20b/`); **no aggregate exists**, and the canonical
-  rebuild of vpp/medical is deferred until it exits. Evidence:
+  product20 then ran at 17:19 +08 (PID `61129`,
+  `bench/official/results/2026-11-09-product20b/`) but was **aborted at 5/40** on the graph-arm
+  stage-routing bug fixed at `4561008` (marker `_EXIT`, PID dead; five rows, no summary, **not
+  citable**). **No aggregate exists**; the canonical vpp/medical rebuild is deferred, and the next
+  product20 requires a HEAD tarball repack plus a bounded post-HEAD pre-run. Evidence:
   `bench/official/results/2026-11-09-prediag-fixes/`,
-  `bench/official/results/2026-11-09-smoke-sandbox/` and the two product20 result dirs.
+  `bench/official/results/2026-11-09-smoke-sandbox/`, `.../2026-11-09-product20b/ABORTED.md` and the
+  two product20 result dirs.
 - Removed historical research, archived plans, old local benchmark artifacts and stale docs.
 
 ## 0.1.2

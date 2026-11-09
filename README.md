@@ -29,54 +29,69 @@ executes arbitrary graphs.
   artifact contracts, not hardcoded tool names.
 - **Per-node tool admission** — a terminal node can run with no tools; the composed answer node
   keeps its tools so the turn can continue.
-- **Per-stage classification** — every composed stage (`discover`, `inspect`, `mutate`, `author`,
-  `verify`) has a step-scoped success fact and its own no-progress exit back to a repair node, so a
-  stage that did nothing repairs instead of advancing. The author's guard is the stage's artifact
-  *type*; the verify guard requires the node's planned verification tool to run. Failure exits are
-  evaluated
-  before the answer reserve, so a failed stage repairs even at the step-budget boundary instead of
-  becoming the answer. The boundary recovery graph covers failures outside a composed plan.
+- **Per-stage exits (shipped policy at `4561008`)** — every composed stage declares, in order: a
+  **budget exit to the tool-enabled answer first**, its failure/no-progress exits to **one repair
+  node**, then its success exit. The repair node mirrors the budget/failure exits to the answer and
+  has **no back-edge to its stage** — one repair attempt, then the tool-enabled `n_answer` continues
+  abandoned work. Discover and inspect succeed on `toolSucceeded` (any successful tool call), mutate
+  on the shell-aware `wroteFile`, author on the step-scoped `produced.<type>`, and verify on
+  `verificationRan`/`verificationFailed` from `[exit code: N]`. Because the budget exit is first, a
+  stage that fails at the answer reserve continues in `n_answer` instead of repairing forever;
+  `n_answer` is a **continuation, not a success claim**
+  ([reserve boundary](docs/EVALUATION.md#reserve-boundary)). The boundary recovery graph covers
+  failures outside a composed plan.
 - **Graph tab** — live topology, node → tool-call inspector, `/graph-chat` API.
 - **Explore mode** — an agent preset installed as the default for new sessions.
 
 ## Status (honest)
 
 - Unit suite, typecheck, and the release build gate are green:
-  `npm test` (256 tests), `npm run typecheck`, `npm run build && npm run build:check`.
-- **Corrected full product20 live (2026-11-09), no aggregate yet.** Colima is **8 vCPU / 20 GiB /
-  150 GiB**; **20/20 env and 20/20 verifier** images are present, `formal-crypto` included; every env
-  image carries the `tb-dsh-base` overlay (Node 24.9.0 + DSH 0.2.2-rc.1);
-  `dist/dsh-graph-loop-bench.tgz` reproduces from HEAD; smoke is **1.0 oracle / 1.0 graph / 1.0
-  stock** ([2026-11-09 record](bench/official/results/2026-11-09-smoke-prep/README.md)). The bounded
+  `npm test` (277 tests), `npm run typecheck`, `npm run build && npm run build:check`.
+- **Corrected full product20 aborted at 5/40 (2026-11-09 19:44 +08); no aggregate exists.** The
+  graph arm hit the stage-routing bug fixed at `4561008`, so the run was aborted and its five rows
+  are **not citable** ([`ABORTED.md`](bench/official/results/2026-11-09-product20b/ABORTED.md)). No
+  liveness signal remains: `/tmp/product20-shard-full.log` ends `_EXIT`, PID `61129` is dead, both
+  `bench/official/results/*/runner.pid` PIDs are dead, and no Harbor `__env` container is running.
+  The run executed `da3d598` with the pre-fix tarball `f7a961a797ca5e17…b12064` (223,458 B). Do not
+  merge, score or cite those rows, and never reuse `bench/official/results/2026-11-09-product20b/`
+  as a new `OUT_DIR` (`run-subset.sh` truncates `rows.jsonl`). The earlier 04:18:32 run (PID `38616`,
+  `…/2026-11-09-product20/`) was **stopped at 31/40 and is NOT CITABLE**
+  ([INVALID.md](bench/official/results/2026-11-09-product20/INVALID.md)). **No aggregate exists**; do
+  not cite accuracy, parity, token or cost from partial rows or from either stopped run. A run is
+  citable only when every trial passes [trial validity](docs/EVALUATION.md#trial-validity). Canonical
+  state: [`docs/STATUS.md`](docs/STATUS.md#current-benchmark-state).
+  **A rerun is blocked on two items:** `dist/dsh-graph-loop-bench.tgz` is the **pre-fix** bundle
+  (223,458 B, sha `f7a961…`; a pack from HEAD is 225,595 B, sha `45de8539…`, and contains
+  `toolSucceeded`), so it must be repacked from HEAD; and there is **no post-HEAD bounded
+  real-model pre-run** — the smoke and four-task diagnostic below installed the pre-fix plugin and
+  do not cover `4561008`. Do both before any product20 (audit 2026-11-09T13:19 P0-2/P0-3).
+- **Instrument repaired 2026-11-09; smoke/diagnostic evidence is pre-HEAD.** Colima is **8 vCPU /
+  20 GiB / 150 GiB**; **20/20 env and 20/20 verifier** images are present, `formal-crypto` included;
+  every env image carries the `tb-dsh-base` overlay (Node 24.9.0 + DSH 0.2.2-rc.1). Smoke is **1.0
+  oracle / 1.0 graph / 1.0 stock**
+  ([2026-11-09 record](bench/official/results/2026-11-09-smoke-prep/README.md)). The bounded
   four-task pre-run diagnostic first **failed** on two infrastructure faults
   ([2026-11-09-prediag-0122](bench/official/results/2026-11-09-prediag-0122/README.md)) and then
   **passed after fixes**
   ([2026-11-09-prediag-fixes](bench/official/results/2026-11-09-prediag-fixes/README.md)): all eight
-  rows have `n_trials: 1` and `n_errors: 0`. The corrected product20 is **running** — PID `61129`,
-  started 2026-11-09 17:19 +08, `OUT_DIR` `bench/official/results/2026-11-09-product20b/`
-  (`runner.pid`, `rows.jsonl` growing per trial), log `/tmp/product20b-2026-11-09.log`, marker
-  `/tmp/product20-shard-full.log` with no `_EXIT` yet, executed run commit `da3d598` (rows carry it;
-  `b3e9af7` is the README-only wrapper committed after start), tarball
-  `f7a961a797ca5e17…b12064`. The earlier 04:18:32 run (PID `38616`, `…/2026-11-09-product20/`) was
-  **stopped at 31/40 and is NOT CITABLE**
-  ([INVALID.md](bench/official/results/2026-11-09-product20/INVALID.md)). **No aggregate exists**; do
-  not cite accuracy, parity, token or cost from partial rows or from the stopped run. A run is
-  citable only when every trial passes [trial validity](docs/EVALUATION.md#trial-validity). Canonical
-  state: [`docs/STATUS.md`](docs/STATUS.md#current-benchmark-state).
-- **vpp/medical repaired locally for this run; canonical rebuild deferred.**
+  rows have `n_trials: 1` and `n_errors: 0`. Those records validate the harness, not the HEAD
+  plugin: smoke ran after the `da3d598` adapter fix but installed the pre-HEAD `f7a961…` tarball,
+  and the diagnostic predates even `da3d598` (its intrastat/vpp counts are pre-fix ceilings). A
+  post-HEAD bounded pre-run is still required.
+- **vpp/medical repaired locally for this environment; canonical rebuild deferred.**
   `medical-claims-processing` now has valid expected-0.0 trials (graph 2/27, stock 22/27) on an
   arm64-native `playwright-mcp` sidecar; the prepared compose points at the local tag
   `tb-arm64-medical-claims-sidecar:latest`. The two `vpp-loss-divergence` images were patched
   out-of-band (both arms 4/5 criteria; stock 56m57s) because
   `bench/official/terminal-bench/build-arm64-task.sh` still uses Docker's legacy builder, which drops
-  heredoc `RUN` bodies. **Do not rebuild vpp/medical or reset the task dirs while the run is live**;
-  the BuildKit/de-heredoc fix and a scripted medical compose patch are deferred until the runner
-  exits, and a canonical rebuild would reproduce both defects. Separately, the
-  `workspace-write` file policy rooted at `/app` that capped `intrastat-meldung`, `roy-polymorph-cn`
-  and `vpp-loss-divergence` for **both** arms (and would have capped `freight-dispatch-shift`) is
-  **fixed at `da3d598`**: both arms now run under `sandbox-policy: danger-full-access`, verified by
-  the post-fix smoke. The per-trial `write_capped` probe is still deferred
-  ([`docs/EVALUATION.md`](docs/EVALUATION.md#instrument-defects-open)).
+  heredoc `RUN` bodies. The runner is stopped, but a canonical rebuild would still reproduce both
+  defects, so **do not rebuild vpp/medical or reset the task dirs** before the builder/compose fixes
+  land; the BuildKit/de-heredoc fix and a scripted medical compose patch are deferred. Separately,
+  the `workspace-write` file policy rooted at `/app` that capped `intrastat-meldung`,
+  `roy-polymorph-cn` and `vpp-loss-divergence` for **both** arms (and would have capped
+  `freight-dispatch-shift`) is **fixed at `da3d598`**: both arms now run under
+  `sandbox-policy: danger-full-access`, verified by the post-fix smoke. The per-trial `write_capped`
+  probe is still deferred ([`docs/EVALUATION.md`](docs/EVALUATION.md#instrument-defects-open)).
 - **No product benchmark aggregate.** Terminal-Bench easy10 + medium10 is defined in
   [`bench/official/subsets/product20.json`](bench/official/subsets/product20.json); no aggregate
   exists for the current instrument. The **historical** 2026-11-08 partial run
@@ -88,7 +103,7 @@ executes arbitrary graphs.
   `cargo-flight-dispatch` (graph 32/40). The graph arm in that run used the **pre-fix** five-step
   chain, whose `n_answer` removed all tools (80 vs 217 session records): those graph scores measured
   premature termination, not a loop comparison. That plan shape is historical — the composer now
-  emits per-stage repair/budget exits and a tool-enabled answer — so the live rerun must finish
+  emits per-stage repair/budget exits and a tool-enabled answer — so a completed rerun is required
   before any stock-vs-graph statement. The partial run is **invalid as a product aggregate** and is
   not current evidence. A separate three-task oracle control
   ([result](bench/official/results/2026-11-08-oracle-control/README.md)) scores 1.0 on

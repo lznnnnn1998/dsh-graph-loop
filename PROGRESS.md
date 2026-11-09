@@ -11,9 +11,11 @@ features.
 - [x] Capability envelope + capability-driven composition.
 - [x] LangGraph kernel default; every control-edge condition is kernel-routed, composed plans included.
 - [x] Bounded recovery/repair for failed verify nodes; a non-zero shell exit is a verification
-      signal, not a blanket stage failure. Every composed stage classifies its own success with a
-      step-scoped fact (discover/inspect/mutate/author/verify), so no stage advances on no progress;
-      failure exits are evaluated before the answer reserve.
+      signal, not a blanket stage failure. Every composed stage declares, in order, a budget exit
+      to the tool-enabled answer first, failure/no-progress exits to one repair node, then its
+      success exit; the repair node has no back-edge to its stage. Discover/inspect succeed on
+      `toolSucceeded`, mutate on the shell-aware `wroteFile`, author on the step-scoped
+      `produced.<type>`, verify on `verificationRan`/`verificationFailed`.
 - [x] Frontier join barrier: a forward join waits for every predecessor that has entered the run,
       including depth-2+ branches, and a join on a cycle runs once per iteration; explicit repair
       back-edges still re-enter.
@@ -22,26 +24,29 @@ features.
 - [x] Graph tab + `/graph-chat` API; SSE/tool-call inspector.
 - [x] Explore mode, one-command installer, profile verification.
 - [x] Fork guard: pinned upstream + patch budgets, enforced in `ci-local`/`verify-all`.
-- [x] 256 unit tests, typecheck, build:check, installed e2e, tarball e2e green.
+- [x] 277 unit tests, typecheck, build:check, installed e2e, tarball e2e green.
 
 ## In progress / next
 
-- [ ] **product20 — corrected full run live (2026-11-09), no aggregate yet.** Terminal-Bench easy10 +
-      medium10, stock vs graph. The instrument was repaired on 2026-11-09 (8 vCPU / 20 GiB / 150 GiB,
-      **20/20 env + 20/20 verifier** images including `formal-crypto`, `tb-dsh-base` overlay on every
-      env image, sidecars pulled, tarball `f7a961a797ca5e17…`, smoke 1.0/1.0/1.0), and the
+- [ ] **product20 — corrected full run aborted at 5/40 (2026-11-09 19:44 +08), no aggregate yet.**
+      Terminal-Bench easy10 + medium10, stock vs graph. The instrument was repaired on 2026-11-09
+      (8 vCPU / 20 GiB / 150 GiB, **20/20 env + 20/20 verifier** images including `formal-crypto`,
+      `tb-dsh-base` overlay on every env image, sidecars pulled, smoke 1.0/1.0/1.0), and the
       `workspace-write` cap was fixed at `da3d598` for **both** arms
       (`sandbox-policy: danger-full-access`), verified by the post-fix smoke
       (`bench/official/results/2026-11-09-smoke-sandbox/`). The bounded four-task pre-run diagnostic
       first failed and then **passed after the vpp/medical fixes**
       (`bench/official/results/2026-11-09-prediag-fixes/`; all eight rows `n_trials: 1`,
-      `n_errors: 0`; its intrastat/vpp counts are pre-fix ceilings). The corrected run is **running**:
-      PID `61129`, started 2026-11-09 17:19 +08, OUT_DIR
-      `bench/official/results/2026-11-09-product20b/`, log `/tmp/product20b-2026-11-09.log`, marker
-      `/tmp/product20-shard-full.log` without `_EXIT`, executed run commit `da3d598` (rows carry it;
-      the `b3e9af7` wrapper only adds this run's README), tarball
-      `f7a961a797ca5e17…`; `rows.jsonl` grows per trial. **No
-      aggregate** — do not cite accuracy, parity, token or cost from partial rows. The earlier
+      `n_errors: 0`; its intrastat/vpp counts are pre-fix ceilings). The corrected run was then
+      **aborted at 5/40** because the graph arm hit the stage-routing bug fixed at `4561008`: the
+      marker `/tmp/product20-shard-full.log` ends `_EXIT`, PID `61129` is dead, OUT_DIR
+      `bench/official/results/2026-11-09-product20b/` holds five rows, `ABORTED.md` and no summary,
+      and no liveness signal remains. Executed run commit `da3d598`; its tarball
+      `f7a961a797ca5e17…` is pre-HEAD. Its rows are **not citable** — do not merge, score or reuse
+      that OUT_DIR. **Rerun is blocked on two items:** `dist/dsh-graph-loop-bench.tgz` is the
+      pre-fix bundle and must be repacked from HEAD, and a bounded post-HEAD real-model pre-run
+      (including a shell-write/routing task) must pass first (audit `20261109-1319` P0-2/P0-3).
+      **No aggregate** — do not cite accuracy, parity, token or cost from partial rows. The earlier
       04:18:32 full run (PID `38616`, OUT_DIR `…/2026-11-09-product20/`) was **stopped at 31/40 and is
       NOT CITABLE** (`bench/official/results/2026-11-09-product20/INVALID.md`: 6 `TRANSPORT` crashes,
       6 file-policy-capped trials); do not merge its rows. **Historical:**
@@ -60,17 +65,18 @@ features.
       sidecar (`tb-arm64-medical-claims-sidecar:latest`), so both arms have valid trials (graph 2/27,
       stock 22/27; reward is expected 0 because DSH has no native SSE-MCP client). **Remaining debt:**
       the compose image line is a local edit that a task-dir reset loses and the repo does not
-      re-apply; do not reset or rebuild while the run is live.
+      re-apply; the runner is stopped, but do not reset or rebuild before that fix lands.
 - [x] `vpp-loss-divergence` **fixed for this run.** Docker's legacy builder silently drops the
       `RUN python - <<'PYEOF'` heredoc bodies (the CPU/gloo shim and `/opt/verifier_pristine`), so
       both images were patched out-of-band; graph and stock both score criteria **4/5** (stock
       56m57s). **Remaining debt:** `build-arm64-task.sh` still uses plain `docker build`, so a
       canonical rebuild reproduces the defect. Force BuildKit/`docker buildx` (or convert the
-      heredoc), rebuild both images and re-verify both arms **after** the live runner exits — do not
-      rebuild or retag anything now. The default `workspace-write` policy rooted at `/app` that capped
-      intrastat/roy/vpp on **both** arms (freight would have been too) was **fixed at `da3d598`**:
-      both arms now get `sandbox-policy: danger-full-access`. Re-measure those tasks from the corrected
-      run; the per-trial `write_capped` field is still deferred
+      heredoc), rebuild both images and re-verify both arms **after** the builder fix lands — the
+      runner is stopped, but do not rebuild or retag yet. The default `workspace-write` policy rooted
+      at `/app` that capped intrastat/roy/vpp on **both** arms (freight would have been too) was
+      **fixed at `da3d598`**: both arms now get `sandbox-policy: danger-full-access`. Re-measure
+      those tasks from a future completed run (the aborted `product20b` rows are not citable); the
+      per-trial `write_capped` field is still deferred
       (`docs/EVALUATION.md#instrument-defects-open`).
 - [ ] Graph termination, remaining part: the tool-stripping/forced-summary defect is fixed (the
       answer keeps tools and an exhausted plan gets a continuation step), but that continuation is a
