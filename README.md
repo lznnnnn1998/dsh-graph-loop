@@ -43,24 +43,26 @@ executes arbitrary graphs.
 
 - Unit suite, typecheck, and the release build gate are green:
   `npm test` (256 tests), `npm run typecheck`, `npm run build && npm run build:check`.
-- **Full product20 live (2026-11-09), no aggregate yet.** Colima is **8 vCPU / 20 GiB / 150 GiB**;
-  **20/20 env and 20/20 verifier** images are present, `formal-crypto` included; every env image
-  carries the `tb-dsh-base` overlay (Node 24.9.0 + DSH 0.2.2-rc.1);
+- **Corrected full product20 live (2026-11-09), no aggregate yet.** Colima is **8 vCPU / 20 GiB /
+  150 GiB**; **20/20 env and 20/20 verifier** images are present, `formal-crypto` included; every env
+  image carries the `tb-dsh-base` overlay (Node 24.9.0 + DSH 0.2.2-rc.1);
   `dist/dsh-graph-loop-bench.tgz` reproduces from HEAD; smoke is **1.0 oracle / 1.0 graph / 1.0
   stock** ([2026-11-09 record](bench/official/results/2026-11-09-smoke-prep/README.md)). The bounded
   four-task pre-run diagnostic first **failed** on two infrastructure faults
   ([2026-11-09-prediag-0122](bench/official/results/2026-11-09-prediag-0122/README.md)) and then
   **passed after fixes**
   ([2026-11-09-prediag-fixes](bench/official/results/2026-11-09-prediag-fixes/README.md)): all eight
-  rows have `n_trials: 1` and `n_errors: 0`. The full product20 is **running** — PID `38616`, started
-  2026-11-09 04:18:32 +08, `OUT_DIR` `bench/official/results/2026-11-09-product20/` (`runner.pid`,
-  `rows.jsonl` growing per trial), log `/tmp/product20-2026-11-09.log`, marker
-  `/tmp/product20-shard-full.log` with no `_EXIT` yet. **No aggregate exists**; do not cite accuracy,
-  parity, token or cost from partial rows. The live rows also fail the trial-validity gate (6
-  `TRANSPORT` crashes and 6 file-policy-capped trials at the 05:28Z audit), so the run is **not
-  citable** as it stands and would need an infrastructure re-run into a new `OUT_DIR` — see
-  [`docs/EVALUATION.md`](docs/EVALUATION.md#trial-validity). Canonical state:
-  [`docs/STATUS.md`](docs/STATUS.md#current-benchmark-state).
+  rows have `n_trials: 1` and `n_errors: 0`. The corrected product20 is **running** — PID `61129`,
+  started 2026-11-09 17:19 +08, `OUT_DIR` `bench/official/results/2026-11-09-product20b/`
+  (`runner.pid`, `rows.jsonl` growing per trial), log `/tmp/product20b-2026-11-09.log`, marker
+  `/tmp/product20-shard-full.log` with no `_EXIT` yet, executed run commit `da3d598` (rows carry it;
+  `b3e9af7` is the README-only wrapper committed after start), tarball
+  `f7a961a797ca5e17…b12064`. The earlier 04:18:32 run (PID `38616`, `…/2026-11-09-product20/`) was
+  **stopped at 31/40 and is NOT CITABLE**
+  ([INVALID.md](bench/official/results/2026-11-09-product20/INVALID.md)). **No aggregate exists**; do
+  not cite accuracy, parity, token or cost from partial rows or from the stopped run. A run is
+  citable only when every trial passes [trial validity](docs/EVALUATION.md#trial-validity). Canonical
+  state: [`docs/STATUS.md`](docs/STATUS.md#current-benchmark-state).
 - **vpp/medical repaired locally for this run; canonical rebuild deferred.**
   `medical-claims-processing` now has valid expected-0.0 trials (graph 2/27, stock 22/27) on an
   arm64-native `playwright-mcp` sidecar; the prepared compose points at the local tag
@@ -69,10 +71,11 @@ executes arbitrary graphs.
   `bench/official/terminal-bench/build-arm64-task.sh` still uses Docker's legacy builder, which drops
   heredoc `RUN` bodies. **Do not rebuild vpp/medical or reset the task dirs while the run is live**;
   the BuildKit/de-heredoc fix and a scripted medical compose patch are deferred until the runner
-  exits, and a canonical rebuild would reproduce both defects. Separately, the default
-  `workspace-write` file policy rooted at `/app` caps `intrastat-meldung`, `roy-polymorph-cn` and
-  `vpp-loss-divergence` for **both** arms (and will cap `freight-dispatch-shift`); that is an
-  instrument defect, not a capability result, and its fix waits for `_EXIT`
+  exits, and a canonical rebuild would reproduce both defects. Separately, the
+  `workspace-write` file policy rooted at `/app` that capped `intrastat-meldung`, `roy-polymorph-cn`
+  and `vpp-loss-divergence` for **both** arms (and would have capped `freight-dispatch-shift`) is
+  **fixed at `da3d598`**: both arms now run under `sandbox-policy: danger-full-access`, verified by
+  the post-fix smoke. The per-trial `write_capped` probe is still deferred
   ([`docs/EVALUATION.md`](docs/EVALUATION.md#instrument-defects-open)).
 - **No product benchmark aggregate.** Terminal-Bench easy10 + medium10 is defined in
   [`bench/official/subsets/product20.json`](bench/official/subsets/product20.json); no aggregate

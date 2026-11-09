@@ -5,14 +5,24 @@ product source; your writes are limited to `bench/official/results/` and a short
 
 ## Live-run guard (check before anything else)
 
-A benchmark is **in progress** if **any** of these is true:
+A benchmark is **in progress** while **any** of these is true:
 
 - a Harbor container whose name contains `__env` is live (`docker ps --filter name=__env`);
 - any `/tmp/product20-shard*.log` exists without its matching `*_EXIT` line (the finished A–D shards
   end `A_EXIT=0` … `D_EXIT=0`);
-- `/tmp/product20-shard-full.log` exists without an `_EXIT` line;
-- `bench/official/results/2026-11-09-product20/runner.pid` holds a PID that is still alive
-  (`ps -p "$(cat bench/official/results/2026-11-09-product20/runner.pid)"`).
+- the shared marker `/tmp/product20-shard-full.log` has no `_EXIT` line **and** the run named in its
+  text is live (read its `pid=`, then check that PID);
+- **any** `bench/official/results/*/runner.pid` names a PID that is still alive:
+  `for f in bench/official/results/*/runner.pid; do ps -p "$(cat "$f")" >/dev/null && echo "LIVE $f"; done`.
+  The current run is `bench/official/results/2026-11-09-product20b/runner.pid` (PID `61129`). The
+  stopped run's `bench/official/results/2026-11-09-product20/runner.pid` holds the dead `38616` and
+  **is not a liveness signal** on its own; never key the guard on that one path.
+
+**Liveness is the marker text plus the live PID it names.** The marker is one shared file that each
+launcher **truncates** (`printf … >`), so it belongs only to the run in its own `pid=` line. If that
+PID is dead, the marker is stale or mismatched: report the mismatch, and never treat a dead PID as
+proof of exit or append `_EXIT` (see [Marker close](#product20)). A live `*/runner.pid` anywhere under
+`bench/official/results/` is by itself sufficient to report the benchmark in progress.
 
 If it is in progress: report **"benchmark in progress"** with the PID, OUT_DIR and live `rows.jsonl`
 path; **do not run the smoke gate** (a second Harbor run contends for Docker/CPU with the live one)
@@ -90,20 +100,25 @@ The instrument was repaired on 2026-11-09; see
   (in-container npm) and `heat-pump-warranty` (sidecar/compose) produced valid trials. Both vpp
   images were patched and now score 4/5 both arms; `bench/official/terminal-bench/build-arm64-task.sh`
   still invokes plain `docker build`, so a **canonical** vpp rebuild would reproduce the heredoc
-  defect — do not rebuild vpp from that script without forcing BuildKit/de-heredoc. **Separate,
-  still-open defect:** DSH runs each trial under the default `workspace-write` file policy rooted at
-  `/app`, so `intrastat-meldung` (`/workspace/out`), `roy-polymorph-cn` (`/results`),
-  `vpp-loss-divergence` (installed `site-packages`) and the not-yet-run `freight-dispatch-shift`
-  (`/workspace/dispatch`) cannot write their declared artifacts. Those rows have `n_trials: 1` but
-  **no valid trial** — their criteria counts are ceilings, not capability results. The fix is a
-  post-`_EXIT` adapter/profile change (both arms) plus a readiness check; see
-  [`docs/EVALUATION.md`](../docs/EVALUATION.md#instrument-defects-open). Do not implement it now.
+  defect — do not rebuild vpp from that script without forcing BuildKit/de-heredoc.
+- The earlier `workspace-write` cap **is fixed at `da3d598` and verified by smoke.** Before that fix
+  DSH ran each trial under the default file policy rooted at `/app`, denying `intrastat-meldung`
+  (`/workspace/out`), `roy-polymorph-cn` (`/results`), `vpp-loss-divergence` (installed
+  `site-packages`) and `freight-dispatch-shift` (`/workspace/dispatch`) their declared artifacts.
+  Both arms now run under a shared `sandbox-policy: danger-full-access` profile patch; the post-fix
+  smoke (`../2026-11-09-smoke-sandbox/`) prints `Current DSH file policy: danger-full-access` in
+  **both** arms. The pre-fix diagnostic criteria counts (`intrastat` 0/47 / 42/47, vpp 4/5) are
+  ceilings measured before that fix — re-verify them from the corrected run's rows instead. What
+  remains deferred is only the per-trial `write_capped` field / writable-artifact probe, listed in
+  [`docs/EVALUATION.md`](../docs/EVALUATION.md#instrument-defects-open). Do not edit the live runner.
 
 A full product20 run is allowed **after the pre-run diagnostic gate below passes** and only when the
 **live-run guard** above reports no benchmark in progress. The 2026-11-09 gate has already passed
-after the vpp/medical fixes; see the `2026-11-09-prediag-fixes` table below. The full run is live
-now (PID `38616`, OUT_DIR `bench/official/results/2026-11-09-product20/`), so this role reports it as
-in progress instead of starting a second one.
+after the vpp/medical fixes; see the `2026-11-09-prediag-fixes` table below. The corrected product20
+is live now (PID `61129`, OUT_DIR `bench/official/results/2026-11-09-product20b/`, log
+`/tmp/product20b-2026-11-09.log`), so this role reports it as in progress instead of starting a second
+one. The earlier 04:18:32 run (PID `38616`, OUT_DIR `…/2026-11-09-product20/`) was **stopped at 31/40**
+and is **NOT CITABLE** ([`INVALID.md`](../bench/official/results/2026-11-09-product20/INVALID.md)).
 
 ## Gate
 
@@ -155,8 +170,11 @@ Result of the 2026-11-09 attempt: the first run FAILED (`vpp-loss-divergence` an
 valid near-misses). The two faults were fixed and the four tasks rerun; final table
 `bench/official/results/2026-11-09-prediag-fixes/README.md`: vpp graph/stock 4/5, medical graph 2/27 /
 stock 22/27, plus the two earlier valid tasks. All eight rows have `n_trials: 1`, `n_errors: 0`; the
-gate PASSES and the full product20 is live (started 2026-11-09 04:18:32 +08, PID `38616`, OUT_DIR
-`bench/official/results/2026-11-09-product20/`).
+gate PASSES. The first full run started 2026-11-09 04:18:32 +08 (PID `38616`, OUT_DIR
+`bench/official/results/2026-11-09-product20/`) but was **stopped at 31/40 and is NOT CITABLE**
+(`…/2026-11-09-product20/INVALID.md`); the corrected product20 is live (started 2026-11-09 17:19 +08,
+PID `61129`, OUT_DIR `bench/official/results/2026-11-09-product20b/`, log
+`/tmp/product20b-2026-11-09.log`).
 
 Decision rule: a row with `n_trials: 0` is a real infrastructure failure — diagnose and fix it, or
 block and report it; **do not start the full 20**. **`n_trials >= 1` alone is not validity.** A valid
@@ -241,18 +259,27 @@ Reporting rules:
   An empty list means no instrument change (`grep -v` exits 1 when it filters everything; that is
   the "still current" case, not an error). If the filtered list is empty and the tarball sha is
   unchanged, report "completed product20 still current" and do not start another run — even when
-  `git diff` over the same paths is non-empty because only docs changed. (The 2026-11-09 run commit
-  is `11fe18f`; docs-only commits after it include `f36b445`, `84a1913`, `f4b1c69`, `eaf0d75` and
-  `3c30ae2`, and this pass adds more — the generic clause covers them, and that pattern does not
-  authorize a second run.)
+  `git diff` over the same paths is non-empty because only docs changed. There is **no hard-coded
+  `LAST_RUN`**: read it from the last **completed** product20's own README (run commit + full tarball
+  sha256). The corrected 2026-11-09 run executed commit `da3d598`
+  (`da3d598113449e62718e5b810e1d5ce77234585a`, 13:58; **every row carries it**) and tarball sha256
+  `f7a961a797ca5e17fdd68d52c0bd6dfeec50ec4151f42d84bbd7405069b12064` (223,458 B); both are recorded in
+  `bench/official/results/2026-11-09-product20b/README.md`. Its wrapper commit `b3e9af7` only added
+  that README and landed **after** the runner started, so do not use it as the executed commit;
+  confirm `LAST_RUN` against the rows' `commit` field. **`11fe18f` must never be used as
+  `LAST_RUN`:** it is the **stopped 31-row invalid run** (`…/2026-11-09-product20/INVALID.md`) and
+  predates the instrument fix, so `git diff 11fe18f..HEAD` over these paths is non-empty and would
+  authorize a spurious full rerun.
 - **A completed product20 is citable only when the whole run is valid.** Require: 40 rows (20 tasks
   × 2 arms), every row `n_trials >= 1`, **every trial agent-valid** (no `TRANSPORT`, no agent exit 1
   other than `GRAPH_FAILED`) **and no trial capped by the file policy** (every declared artifact path
   writable), and the marker ends `_EXIT`. A run that fails either trial-validity clause is
   **incomplete for citation**, not a completed product20: re-running the affected trials/tasks into
   a **new `OUT_DIR`** is authorized **without an instrument change** and does **not** count as a
-  second product20. The live 2026-11-09 run is **not citable** while its transport-failed and
-  write-capped rows exist.
+  second product20. The stopped 2026-11-09 run is **not citable** (`…/2026-11-09-product20/INVALID.md`);
+  the corrected run (`…/2026-11-09-product20b/`) becomes citable only when its own 40 rows pass both
+  trial-validity clauses. `GRAPH_FAILED` co-occurring with a scored 1.0 is valid; see the residual
+  interpretation rules below.
 - Command: `TASKS_DIR=/tmp/tb-arm-dsh bash bench/official/subsets/run-product20.sh`.
 - There is **no resume**: `run-subset.sh` truncates `<OUT_DIR>/rows.jsonl` and re-iterates every
   task, so an interrupted run starts over. Give the run its own `OUT_DIR` and keep it.
@@ -275,31 +302,50 @@ Reporting rules:
   be held for the whole benchmark. The Lead removes it at cycle end, and the next cycle's benchmark
   rule skips its own product20 while a benchmark is live. Check all the live signals, not just
   `docker ps`: a Harbor `__env` container, any `/tmp/product20-shard*.log` without its `*_EXIT`
-  line, and a live PID in the product20 `runner.pid`. Never start a second product20 while one is
-  live.
-- **Marker close.** `/tmp/product20-shard-full.log` must end with an `_EXIT` line once the runner
-  exits; a marker without `_EXIT` is read as "benchmark in progress" forever. A watcher appends it
-  when the PID dies. If the watcher is absent, append it yourself **after confirming the PID is dead**:
+  line, and **any** `bench/official/results/*/runner.pid` naming a live process. Never start a second
+  product20 while one is live.
+- **Marker close — never append `_EXIT` from a stale run's dead PID.** `/tmp/product20-shard-full.log`
+  must end with an `_EXIT` line once **the run named in its text** exits; a marker without `_EXIT` is
+  read as "benchmark in progress" forever. Each launcher starts a watcher that appends it when that
+  run's PID dies. The marker is shared and **truncated** by each launcher, so an `_EXIT` you append is
+  read by every role as the close of the run named in the marker. `…/2026-11-09-product20/runner.pid`
+  is the **stopped** run (`38616`, dead) and proves nothing about the live corrected run. Append by
+  hand only when **all** of these hold:
 
-  ```sh
-  ps -p "$(cat bench/official/results/2026-11-09-product20/runner.pid)" || \
-    echo "_EXIT" >> /tmp/product20-shard-full.log
-  ```
+  1. the marker names the run you are closing (`pid=<pid>` in its first line);
+  2. that PID is dead (`ps -p <pid>` finds nothing);
+  3. **no** `bench/official/results/*/runner.pid` names a live process:
+     `for f in bench/official/results/*/runner.pid; do ps -p "$(cat "$f")" >/dev/null && echo "LIVE $f"; done`
+     prints nothing.
 
-  Do not delete the marker instead; `_EXIT` is the documented close. Keep the live `OUT_DIR` and its
-  `runner.pid` (they are the durable liveness record).
+  Otherwise report "marker/PID mismatch" to the Lead and **do not append**. Never delete the marker;
+  `_EXIT` is the documented close. Keep the live `OUT_DIR` and its `runner.pid` (they are the durable
+  liveness record).
 - Keep `rows.jsonl` canonical; a row with `n_trials: 0` is an infrastructure error, not a score.
 - Record commit, model, image tags, per-task scores, **criteria passed/total**, accuracy,
   prompt/billed tokens and steps. The runner writes `commit`, `model`, `agent_timeout_sec`,
   `agent_setup_timeout_multiplier`, `image_env`, `image_verifier`, `criteria` and a durable
   `result` copy under `<OUT_DIR>/raw/`; do not merge rows that lack them.
-- **Known row-schema gap (fix deferred until `_EXIT`).** The row has no field for the agent's own
-  exit or a `TRANSPORT` failure: `run-subset.sh` records only Harbor's `exit`, which is the run
-  status, not the agent's. Until the row carries `agent_exit`/`transport_failed`/`write_capped`,
-  read the trial's `jobs/<job>/<trial>/agent/dsh-stdout.log` tail — a `dsh: TRANSPORT: …` tail, or a
-  few hundred bytes of stdout where the agent never started, is infrastructure — and treat
-  `exit: 0` as "the Harbor process exited 0", never as "the trial is valid". Do not edit the live
-  runner to add the fields; a docs-only note is all that is allowed while the benchmark runs.
+- **Row validity fields — fixed at `da3d598`; three interpretation rules stay (deferred code fixes).**
+  `dsh_agent.py` now writes `agent_exit`/`transport_failed` into `agent_result.metadata` for **both**
+  arms and `run-subset.sh` copies them onto the row, so a corrected-run row carries the agent's own
+  exit. Do not edit the live runner. Until the deferred code fixes land, adjudicate from the trials and
+  apply these rules:
+  - `agent_invalid_rows` counts a designed agent exit 1 + `GRAPH_FAILED` as invalid, but it **is
+    valid** (the loop's designed terminal, even alongside a scored 1.0) — exempt it by hand.
+  - `transport_failed` is still a whole-transcript `TRANSPORT` substring; the real signature is the
+    line `dsh: TRANSPORT: DeepSeek Messages transport failed`. A valid transcript that merely mentions
+    transport can be flagged — check the trial's `agent/dsh-stdout.log`.
+  - `agent_exit: null` means "no metadata was written" (a Harbor exception before the adapter
+    returned), **not** "valid"; inspect the trial's `result.json`/`dsh-stdout.log` before counting it.
+  - `write_capped`/artifact-writable is still **absent** from the row; grep each trial session for the
+    sandbox-denial quote and its `Current DSH file policy` line instead.
+  Also treat `exit: 0` as "the Harbor process exited 0", never as "the trial is valid".
+- **Run identity is read from the run's own README and the rows.** The corrected run executed
+  `da3d598` (every row carries `commit: da3d598…`) + tarball sha256
+  `f7a961a797ca5e17fdd68d52c0bd6dfeec50ec4151f42d84bbd7405069b12064`; its wrapper commit `b3e9af7`
+  is docs-only and landed after the runner started. Record both the executed commit and the tarball
+  sha in the aggregate.
 
 ## Reply
 

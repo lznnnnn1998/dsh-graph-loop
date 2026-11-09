@@ -53,10 +53,16 @@
   faults: `vpp-loss-divergence` (verifier heredoc dropped by Docker's legacy builder) and
   `medical-claims-processing` (amd64 `playwright-mcp` sidecar never healthy under qemu). Both were
   repaired locally and the rerun passed all eight rows (`n_trials: 1`, `n_errors: 0`; vpp 4/5 both
-  arms, medical 2/27 / 22/27). The full product20 then started at 04:18:32 +08 (PID `38616`,
-  `bench/official/results/2026-11-09-product20/`) and is still **running**; **no aggregate exists**,
-  and the canonical rebuild of vpp/medical is deferred until it exits. Evidence:
-  `bench/official/results/2026-11-09-prediag-fixes/` and `bench/official/results/2026-11-09-product20/`.
+  arms, medical 2/27 / 22/27). The first full product20 then started at 04:18:32 +08 (PID `38616`,
+  `bench/official/results/2026-11-09-product20/`) but was **stopped at 31/40** and is **not citable**
+  (`bench/official/results/2026-11-09-product20/INVALID.md`: transport crashes + `workspace-write`
+  caps). The sandbox instrument was fixed at `da3d598` (shared `sandbox-policy: danger-full-access`
+  for both arms, `agent_exit`/`transport_failed` row fields; smoke-verified), and the corrected
+  product20 is running at 17:19 +08 (PID `61129`,
+  `bench/official/results/2026-11-09-product20b/`); **no aggregate exists**, and the canonical
+  rebuild of vpp/medical is deferred until it exits. Evidence:
+  `bench/official/results/2026-11-09-prediag-fixes/`,
+  `bench/official/results/2026-11-09-smoke-sandbox/` and the two product20 result dirs.
 - Removed historical research, archived plans, old local benchmark artifacts and stale docs.
 
 ## 0.1.2

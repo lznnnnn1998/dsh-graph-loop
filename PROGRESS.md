@@ -26,19 +26,25 @@ features.
 
 ## In progress / next
 
-- [ ] **product20 — full run live (2026-11-09), no aggregate yet.** Terminal-Bench easy10 +
+- [ ] **product20 — corrected full run live (2026-11-09), no aggregate yet.** Terminal-Bench easy10 +
       medium10, stock vs graph. The instrument was repaired on 2026-11-09 (8 vCPU / 20 GiB / 150 GiB,
       **20/20 env + 20/20 verifier** images including `formal-crypto`, `tb-dsh-base` overlay on every
-      env image, sidecars pulled, tarball `f7a961a797ca5e17…`, smoke 1.0/1.0/1.0). The bounded
-      four-task pre-run diagnostic first failed and then **passed after the vpp/medical fixes**
+      env image, sidecars pulled, tarball `f7a961a797ca5e17…`, smoke 1.0/1.0/1.0), and the
+      `workspace-write` cap was fixed at `da3d598` for **both** arms
+      (`sandbox-policy: danger-full-access`), verified by the post-fix smoke
+      (`bench/official/results/2026-11-09-smoke-sandbox/`). The bounded four-task pre-run diagnostic
+      first failed and then **passed after the vpp/medical fixes**
       (`bench/official/results/2026-11-09-prediag-fixes/`; all eight rows `n_trials: 1`,
-      `n_errors: 0`). The full run is **running**: PID `38616`, started 2026-11-09 04:18:32 +08,
-      OUT_DIR `bench/official/results/2026-11-09-product20/`, log `/tmp/product20-2026-11-09.log`,
-      marker `/tmp/product20-shard-full.log` without `_EXIT`; `rows.jsonl` grows per trial. **No
-      aggregate** — do not cite accuracy, parity, token or cost from partial rows. The live rows also
-      fail the trial-validity gate (6 `TRANSPORT` crashes, 6 file-policy-capped trials at 05:28Z), so
-      the run is **not citable** as it stands and needs an infrastructure re-run into a new `OUT_DIR`
-      (`docs/EVALUATION.md#trial-validity`). **Historical:**
+      `n_errors: 0`; its intrastat/vpp counts are pre-fix ceilings). The corrected run is **running**:
+      PID `61129`, started 2026-11-09 17:19 +08, OUT_DIR
+      `bench/official/results/2026-11-09-product20b/`, log `/tmp/product20b-2026-11-09.log`, marker
+      `/tmp/product20-shard-full.log` without `_EXIT`, executed run commit `da3d598` (rows carry it;
+      the `b3e9af7` wrapper only adds this run's README), tarball
+      `f7a961a797ca5e17…`; `rows.jsonl` grows per trial. **No
+      aggregate** — do not cite accuracy, parity, token or cost from partial rows. The earlier
+      04:18:32 full run (PID `38616`, OUT_DIR `…/2026-11-09-product20/`) was **stopped at 31/40 and is
+      NOT CITABLE** (`bench/official/results/2026-11-09-product20/INVALID.md`: 6 `TRANSPORT` crashes,
+      6 file-policy-capped trials); do not merge its rows. **Historical:**
       the tracked 2026-11-08 partial run (`bench/official/results/2026-11-08-product20-partial/`) was
       taken on the pre-repair instrument and attempted **19/20** tasks: **11 graph / 3 stock** valid
       trials, only **2 paired-valid** tasks (`bun-sourcemap-leak`, `cargo-flight-dispatch`), all
@@ -61,9 +67,10 @@ features.
       56m57s). **Remaining debt:** `build-arm64-task.sh` still uses plain `docker build`, so a
       canonical rebuild reproduces the defect. Force BuildKit/`docker buildx` (or convert the
       heredoc), rebuild both images and re-verify both arms **after** the live runner exits — do not
-      rebuild or retag anything now. Note also that the default `workspace-write` policy rooted at
-      `/app` caps intrastat/roy/vpp on **both** arms (freight will be capped too): a separate
-      instrument defect, fix deferred until after `_EXIT`
+      rebuild or retag anything now. The default `workspace-write` policy rooted at `/app` that capped
+      intrastat/roy/vpp on **both** arms (freight would have been too) was **fixed at `da3d598`**:
+      both arms now get `sandbox-policy: danger-full-access`. Re-measure those tasks from the corrected
+      run; the per-trial `write_capped` field is still deferred
       (`docs/EVALUATION.md#instrument-defects-open`).
 - [ ] Graph termination, remaining part: the tool-stripping/forced-summary defect is fixed (the
       answer keeps tools and an exhausted plan gets a continuation step), but that continuation is a

@@ -6,12 +6,15 @@ a reference broken by your cleanup.
 
 ## Never while a benchmark is live
 
-A benchmark is live while **any** of these holds: `/tmp/product20-shard-full.log` has no `_EXIT`
-line, any `/tmp/product20-shard*.log` lacks its `*_EXIT` line, the PID in
-`bench/official/results/2026-11-09-product20/runner.pid` is alive, or a Harbor `__env` container is
-running. While it is live, do **not** delete, move or rewrite:
+A benchmark is live while **any** of these holds: the shared marker `/tmp/product20-shard-full.log`
+has no `_EXIT` line **and** names a live PID (read its `pid=`, then check that PID), any
+`/tmp/product20-shard*.log` lacks its `*_EXIT` line, **any** `bench/official/results/*/runner.pid`
+names a live process, or a Harbor `__env` container is running. The current run is
+`…/2026-11-09-product20b/runner.pid` (PID `61129`); the stopped run's
+`…/2026-11-09-product20/runner.pid` holds the dead `38616` and is **not** a liveness signal. While it
+is live, do **not** delete, move or rewrite:
 
-- `bench/official/results/2026-11-09-product20/**` — its `README.md`, `rows.jsonl`, `raw/`, `jobs/`,
+- `bench/official/results/2026-11-09-product20b/**` — its `README.md`, `rows.jsonl`, `raw/`, `jobs/`,
   `runner.pid` and per-arm logs are the live run's only durable progress record;
 - `dist/dsh-graph-loop-bench.tgz` — every later trial installs that exact tarball; do not repack it;
 - the task images (`tb-arm64-*`, `tb-dsh-base`, `tb-arm64-medical-claims-sidecar`), any Docker
@@ -19,10 +22,16 @@ running. While it is live, do **not** delete, move or rewrite:
   reading them).
 
 "Generated job trees" and "old build tarballs" in Remove mean finished, non-live results; they do not
-cover the live product20 tree or the current tarball. Preserve those until the runner exits **and**
+cover the live product20b tree or the current tarball. Preserve those until the runner exits **and**
 the marker ends with `_EXIT`. Typecheck, `npm test` and `ci-local.sh` are safe; Docker pruning and
-repacking are not. When the runner exits, do not delete the marker — append `_EXIT` if the watcher
-did not (see the product20 README).
+repacking are not. When the run defined in the marker exits, do not delete the marker: append `_EXIT`
+only under the **marker close** rule in [`automation/evaluator.md`](evaluator.md#product20) (the marker
+names its run, that PID is dead, and no `bench/official/results/*/runner.pid` is live) — never because
+a different, stopped run's PID is dead.
+
+The stopped first run (`bench/official/results/2026-11-09-product20/`, 31 rows) is preserved evidence
+for [`INVALID.md`](../bench/official/results/2026-11-09-product20/INVALID.md); it is not live but its
+rows/jobs must not be deleted or merged into the corrected run.
 
 The live `rows.jsonl`, `raw/` and `runner.pid` are **untracked, not ignored**. While the run is live,
 never run `git clean` (any flags), never `git add -A` / `git add .` / `git add -u`, and never stage

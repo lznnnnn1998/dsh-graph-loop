@@ -6,12 +6,15 @@ were removed; they are not current gates.
 
 ## Status
 
-The **full product20 is live (2026-11-09); no aggregate exists yet.** PID `38616`, started 04:18:32
-+08, OUT_DIR `results/2026-11-09-product20/` (`runner.pid`, `rows.jsonl` growing per trial), log
-`/tmp/product20-2026-11-09.log`, marker `/tmp/product20-shard-full.log` without `_EXIT`. Do not start
-a second run and do not run the smoke gate while it is live; canonical state:
-[`docs/STATUS.md`](../../docs/STATUS.md#current-benchmark-state). Readiness (2026-11-09): 20/20 env
-and 20/20 verifier images including `formal-crypto`, Colima 8 vCPU / 20 GiB / 150 GiB, the
+The **corrected full product20 is live (2026-11-09); no aggregate exists yet.** PID `61129`, started
+17:19 +08, OUT_DIR `results/2026-11-09-product20b/` (`runner.pid`, `rows.jsonl` growing per trial), log
+`/tmp/product20b-2026-11-09.log`, marker `/tmp/product20-shard-full.log` without `_EXIT`; run commit
+`da3d598` (rows carry it; `b3e9af7` is the README-only wrapper committed after start), tarball
+`f7a961a797ca5e17…`. Do not start a second run and do not run the smoke gate while
+it is live; canonical state: [`docs/STATUS.md`](../../docs/STATUS.md#current-benchmark-state). The
+earlier 04:18:32 run (PID `38616`, OUT_DIR `results/2026-11-09-product20/`) was **stopped at 31/40 and
+is NOT CITABLE** ([`INVALID.md`](results/2026-11-09-product20/INVALID.md)). Readiness (2026-11-09):
+20/20 env and 20/20 verifier images including `formal-crypto`, Colima 8 vCPU / 20 GiB / 150 GiB, the
 `tb-dsh-base` overlay on every env image, product20 sidecars pulled, tarball
 `f7a961a797ca5e17…`, smoke 1.0 / 1.0 / 1.0 — see
 [`results/2026-11-09-product20-prep`](results/2026-11-09-product20-prep/README.md) (historical
@@ -25,14 +28,16 @@ the legacy builder's heredoc drop) and `medical-claims-processing` (amd64 `playw
 never healthy under qemu) were `n_trials: 0` on both arms. Both faults were repaired and the four
 tasks reran ([`results/2026-11-09-prediag-fixes`](results/2026-11-09-prediag-fixes/README.md)): vpp
 4/5 both arms, medical 2/27 graph / 22/27 stock, all eight rows `n_trials: 1` / `n_errors: 0`; the
-gate passes and the full run is live. The repairs are local-only: `build-arm64-task.sh` still invokes
-Docker's legacy builder, so a canonical vpp rebuild reproduces the defect, and the medical compose
-image tag is a local edit. **A third, still-open defect caps the numbers above:** DSH runs each trial
-under the default `workspace-write` policy rooted at `/app`, so neither arm can write intrastat's
-`/workspace/out/reconciliation.json` or vpp's installed `site-packages`; intrastat's 0/47 / 42/47 and
-vpp's 4/5 are **ceilings, not capability near-misses** (`roy-polymorph-cn` and the not-yet-run
-`freight-dispatch-shift` are capped the same way). Do not rebuild or reset either while the run is
-live; the code fix is deferred, and the file-policy fix waits for `_EXIT` (see
+gate passes and the corrected run is live. The repairs are local-only: `build-arm64-task.sh` still
+invokes Docker's legacy builder, so a canonical vpp rebuild reproduces the defect, and the medical
+compose image tag is a local edit. **A third defect capped the numbers above when they were measured:**
+DSH ran each trial under the default `workspace-write` policy rooted at `/app`, so neither arm could
+write intrastat's `/workspace/out/reconciliation.json` or vpp's installed `site-packages`; intrastat's
+0/47 / 42/47 and vpp's 4/5 are **ceilings, not capability near-misses** (`roy-polymorph-cn` and the
+not-yet-run `freight-dispatch-shift` were capped the same way). That defect is **fixed at `da3d598`**
+for both arms (`sandbox-policy: danger-full-access`); re-measure those tasks from the corrected run.
+Do not rebuild or reset either while the run is live; the vpp/medical code fixes remain deferred, and
+the per-trial `write_capped` probe is still open (see
 [`docs/EVALUATION.md`](../../docs/EVALUATION.md#instrument-defects-open)).
 
 The tracked [`results/2026-11-08-product20-partial`](results/2026-11-08-product20-partial/README.md)

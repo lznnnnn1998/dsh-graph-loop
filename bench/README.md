@@ -11,14 +11,18 @@ was removed.
 - Gate: smoke task 1.0, then the four-task pre-run diagnostic (passed 2026-11-09 after the
   vpp/medical fixes; see [`automation/evaluator.md`](../automation/evaluator.md)), then all 20 tasks;
   report accuracy, prompt tokens, billed cost and steps.
-- Status: **the full product20 is live (2026-11-09); no aggregate yet.** PID `38616`, started
-  04:18:32 +08, OUT_DIR `official/results/2026-11-09-product20/` (`runner.pid`, `rows.jsonl` growing
-  per trial), log `/tmp/product20-2026-11-09.log`, marker `/tmp/product20-shard-full.log` without
-  `_EXIT`. Do not start a second run and do not run the smoke gate while it is live. Canonical
-  state: [`docs/STATUS.md`](../docs/STATUS.md#current-benchmark-state). **A run is citable only when
+- Status: **the corrected full product20 is live (2026-11-09); no aggregate yet.** PID `61129`,
+  started 17:19 +08, OUT_DIR `official/results/2026-11-09-product20b/` (`runner.pid`, `rows.jsonl`
+  growing per trial), log `/tmp/product20b-2026-11-09.log`, marker `/tmp/product20-shard-full.log`
+  without `_EXIT`; executed run commit `da3d598` (rows carry it; `b3e9af7` is the README-only
+  wrapper committed after start), tarball `f7a961a797ca5e17…`. Do not start a second run and
+  do not run the smoke gate while it is live. Canonical state:
+  [`docs/STATUS.md`](../docs/STATUS.md#current-benchmark-state). The earlier 04:18:32 run (PID `38616`,
+  OUT_DIR `official/results/2026-11-09-product20/`) was **stopped at 31/40 and is NOT CITABLE**
+  ([`INVALID.md`](official/results/2026-11-09-product20/INVALID.md)). **A run is citable only when
   every trial is valid** — `n_trials >= 1`, a healthy agent terminal, and writable declared artifact
-  paths ([trial validity](../docs/EVALUATION.md#trial-validity)); the live rows already include
-  `TRANSPORT` crashes and file-policy-capped trials, so no number from it is citable yet.
+  paths ([trial validity](../docs/EVALUATION.md#trial-validity)); the `workspace-write` cap behind the
+  last clause was fixed at `da3d598` for both arms, so no number from the stopped run is citable.
 - The **historical** tracked
   [`2026-11-08-product20-partial`](official/results/2026-11-08-product20-partial/README.md) run was
   taken on the pre-repair instrument and attempted 19/20 tasks (`formal-crypto` had no verifier
@@ -41,16 +45,19 @@ The four-task pre-run diagnostic first **failed** on two infrastructure faults
 `n_trials: 0` on both arms. Both faults were repaired and the four tasks reran
 ([`2026-11-09-prediag-fixes`](official/results/2026-11-09-prediag-fixes/README.md)): vpp 4/5 both
 arms, medical 2/27 graph / 22/27 stock, all eight rows `n_trials: 1` / `n_errors: 0`; the gate
-passes and the full run is live. The repairs are **local**: `build-arm64-task.sh` still uses Docker's
-legacy builder (a canonical vpp rebuild reproduces the heredoc defect), and medical's compose points
-at the local `tb-arm64-medical-claims-sidecar:latest` tag (a task-dir reset loses it). A **separate,
-still-open** instrument defect also caps these numbers: DSH runs each trial under the default
-`workspace-write` policy rooted at `/app`, so neither arm can write `intrastat`'s
+passes and the corrected run is live. The repairs are **local**: `build-arm64-task.sh` still uses
+Docker's legacy builder (a canonical vpp rebuild reproduces the heredoc defect), and medical's compose
+points at the local `tb-arm64-medical-claims-sidecar:latest` tag (a task-dir reset loses it). A
+**separate** instrument defect capped these numbers when they were measured: DSH ran each trial under
+the default `workspace-write` policy rooted at `/app`, so neither arm could write `intrastat`'s
 `/workspace/out/reconciliation.json` or vpp's installed `site-packages` — intrastat's 0/47 / 42/47 and
-vpp's 4/5 are **ceilings**, not near-misses (and `roy-polymorph-cn`/`freight-dispatch-shift` are
-capped the same way). Do not rebuild or reset either while the run is live; the code fix and the
-file-policy fix are both deferred, the latter until after `_EXIT` (see
-[instrument defects](../docs/EVALUATION.md#instrument-defects-open)). The 2026-11-08 readiness records
+vpp's 4/5 are **ceilings**, not near-misses (and `roy-polymorph-cn`/`freight-dispatch-shift` were
+capped the same way). That defect is **fixed at `da3d598`** for both arms
+(`sandbox-policy: danger-full-access`), so re-measure those tasks from the corrected run rather than
+citing the pre-fix ceilings. Do not rebuild or reset either while the run is live; the vpp/medical
+code fixes remain deferred until after `_EXIT`. The per-trial `write_capped` probe is still deferred
+(see [instrument defects](../docs/EVALUATION.md#instrument-defects-open)). The 2026-11-08 readiness
+records
 ([`2026-11-08-eval-1525`](official/results/2026-11-08-eval-1525/README.md),
 [`2026-11-08-smoke-1525`](official/results/2026-11-08-smoke-1525/README.md)) are historical.
 

@@ -10,13 +10,18 @@ architecture B.
 - Preserve current tests, evidence, README, LICENSE, marketplace and current docs unless the audit
   explicitly says they are stale and misleading.
 - Do not add new benchmarks, products, or a general agent framework.
-- **Live benchmark:** while `/tmp/product20-shard-full.log` has no `_EXIT` line, any
+- **Live benchmark:** a benchmark is live **while any** of these holds: the shared marker
+  `/tmp/product20-shard-full.log` has no `_EXIT` line **and** names a live PID; any
   `/tmp/product20-shard*.log` lacks its matching `*_EXIT` line (the finished A–D shards end
-  `A_EXIT=0` … `D_EXIT=0`), the PID in
-  `bench/official/results/2026-11-09-product20/runner.pid` is alive, or a Harbor `__env` container is
-  running, restrict changes to docs and role files. A quiet runner log or `rows.jsonl` is not the
+  `A_EXIT=0` … `D_EXIT=0`); **any** `bench/official/results/*/runner.pid` names a live process; or a
+  Harbor `__env` container is running. Read the marker's `pid=` and check **that** PID: liveness is the
+  marker text plus the live PID it names, never a hard-coded path. The current run is
+  `…/2026-11-09-product20b/runner.pid` (PID `61129`); the stopped run's
+  `…/2026-11-09-product20/runner.pid` holds the dead `38616` and is **not** a liveness signal. While
+  live, restrict changes to docs and role files. A quiet runner log or `rows.jsonl` is not the
   opposite signal: they advance only at arm boundaries, so liveness is the PID plus the container,
-  not the files' mtime (see the evaluator's liveness note). Do not touch the live product20 `OUT_DIR`
+  not the files' mtime (see the evaluator's liveness note). Never append `_EXIT` to a marker of a live
+  run and never key the guard on a stale run's dead PID. Do not touch the live product20b `OUT_DIR`
   (`rows.jsonl`, `raw/`, `jobs/`, `runner.pid`), `dist/dsh-graph-loop-bench.tgz`, `/tmp/product20-*`,
   `/tmp/tb-arm-dsh/*`, the task images or Docker; do not repack, rebuild or start any benchmark; and
   do not commit source changes that would make HEAD no longer the tarball's source. Defer that work

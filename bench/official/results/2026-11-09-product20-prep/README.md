@@ -1,11 +1,16 @@
 # product20 readiness — 2026-11-09
 
-> **Update 2026-11-09 04:18:32 +08:** the pre-run diagnostic passed after the vpp/medical fixes
-> (postscript 2 below) and the full product20 is **live** — PID `38616`, OUT_DIR
-> [`../2026-11-09-product20/`](../2026-11-09-product20/README.md), `rows.jsonl` growing per trial, no
-> aggregate yet. The snapshot below is **historical** (the state before the diagnostic); read the
-> live run README and [`docs/STATUS.md`](../../../../docs/STATUS.md#current-benchmark-state) for the
-> current state.
+> **Superseded 2026-11-09T17:30+08:** that first full run was stopped at 31/40 and is **not citable**
+> ([`INVALID.md`](../2026-11-09-product20/INVALID.md)); the sandbox instrument was fixed at
+> `da3d598` and the corrected run is live in
+> [`../2026-11-09-product20b/`](../2026-11-09-product20b/README.md) (PID `61129`). The banner and
+> snapshot below are kept as the historical record.
+
+> **Update 2026-11-09 04:18:32 +08 (historical):** the pre-run diagnostic passed after the
+> vpp/medical fixes (postscript 2 below) and the first full product20 started — PID `38616`, OUT_DIR
+> [`../2026-11-09-product20/`](../2026-11-09-product20/README.md), `rows.jsonl` growing per trial.
+> That run was later stopped (see the superseded note above). The snapshot below is **historical**
+> (the state before the diagnostic).
 
 **Status: instrument ready; the full run is pending the pre-run diagnostic.** This note records the
 environment repair after the 2026-11-08/09 audits; it is not a product result. No product20 rows
@@ -110,8 +115,9 @@ Both diagnostic faults were repaired and the four tasks rerun. Final table:
 
 All eight rows have `n_trials: 1`, `n_errors: 0`; the gate **passes**. The vpp images were patched
 out-of-band (the repo build script is still legacy-builder and would reproduce the defect), and the
-medical task's prepared compose points at a local arm64 sidecar tag. The full product20 then
-**started at 2026-11-09 04:18:32 +08** and is **live** (PID `38616`, OUT_DIR
-[`../2026-11-09-product20/`](../2026-11-09-product20/README.md), `rows.jsonl` growing per trial); do
-not start a second run. **No aggregate is citable** while it is live; see the live run README and
+medical task's prepared compose points at a local arm64 sidecar tag. The first full product20 then
+**started at 2026-11-09 04:18:32 +08** (PID `38616`, OUT_DIR
+[`../2026-11-09-product20/`](../2026-11-09-product20/README.md), `rows.jsonl` growing per trial); it
+was later **stopped at 31/40 and is not citable** ([`INVALID.md`](../2026-11-09-product20/INVALID.md)).
+The corrected run is live in [`../2026-11-09-product20b/`](../2026-11-09-product20b/README.md); see
 [`docs/STATUS.md`](../../../../docs/STATUS.md#current-benchmark-state).

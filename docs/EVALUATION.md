@@ -1,22 +1,27 @@
 # Evaluation — product20
 
-Status: **instrument repaired, the pre-run diagnostic gate passes, and the full product20 is
-running; no stock-vs-graph aggregate exists yet.** The first 2026-11-09 diagnostic failed on two
-infrastructure faults; both were fixed and the four tasks were rerun
+Status: **instrument fixed and smoke-verified, the pre-run diagnostic gate passed, and the corrected
+full product20 is running; no stock-vs-graph aggregate exists yet.** The first 2026-11-09 diagnostic
+failed on two infrastructure faults; both were fixed and the four tasks were rerun
 ([final table](../bench/official/results/2026-11-09-prediag-fixes/README.md)): all eight rows have
 `n_trials: 1` and `n_errors: 0`, including `vpp-loss-divergence` (4/5 both arms) and
-`medical-claims-processing` (2/27 graph, 22/27 stock) on an arm64 sidecar. The full run started
-2026-11-09 04:18:32 +08 as PID `38616` with OUT_DIR
-`bench/official/results/2026-11-09-product20/`; its `rows.jsonl` grows per trial and is the canonical
-partial record. Do not start a second run or run the smoke gate while it is live. No product claim
-until all 20 tasks have valid stock and graph trials, and an oracle control shows the harness can
-score a pass on the task. **"Valid" is the three-part test in [Trial validity](#trial-validity)**:
-a Harbor trial, a healthy agent terminal, and writable declared artifact paths. `n_trials >= 1`
-alone is not enough, and the live run already contains `TRANSPORT` crashes and
-`workspace-write`-capped rows, so it is **not citable as it stands** (see
-[Instrument defects](#instrument-defects-open)). Readiness:
+`medical-claims-processing` (2/27 graph, 22/27 stock) on an arm64 sidecar. The corrected run started
+2026-11-09 17:19 +08 as PID `61129` with OUT_DIR
+`bench/official/results/2026-11-09-product20b/`; its `rows.jsonl` grows per trial and is the canonical
+partial record. Executed run commit `da3d598` (every row carries it); wrapper `b3e9af7` is
+README-only and landed after the runner started; tarball sha256
+`f7a961a797ca5e17fdd68d52c0bd6dfeec50ec4151f42d84bbd7405069b12064` (223,458 B). Do not start a second
+run or run the smoke gate while it is live. The earlier 04:18:32 run (PID `38616`, OUT_DIR
+`…/2026-11-09-product20/`) was **stopped at 31/40 and is NOT CITABLE**
+([`INVALID.md`](../bench/official/results/2026-11-09-product20/INVALID.md)). No product claim until all
+20 tasks have valid stock and graph trials, and an oracle control shows the harness can score a pass
+on the task. **"Valid" is the three-part test in [Trial validity](#trial-validity)**: a Harbor trial,
+a healthy agent terminal, and writable declared artifact paths. `n_trials >= 1` alone is not enough.
+The `workspace-write` cap behind the third clause is **fixed at `da3d598`** (both arms run under
+`sandbox-policy: danger-full-access`, verified by smoke); the per-trial `write_capped` field is still
+deferred ([Instrument defects](#instrument-defects-open)). Readiness:
 [`2026-11-09-product20-prep`](../bench/official/results/2026-11-09-product20-prep/README.md)
-(historical snapshot from before the run).
+(historical snapshot from before the first run).
 
 ## Suite
 
@@ -79,26 +84,30 @@ That run's timeout class is therefore a harness-policy artifact, not a task outc
    **Result of the 2026-11-09 attempt: the first run FAILED, then PASSED after fixes.** The first
    run is at [`2026-11-09-prediag-0122`](../bench/official/results/2026-11-09-prediag-0122/README.md):
    `intrastat-meldung` (graph 0/47, stock 42/47) and `heat-pump-warranty` (graph 1/21, stock 16/21)
-   were Harbor-valid (intrastat's counts are nevertheless capped by the file policy — see below);
+   were Harbor-valid (intrastat's counts were nevertheless capped by the file policy at the time —
+   that defect is fixed at `da3d598`; see below);
    `vpp-loss-divergence` had `n_trials: 0` (legacy-builder heredoc drop) and
    `medical-claims-processing` had `n_trials: 0` (amd64 sidecar never healthy). Both were repaired
    and rerun; the final table is
    [`2026-11-09-prediag-fixes`](../bench/official/results/2026-11-09-prediag-fixes/README.md):
    vpp graph/stock 4/5, medical graph 2/27 / stock 22/27, plus the two earlier valid tasks. All
    eight rows have `n_trials: 1`, `n_errors: 0`; the gate passes. The direct `formal-crypto` verifier
-   check passed (Python 3.12.14, SageMath 10.7). The full product20 has since been started
-   (2026-11-09 04:18:32 +08, PID `38616`, OUT_DIR `bench/official/results/2026-11-09-product20/`) and
-   is live. If that final table exists, do not repeat the diagnostic; if a benchmark is live, report
-   "benchmark in progress" instead of starting another run.
+   check passed (Python 3.12.14, SageMath 10.7). The first full product20 ran from 04:18:32 +08 (PID
+   `38616`, OUT_DIR `bench/official/results/2026-11-09-product20/`) but was **stopped at 31/40 and is
+   NOT CITABLE** ([`INVALID.md`](../bench/official/results/2026-11-09-product20/INVALID.md)); the
+   corrected run is live (PID `61129`, OUT_DIR `bench/official/results/2026-11-09-product20b/`). If
+   that final table exists, do not repeat the diagnostic; if a benchmark is live, report "benchmark in
+   progress" instead of starting another run.
 
-   **Caveat on those eight rows (added 2026-11-09T13:35Z):** `intrastat-meldung` and
-   `vpp-loss-divergence` fail the artifact-writable clause — both arms are denied
-   `/workspace/out/reconciliation.json` and the installed-`site-packages` edit respectively — so
-   intrastat's 0/47 / 42/47 and vpp's 4/5 are **ceilings, not capability near-misses**
-   ([Instrument defects](#instrument-defects-open)). `heat-pump-warranty` and
-   `medical-claims-processing` write inside `/app` and are valid; medical 2/27 / 22/27 is genuine
-   diagnostic evidence, while the live run's graph medical 2/27 is a different, `TRANSPORT`-crashed
-   row — do not conflate them.
+   **Caveat on those eight rows (added 2026-11-09T13:35Z, reworded after the fix):**
+   `intrastat-meldung` and `vpp-loss-divergence` failed the artifact-writable clause **when measured**
+   — both arms were then denied `/workspace/out/reconciliation.json` and the installed-`site-packages`
+   edit respectively — so intrastat's 0/47 / 42/47 and vpp's 4/5 are **pre-fix ceilings, not
+   capability near-misses**. That cap is fixed at `da3d598`; re-measure those tasks from the corrected
+   run ([Instrument defects](#instrument-defects-open)). `heat-pump-warranty` and
+   `medical-claims-processing` write inside `/app` and were unaffected; medical 2/27 / 22/27 is
+   genuine diagnostic evidence, while the stopped run's graph medical 2/27 was a different,
+   `TRANSPORT`-crashed row — do not conflate them.
 4. Run `bash bench/official/subsets/run-product20.sh`; each task runs graph and stock.
    `run-subset.sh` now defaults `TASKS` to the product20 manifest and `OUT_DIR` to
    `bench/official/results/terminal-bench-product20/`. Do not pass an ad-hoc task list except for the
@@ -126,20 +135,25 @@ A row's `n_trials >= 1` is **necessary, not sufficient**. A trial is valid only 
    `exit: 0` does not mean the trial was healthy.
 3. **Writable declared artifacts.** The agent could write every artifact path its `task.toml`
    declares. A trial that cannot write outside `/app` is **capped** by the `workspace-write` file
-   policy ([Instrument defects](#instrument-defects-open)), not a capability result.
+   policy — **fixed at `da3d598`**; if it recurs, treat it as infrastructure, not a capability result
+   ([Instrument defects](#instrument-defects-open)).
 
-`n_trials`/`n_errors`/`exit` are blind to (2) and (3). On 2026-11-09 the live product20 had 6 of 29
-trials failing (2) as ordinary `0.0` rows and 6 of 29 capped by (3), with `n_errors: 0` and
-`exit: 0` throughout. Read the trial's `jobs/<job>/<trial>/agent/dsh-stdout.log` tail for (2); for
-(3), grep the trial output for the sandbox-denial quote and check the task's declared `artifacts`
-against the paths the agent reports as writable.
+`n_trials`/`n_errors`/`exit` are blind to (2) and (3). The row now carries `agent_exit` and
+`transport_failed` (`da3d598`), but read the trial's `jobs/<job>/<trial>/agent/dsh-stdout.log` tail to
+confirm (2): the stopped 2026-11-09 run had 6 of 29 trials failing it as ordinary `0.0` rows and 6 of
+29 capped by (3), with `n_errors: 0` and `exit: 0` throughout. For (3), grep the trial session for
+`Current DSH file policy` and the sandbox-denial quote, and check the task's declared `artifacts`
+against the paths the agent reports as writable — the per-trial `write_capped` field is still deferred.
 
 **Citable-run gate.** A completed product20 is citable only when all 20 tasks have both arms,
 every trial is valid under (1)–(3), and the marker ends `_EXIT`. A run that fails (2) or (3) is
 **incomplete for citation**, not a completed reference: re-running the affected trials/tasks into a
 **new `OUT_DIR`** is an infrastructure re-run (authorized without an instrument change, and not a
-second product20). The live 2026-11-09 run is **not citable** while its transport-failed and
-write-capped rows exist.
+second product20). The stopped 2026-11-09 run is **not citable**
+([`INVALID.md`](../bench/official/results/2026-11-09-product20/INVALID.md)); the corrected run
+(`…/2026-11-09-product20b/`) becomes citable only when its own 40 rows pass (1)–(3) and its marker
+closes. `GRAPH_FAILED` exit 1 is valid even alongside a scored 1.0 — `run-subset.sh`'s
+`agent_invalid_rows` currently miscounts it (deferred code fix).
 
 ## Row schema
 
@@ -148,6 +162,7 @@ Every row written by `run-subset.sh` must carry:
 | Field | Meaning |
 |---|---|
 | `task`, `arm`, `score`, `n_trials`, `n_errors`, `exit` | trial outcome |
+| `agent_exit`, `transport_failed` | DSH's own process exit and transport flag from the adapter metadata (since `da3d598`); `null` means the adapter never returned, **not** "valid" |
 | `commit` | `git rev-parse HEAD` at run start |
 | `model` | model id used by both arms |
 | `image_env`, `image_verifier` | task image tags actually used |
@@ -159,54 +174,78 @@ A row missing any of these is not reportable. The 2026-11-08 partial rows predat
 cannot be re-derived from their `/tmp` job trees (see the partial README); do not backfill invented
 values.
 
-**Planned fields (deferred until `_EXIT`, not in the live runner):** `agent_exit` (the DSH process
-code from the adapter's `result.return_code`), `transport_failed` (bool, or a `valid: false`
-reason), and `write_capped`/`artifact_writable` (from the readiness check). Until they exist, keep
-recording `n_trials`/`n_errors`/`exit` as they are — `exit` is Harbor's status — and use
-[Trial validity](#trial-validity) to interpret the rows.
+**Fields added at `da3d598`:** `agent_exit` (the DSH process code from the adapter's
+`result.return_code`) and `transport_failed` are written by **both** arms into
+`agent_result.metadata`, and `run-subset.sh` copies them onto the row (the post-fix smoke shows
+`{"agent_exit":0,"transport_failed":false}` on both arms). **Still deferred:** `write_capped` /
+`artifact_writable` (from a readiness probe) is not in the row — grep each trial session for
+`Current DSH file policy` and the sandbox-denial quote instead. The residual interpretation fixes
+(`GRAPH_FAILED` exemption, `TRANSPORT` signature narrowing, fail-closed `null` metadata,
+`write_capped`/`tarball_sha256` fields) are listed under
+[Instrument defects](#instrument-defects-open).
 
-## Instrument defects (open)
+<a id="instrument-defects-open"></a>
+## Instrument defects (status)
 
-These are harness defects, not agent results. They are documented now and **fixed only after the
-live runner exits and its marker has `_EXIT`**, because the runner re-reads `run-subset.sh`
-incrementally and re-imports `criteria.py` per row. Do not implement them while the benchmark is
-live.
+These are harness defects, not agent results. **Defects 1 and 2 below were fixed at `da3d598` and
+verified by the post-fix smoke**
+([`2026-11-09-smoke-sandbox`](../bench/official/results/2026-11-09-smoke-sandbox/README.md): oracle /
+graph / stock 1.0; both agent sessions print `Current DSH file policy: danger-full-access`; trial
+metadata carries `agent_exit`/`transport_failed`). The policy fix lives in
+`bench/official/terminal-bench/dsh_agent.py` and did not require a plugin repack. What remains
+deferred is the code work listed under defect 2 — **do not edit the live runner while PID `61129`
+runs**, because it re-reads `run-subset.sh` incrementally and re-imports `criteria.py` per row.
 
-### 1. `workspace-write` caps artifacts outside `/app`
+### 1. `workspace-write` capped artifacts outside `/app` — FIXED at `da3d598`
 
-The Harbor adapter runs DSH with the default headless file policy, `workspace-write` rooted at the
-session workspace `/app` (`bench/official/terminal-bench/dsh_agent.py` does `cd /app … dsh --profile
-tb`; no config entry sets a file policy). Escalation needs an approval answerer and fails closed, so
-bash writes are landlocked to `/app` as well.
+Before the fix the Harbor adapter ran DSH with the default headless file policy, `workspace-write`
+rooted at the session workspace `/app` (`bench/official/terminal-bench/dsh_agent.py` did `cd /app …
+dsh --profile tb`; no config entry set a file policy). Escalation needed an approval answerer and
+failed closed, so bash writes were landlocked to `/app` as well.
 
-| task | declared artifact | state |
+| task | declared artifact | state before the fix |
 |---|---|---|
-| `intrastat-meldung` | `/workspace/out/reconciliation.json` | **capped, both arms** |
-| `roy-polymorph-cn` | `/results/TB3_Conf_Answers.csv` | **capped, both arms** |
-| `vpp-loss-divergence` | installed `/usr/local/lib/python3.11/site-packages/...` | **capped, both arms** (4/5 ceiling) |
-| `freight-dispatch-shift` (not run yet) | `/workspace/dispatch` | **will be capped** |
-| `shadow-relay` (not run yet) | `/tmp/agent.patch` | probably writable in `/tmp`; verify, do not assume |
+| `intrastat-meldung` | `/workspace/out/reconciliation.json` | capped, both arms |
+| `roy-polymorph-cn` | `/results/TB3_Conf_Answers.csv` | capped, both arms |
+| `vpp-loss-divergence` | installed `/usr/local/lib/python3.11/site-packages/...` | capped, both arms (4/5 ceiling) |
+| `freight-dispatch-shift` (not run in the stopped run) | `/workspace/dispatch` | would have been capped |
+| `shadow-relay` | `/tmp/agent.patch` | probably writable in `/tmp`; unexercised |
 
-The cap is symmetric (both arms), so it does not bias the arm comparison directly — but it makes the
-absolute rate meaningless, burns 8–20 min of each capped trial on sandbox probing, and invalidates
+The cap was symmetric (both arms), so it did not bias the arm comparison directly — but it made the
+absolute rate meaningless, burned 8–20 min of each capped trial on sandbox probing, and invalidated
 step/time comparisons on exactly the tasks whose short graph runs otherwise look "efficient"
 (`cargo` 2.5 vs 11.7 min, `interleaved` 16 vs 73.6 min are transport/crash effects, not speed).
 
-**Fix (post-`_EXIT`, do not implement now).** In the adapter or the bench profile, grant the trial
-write access to the task's declared artifact paths: either a container-scoped `danger-full-access`
-file policy (the trial already runs inside a disposable Docker container) or an explicit allow-list
-of the task's `task.toml` artifact paths — applied to **both** arms. Then re-verify one intrastat,
-one roy and one vpp trial before the next full run. Add a **readiness check that every declared
-artifact path is writable**; `n_trials`/`n_errors` cannot detect this defect.
+**Fix (applied at `da3d598`).** The adapter writes and applies a shared profile patch to **both** arms:
+`sandbox-policy` → `mode: danger-full-access` (the trial already runs inside a disposable Docker
+container) and `llm-deepseek` → `maxRetries: 3`; `--dump-config` plus fail-closed greps verify the
+patch in-container. Both post-fix smoke sessions carry the policy in their runtime context. The
+readiness numbers in `2026-11-09-prediag-fixes` were measured **before** this fix, so their
+intrastat/vpp counts are pre-fix ceilings; re-verify one intrastat, one roy and one vpp trial from the
+corrected run. A per-trial **`write_capped` / writable-artifact probe is still deferred** —
+`n_trials`/`n_errors` cannot detect a regression, so grep each trial session for
+`Current DSH file policy`.
 
-### 2. The row has no agent-exit / transport / writability field
+### 2. The row had no agent-exit / transport field — FIXED at `da3d598`; probes deferred
 
-`bench/official/terminal-bench/run-subset.sh` writes `exit`, which is Harbor's process status;
-`dsh_agent.py` logs `DSH exited {code}; verifier will score the workspace as-is` and returns
-normally, so a transport crash becomes an ordinary `0.0` row with `n_errors: 0` and `exit: 0`. Fix
-after `_EXIT`: add `agent_exit`, `transport_failed` and a `write_capped`/`artifact_writable` flag to
-the row; treat a transport-failed trial as an **infrastructure retry** into a new `OUT_DIR` rather
-than a score; keep `n_errors` for Harbor exceptions only and stop using it as a validity signal.
+Before the fix `run-subset.sh` wrote only `exit`, which is Harbor's process status; `dsh_agent.py`
+logged `DSH exited {code}; verifier will score the workspace as-is` and returned normally, so a
+transport crash became an ordinary `0.0` row with `n_errors: 0` and `exit: 0`. Since `da3d598` the
+adapter writes `agent_exit`/`transport_failed` into `agent_result.metadata` for both arms, and
+`run-subset.sh` copies them onto the row; smoke trials carry
+`{"agent_exit":0,"transport_failed":false}`. **Deferred interpretation fixes (documented, do not
+implement while live):**
+
+- `run-subset.sh`'s `agent_invalid_rows` counts agent exit 1 + `GRAPH_FAILED` as invalid, although
+  `GRAPH_FAILED` is the loop's designed terminal and valid — exempt it.
+- `transport_failed` is still a whole-transcript `TRANSPORT` substring; narrow it to the
+  `dsh: TRANSPORT: DeepSeek Messages transport failed` signature so a valid logistics transcript is
+  not flagged.
+- `agent_exit: null` means "no metadata was written" (a Harbor exception before the adapter
+  returned), **not** "valid" — make the extraction fail-closed and stop taking the first job only.
+- Add `write_capped`/`artifact_writable` and `tarball_sha256` to rows; treat a transport-failed or
+  capped trial as an **infrastructure retry** into a new `OUT_DIR` rather than a score; keep
+  `n_errors` for Harbor exceptions only and stop using it as a validity signal.
 
 ## Metrics
 
@@ -252,23 +291,36 @@ measured).
   passes**. The repairs are local-only: `build-arm64-task.sh` still uses the legacy builder, so a
   canonical vpp rebuild reproduces the defect, and the medical compose tag is a local edit. Do not
   rebuild or reset either while the run is live; the code fixes and retests are deferred until the
-  runner exits. The **separate** `workspace-write` defect still caps `intrastat` and `vpp`; their
-  counts here are ceilings ([Instrument defects](#instrument-defects-open)).
-- Full product20 (live, 2026-11-09): started 04:18:32 +08, PID `38616`, OUT_DIR
-  `bench/official/results/2026-11-09-product20/`, log `/tmp/product20-2026-11-09.log`, marker
-  `/tmp/product20-shard-full.log` without `_EXIT`. `rows.jsonl` grows per trial; each row carries
-  `commit 11fe18f…`, model, image tags, timeout, criteria and a durable `raw/` result. **No aggregate
-  yet**; partial rows are not citable. A watcher appends `_EXIT` to the marker when the PID exits; if
-  it is absent, append `_EXIT` by hand after confirming the PID is dead (see the run README).
-  **Not citable:** at the 05:28Z audit (29/40 rows) 6 rows were `TRANSPORT` crashes and 6
-  (`intrastat` ×2, `roy` ×2, `vpp` ×2) were capped by the file policy, so even a completed run
-  cannot become the reference without an infrastructure re-run of those trials into a new
-  `OUT_DIR` ([Trial validity](#trial-validity)).
+  runner exits. The **separate** `workspace-write` defect capped `intrastat` and `vpp` **before**
+  `da3d598`; their counts here are pre-fix ceilings, and the defect itself is fixed
+  ([Instrument defects](#instrument-defects-open)).
+- Corrected full product20 (**live**, 2026-11-09): started 17:19 +08, PID `61129`, OUT_DIR
+  `bench/official/results/2026-11-09-product20b/`, log `/tmp/product20b-2026-11-09.log`, marker
+  `/tmp/product20-shard-full.log` without `_EXIT`. `rows.jsonl` grows per trial; rows carry
+  `commit da3d598…`, `agent_exit`/`transport_failed`, model, image tags, timeout, criteria and a
+  durable `raw/` result. Executed run commit `da3d598`; wrapper `b3e9af7` (README-only, after start);
+  tarball
+  `f7a961a797ca5e17…b12064`. **No aggregate yet**; partial rows are not citable. The marker's watcher
+  closes it when PID `61129` exits — never append `_EXIT` because the **stopped** run's PID (`38616`)
+  is dead; see the marker-close rule in
+  [`automation/evaluator.md`](../automation/evaluator.md#product20).
+- First full product20 (**stopped, not citable**): started 04:18:32 +08, PID `38616`, OUT_DIR
+  `bench/official/results/2026-11-09-product20/`, 31/40 rows. It is invalid
+  ([`INVALID.md`](../bench/official/results/2026-11-09-product20/INVALID.md)): at the 05:28Z audit
+  6 rows were `TRANSPORT` crashes and 6 (`intrastat` ×2, `roy` ×2, `vpp` ×2) were capped by the file
+  policy. Do not merge its rows into the corrected run; the instrument was fixed afterwards.
+- Sandbox instrument fix (2026-11-09, `da3d598`): both arms receive a shared profile patch with
+  `sandbox-policy: danger-full-access` (the container is the sandbox) and `llm-deepseek` retries 3;
+  the adapter also records `agent_exit`/`transport_failed` in the trial metadata. Verified by the
+  post-fix smoke ([record](../bench/official/results/2026-11-09-smoke-sandbox/README.md): oracle /
+  graph / stock 1.0; both agent sessions print `Current DSH file policy: danger-full-access`). The
+  plugin tarball is unchanged (the fix lives in `bench/`).
 - Smoke (2026-11-09, this tree): **1.0** oracle / **1.0** graph / **1.0** stock on the synthetic
   `smoke/answer-42` task ([record](../bench/official/results/2026-11-09-smoke-prep/README.md));
   harness plumbing only, not product evidence. The raw `result.json` files live in that run's
   git-ignored `jobs/` dir. The 2026-11-08 smoke records are historical.
-- Benchmark tarball: `dist/dsh-graph-loop-bench.tgz` is 223,458 B, sha256 `f7a961a797ca5e17…`, and
+- Benchmark tarball: `dist/dsh-graph-loop-bench.tgz` is 223,458 B, sha256
+  `f7a961a797ca5e17fdd68d52c0bd6dfeec50ec4151f42d84bbd7405069b12064`, and
   `npm pack` in `packages/loop` reproduces it byte for byte at this HEAD — a repack is idempotent, so
   verify the sha rather than treating the artifact as stale. `packages/*/lib` matches a fresh build
   (`build:check` green). The tarball's `package/lib` differs from the checked-out `lib` only in
