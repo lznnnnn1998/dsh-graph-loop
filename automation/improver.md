@@ -33,6 +33,8 @@ most one P0 and one P1 in one coherent commit.
 - Do not touch a live run's `OUT_DIR`, rows/raw/jobs/runner.pid, `/tmp/product20-*`,
   `/tmp/tb-arm-dsh`, task images or Docker.
 - Do not add a new benchmark, product or general agent framework.
+- Do not edit `automation/*.md` or `automation/ENVIRONMENT.md`; the role-designer owns the role
+  contract. Report a handoff/prompt defect instead of fixing it here.
 
 ## Verify and commit
 

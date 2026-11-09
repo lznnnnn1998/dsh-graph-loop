@@ -18,9 +18,14 @@ source.
   `jobs/`, `runner.pid`, per-arm logs — including aborted and invalid runs;
 - `dist/dsh-graph-loop-bench.tgz` unless the evaluator/improver explicitly repacked and recorded it;
 - `/tmp/product20-*` markers/logs, `/tmp/tb-arm-dsh/*`, task images, Docker containers;
-- the last **3** `docs/audits/*.md` reports;
+- the last **3** `docs/audits/*.md` reports and the last **3** `docs/audits/role-design-*.md`
+  reports;
 - current source/tests, `README.md`, `LICENSE`, `marketplace/`, `docs/{STATUS,EVALUATION,PUBLISHING,
   MERGE-LANGGRAPH}.md`, and the current cycle's evaluation note.
+
+Do not edit `automation/*.md` or `automation/ENVIRONMENT.md`; the role-designer owns the role
+contract. If the evaluator's note shows a prompt/handoff defect, leave it for the next
+role-designer.
 
 ## Allowed cleanup
 

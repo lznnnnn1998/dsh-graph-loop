@@ -53,5 +53,6 @@ for pidfile in bench/official/results/*/runner.pid; do
 done
 
 echo "live_runner_pids=$(for f in bench/official/results/*/runner.pid; do [ -f "$f" ] || continue; p=$(cat "$f"); ps -p "$p" >/dev/null 2>&1 && echo "$f"; done | wc -l | tr -d ' ')"
+echo "latest_role_design=$(ls -1t docs/audits/role-design-*.md 2>/dev/null | head -1)"
 echo "latest_audit=$(ls -1t docs/audits/*.md 2>/dev/null | head -1)"
 echo "latest_eval=$(ls -1dt bench/official/results/*eval*/ 2>/dev/null | head -1)"

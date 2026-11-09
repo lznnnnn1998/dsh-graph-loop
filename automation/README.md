@@ -1,17 +1,23 @@
-# Recurring four-role cycle
+# Recurring five-role cycle
 
-Every four hours the Lead runs four **fresh, separate** agents in this fixed order:
+Every four hours the Lead runs five **fresh, separate** agents in this fixed order:
 
 | Order | Role | Prompt | Deliverable |
 |---|---|---|---|
-| 1 | auditor | `automation/auditor.md` | `docs/audits/<UTC>.md` |
-| 2 | improver | `automation/improver.md` | one coherent code/test/instrument commit + Resolution |
-| 3 | evaluator | `automation/evaluator.md` | gate result + benchmark result under `bench/official/results/` |
-| 4 | cleaner | `automation/cleaner.md` | cleanup commit or clean-tree report |
+| 1 | role-designer | `automation/role-designer.md` | role-contract commit or `no-op` + `role-design-<UTC>.md` |
+| 2 | auditor | `automation/auditor.md` | `docs/audits/<UTC>.md` |
+| 3 | improver | `automation/improver.md` | one coherent code/test/instrument commit + Resolution |
+| 4 | evaluator | `automation/evaluator.md` | gate result + benchmark result under `bench/official/results/` |
+| 5 | cleaner | `automation/cleaner.md` | cleanup commit or clean-tree report |
 
 The Lead only orchestrates: create the lock, pass paths and one-line results, wait for each role,
 remove the lock after the cleaner. It never performs a role, starts a benchmark, or edits product
 code itself.
+
+`role-designer` is a meta-role. It runs first so a broken handoff/contract can be repaired before the
+execution roles run; it does not audit the product or start anything. It may edit only
+`automation/*.md`, `automation/ENVIRONMENT.md` and `scripts/cycle-state.sh`, and only when the
+previous cycle's evidence shows a role-behavior defect.
 
 ## Cycle contract
 
@@ -23,15 +29,17 @@ code itself.
    and a doc disagree, the script wins; correct the doc only if it would mislead an operator.
 3. **Strict sequence.** Spawn role N+1 only after role N has returned. Never reuse an agent or run
    two roles concurrently. Handoff is a path plus a one-line result, never a transcript.
-4. **One lock.** Create `docs/audits/.running` before the auditor. The cleaner removes it at the end.
-   A cancelled cycle leaves it for the Lead to remove. The lock is role-level; a background
+4. **One lock.** Create `docs/audits/.running` before `role-designer`. The cleaner removes it at the
+   end. A cancelled cycle leaves it for the Lead to remove. The lock is role-level; a background
    benchmark is guarded by the live-run predicate, not by this lock.
-5. **Small output.** Auditor: at most 8 findings. Improver: at most one P0 and one P1, one coherent
-   commit. Evaluator: one gate decision, one run status. Cleaner: one cleanup commit. If a role finds
+5. **Small output.** Role-designer: ≤60-line design note and at most one contract commit, or
+   `no-op`. Auditor: at most 8 findings. Improver: at most one P0 and one P1, one coherent commit.
+   Evaluator: one gate decision, one run status. Cleaner: one cleanup commit. If a role finds
    nothing safe, it says "no-op" and stops; it does not manufacture work.
-6. **Ownership.** Each finding names exactly one owner: `improver` (code/tests/instrument/docs that
-   block reliability), `evaluator` (execution/validation), `cleaner` (hygiene), or `Lead`
-   (schedule/lock/human decision). A role may not silently take another owner's finding.
+6. **Ownership.** Each finding names exactly one owner: `role-designer` (prompt/contract/handoff),
+   `improver` (code/tests/instrument/docs that block reliability), `evaluator`
+   (execution/validation), `cleaner` (hygiene), or `Lead` (schedule/lock/human decision). A role may
+   not silently take another owner's finding.
 7. **Benchmark execution.** Only the evaluator may start a benchmark. Only after the live-run
    predicate is false, the tarball matches HEAD, `scripts/ci-local.sh` passes, and the bounded
    post-HEAD gate passes. Start it in the background, record PID/log/OUT_DIR/rows, and return.
@@ -45,6 +53,7 @@ code itself.
 
 ## Handoff files
 
+- Role design: `docs/audits/role-design-<UTC>.md`; only the role-designer writes it.
 - Audit: `docs/audits/<UTC>.md`; its `## Resolution` is appended by the improver.
 - Evaluation: `bench/official/results/<UTC>-eval/README.md` plus the run's `rows.jsonl`/`raw/`.
 - Cleanup: a local commit; the cleaner reports the diff summary and what it preserved.

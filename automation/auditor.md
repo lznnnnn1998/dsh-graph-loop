@@ -36,11 +36,12 @@ Audit **the cycle goal first**. For a product20-reliability goal the priority is
 
 ## Output (hard limits)
 
-Write the report in at most **120 lines**:
+Write the report in at most **120 lines**. If the defect is in a role prompt, the cycle contract or
+a handoff, assign it to `role-designer`; do not edit `automation/` yourself.
 
 1. `## State` — the `cycle-state.sh` facts, one line each.
 2. `## Findings` — at most **8** items. Each item:
-   `ID | severity P0/P1/P2 | owner improver/evaluator/cleaner/Lead | evidence path:line |
+   `ID | severity P0/P1/P2 | owner role-designer/improver/evaluator/cleaner/Lead | evidence path:line |
    acceptance test/command`.
 3. `## Next action` — exactly one line: the first P0 (or "no safe code change; evaluator runs the
    gate").
