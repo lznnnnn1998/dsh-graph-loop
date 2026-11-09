@@ -77,6 +77,12 @@
   `bench/official/results/2026-11-09-smoke-sandbox/`, `.../2026-11-09-product20b/ABORTED.md` and the
   two product20 result dirs.
 - Removed historical research, archived plans, old local benchmark artifacts and stale docs.
+- Benchmark network configuration consolidated: `official/terminal-bench/network.sh` is the single
+  source of truth for mirrors (`DSH_MIRRORS=cn|off`) and the proxy variable contract;
+  `apply-mirrors.py` reads it instead of owning URLs, and now covers npm/Node/apt as well as
+  pip/uv; `build-dsh-base.sh` gives the reusable base image the same treatment. `check-network.sh`
+  guards the rewrite offline (including `DSH_MIRRORS=off` and idempotence), `network-doctor.sh`
+  prints the resolved host/daemon config, and run rows plus `summary.json` record the mirror mode.
 
 ## 0.1.2
 

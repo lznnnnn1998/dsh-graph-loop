@@ -4,6 +4,9 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../../.." && pwd)"
+# shellcheck source=network.sh
+source "$HERE/network.sh"
+echo "network: mirrors=$DSH_MIRRORS (source: network.sh)"
 export PATH="$HOME/.local/bin:$PATH"
 export PYTHONPATH="$HERE${PYTHONPATH:+:$PYTHONPATH}"
 export DSH_PLUGIN_TARBALL="${DSH_PLUGIN_TARBALL:-$ROOT/dist/dsh-graph-loop-bench.tgz}"

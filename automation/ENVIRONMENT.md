@@ -9,9 +9,14 @@ latest result directory. This file records only facts that change rarely.
 - Docker daemon runs inside Colima. The daemon proxy is configured in
   `/etc/systemd/system/docker.service.d/http-proxy.conf`; it must point at the host LAN IP on port
   8899. Re-derive the IP with `ipconfig getifaddr en0` (currently `192.168.196.127` is the known
-  value, not a permanent constant).
-- For a task build, pass `HTTP_PROXY`/`HTTPS_PROXY=http://<host-ip>:8899` to
-  `bench/official/terminal-bench/build-arm64-task.sh`. Direct daemon egress does not work.
+  value, not a permanent constant). The full network contract — package mirrors, build args and
+  container env — lives in
+  [`bench/README.md#network-setup-mirrors--proxy`](../bench/README.md#network-setup-mirrors--proxy);
+  do not duplicate mirror URLs or proxy variable names here.
+  `bash bench/official/terminal-bench/network-doctor.sh` prints and checks the resolved config.
+- For a task build, export `HTTP_PROXY`/`HTTPS_PROXY=http://<host-ip>:8899`; the build script passes
+  them as build args and `apply-mirrors.py` applies the package mirrors from `network.sh`. Direct
+  daemon egress does not work.
 - Prune dangling images only; never `docker system prune -a` while task images or a run exist.
 
 ## Images

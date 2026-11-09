@@ -2,6 +2,7 @@
 
 Usage (from the repo root, after building the plugin tarball):
 
+  source bench/official/terminal-bench/network.sh   # mirrors + proxy contract
   PYTHONPATH="$PWD/bench/official/terminal-bench" \
   DSH_PLUGIN_TARBALL="$PWD/dist/dsh-graph-loop-bench.tgz" \
   harbor run -d terminal-bench/terminal-bench@latest \
@@ -35,7 +36,34 @@ NODE_VERSION = "24.9.0"
 # pinned exactly because npm prerelease ranges do not order across patch levels
 # (^0.2.1-rc.3 does not admit 0.2.2-rc.1).
 DSH_VERSION = "0.2.2-rc.1"
-NODE_BASE = f"https://nodejs.org/dist/v{NODE_VERSION}/node-v{NODE_VERSION}-linux"
+
+
+def _env_names(contract: str, default: str) -> tuple[str, ...]:
+    """Variable-name contract published by network.sh, with a conservative fallback."""
+    return tuple((os.environ.get(contract) or default).split())
+
+
+# Package-index values are resolved by network.sh (the single source of truth) and
+# forwarded into the task container as-is; this adapter owns no mirror URLs. A
+# direct Harbor invocation without network.sh forwards whatever the operator set.
+MIRROR_ENV: dict[str, str] = {
+    key: os.environ[key]
+    for key in _env_names(
+        "DSH_CONTAINER_MIRROR_VARS",
+        "PIP_INDEX_URL PIP_TRUSTED_HOST UV_DEFAULT_INDEX UV_HTTP_TIMEOUT "
+        "NPM_CONFIG_REGISTRY npm_config_registry",
+    )
+    if os.environ.get(key)
+}
+
+# network.sh contract: DSH_NODE_MIRROR is a base URL without a version. Appending the
+# version here keeps the shell and Python sides from disagreeing about its shape.
+NODE_MIRROR = (os.environ.get("DSH_NODE_MIRROR") or "").rstrip("/")
+NODE_BASE = (
+    f"{NODE_MIRROR}/v{NODE_VERSION}/node-v{NODE_VERSION}-linux"
+    if NODE_MIRROR
+    else f"https://nodejs.org/dist/v{NODE_VERSION}/node-v{NODE_VERSION}-linux"
+)
 PROFILE = "tb"
 PATCH = "/tmp/dsh-tool-policy.patch.yml"
 PLUGIN_TARBALL = "/tmp/dsh-graph-loop.tgz"
@@ -48,10 +76,11 @@ GRAPH_FAILED_RE = re.compile(r"(?m)^dsh: GRAPH_FAILED:")
 
 # Host proxy configuration is required inside the task container: Docker does
 # not inherit the host environment, and the benchmark container needs npm plus
-# the model API. The values come from the harness process environment.
+# the model API. The names are the network.sh contract; the values come from the
+# harness process environment.
 PROXY_ENV = {
     key: os.environ[key]
-    for key in ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "NODE_USE_ENV_PROXY")
+    for key in _env_names("DSH_PROXY_VARS", "HTTP_PROXY HTTPS_PROXY NO_PROXY NODE_USE_ENV_PROXY")
     if os.environ.get(key)
 }
 
@@ -93,7 +122,7 @@ class DshAgent(BaseAgent):
         self.stock = os.environ.get("DSH_STOCK") == "1"
 
     async def _exec(self, environment: BaseEnvironment, command: str, *, timeout: int = 1800, env: dict[str, str] | None = None):
-        result = await environment.exec(command=command, timeout_sec=timeout, env={**PROXY_ENV, **(env or {})})
+        result = await environment.exec(command=command, timeout_sec=timeout, env={**PROXY_ENV, **MIRROR_ENV, **(env or {})})
         if result.return_code != 0:
             raise RuntimeError(
                 f"DSH adapter command failed ({result.return_code}): {command}\n"
@@ -181,7 +210,7 @@ class DshAgent(BaseAgent):
         environment: BaseEnvironment,
         context: AgentContext,
     ) -> None:
-        env = {**PROXY_ENV, **self.extra_env}
+        env = {**PROXY_ENV, **MIRROR_ENV, **self.extra_env}
         # DSH's headless profile reads DEEPSEEK_API_KEY from the environment.
         patch = f" --patch {PATCH}"
         servers = getattr(self, 'mcp_servers', None) or []

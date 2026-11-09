@@ -8,6 +8,9 @@
 #
 # Usage: build-arm64-task.sh <task-dir> <output-dir> [env-tag] [verifier-tag]
 set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=network.sh
+source "$HERE/network.sh"
 TASK="${1:?task dir}"
 OUT="${2:?output dir}"
 ENV_TAG="${3:-tb-arm64-env:latest}"
@@ -25,7 +28,8 @@ for p in [out / 'environment' / 'Dockerfile', out / 'tests' / 'Dockerfile']:
         continue
     s = p.read_text()
     # The harness downloads large wheels (torch/botocore) through uv; the
-    # default 30 s HTTP timeout is too tight on a cold cache.
+    # default 30 s HTTP timeout is too tight on a cold cache. apply-mirrors.py
+    # leaves this build tuning alone (it owns package sources, not timeouts).
     if 'UV_HTTP_TIMEOUT' not in s:
         import re
         s = re.sub(r'(?m)^(FROM\s+[^\n]+)$', r'\1\nENV UV_HTTP_TIMEOUT=300', s, count=1)
@@ -74,18 +78,21 @@ s = replace_section_image(s, 'verifier.environment', verifier_tag)
 toml.write_text(s)
 PY
 
-PROXY_ARGS=()
-for name in HTTP_PROXY HTTPS_PROXY NO_PROXY; do
+python3 "$HERE/apply-mirrors.py" "$OUT"
+
+echo "network: mirrors=$DSH_MIRRORS (source: network.sh)"
+BUILD_ARGS=(--platform linux/arm64)
+for name in $DSH_BUILD_PROXY_VARS; do
   value="${!name:-}"
-  [ -n "$value" ] && PROXY_ARGS+=(--build-arg "$name=$value")
+  [ -n "$value" ] && BUILD_ARGS+=(--build-arg "$name=$value")
 done
 
 echo "== build environment (linux/arm64)"
-docker build --platform linux/arm64 "${PROXY_ARGS[@]}" -t "$ENV_TAG" "$OUT/environment"
+docker build "${BUILD_ARGS[@]}" -t "$ENV_TAG" "$OUT/environment"
 
 if [ -f "$OUT/tests/Dockerfile" ]; then
   echo "== build verifier (linux/arm64)"
-  docker build --platform linux/arm64 "${PROXY_ARGS[@]}" -t "$VERIFIER_TAG" "$OUT/tests"
+  docker build "${BUILD_ARGS[@]}" -t "$VERIFIER_TAG" "$OUT/tests"
 fi
 
 echo "PASS arm64 task built at $OUT"

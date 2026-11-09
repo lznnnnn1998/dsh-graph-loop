@@ -9,7 +9,8 @@
 #   2. unit tests  (node --test, no model)
 #   3. bundle build (packages/*/lib)
 #   4. reproducibility check (fresh build byte-equals packages/*/lib)
-#   5. fork surface guard (diff-upstream.sh --check; skips without a DSH checkout)
+#   5. benchmark network config (offline: network.sh + apply-mirrors.py)
+#   6. fork surface guard (diff-upstream.sh --check; skips without a DSH checkout)
 #
 # Exit code 0 only when every step passes. This script is referenced by
 # docs/STATUS.md; keep it dependency-free so any runner can execute it.
@@ -32,6 +33,9 @@ npm run build
 
 step 'build:check'
 npm run build:check
+
+step 'benchmark network config'
+bash bench/official/terminal-bench/check-network.sh
 
 step 'fork surface guard'
 bash scripts/diff-upstream.sh --check

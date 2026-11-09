@@ -14,6 +14,9 @@
 # OUT_DIR defaults to the product20 results directory.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+# shellcheck source=network.sh
+source "$ROOT/bench/official/terminal-bench/network.sh"
+echo "network: mirrors=$DSH_MIRRORS (source: network.sh)"
 MANIFEST="$ROOT/bench/official/subsets/product20.json"
 TASKS_DIR="${1:-${TASKS_DIR:-/tmp/tb-arm-dsh}}"
 OUT_DIR="${2:-${OUT_DIR:-$ROOT/bench/official/results/terminal-bench-product20}}"
@@ -131,6 +134,7 @@ row = {
     'exit': int(status),
     'commit': os.environ.get('GIT_COMMIT'),
     'model': 'deepseek/deepseek-flash',
+    'mirrors': os.environ.get('DSH_MIRRORS'),
     'agent_timeout_sec': int(os.environ.get('DSH_AGENT_TIMEOUT_SEC', '0')),
     'agent_setup_timeout_multiplier': 5,
     'image_env': images.get('image_env'),
@@ -205,6 +209,7 @@ agent_invalid_total = sum(summary[arm]['agent_invalid_rows'] for arm in ('stock'
 meta = {
     'commit': os.environ.get('GIT_COMMIT'),
     'model': 'deepseek/deepseek-flash',
+    'mirrors': os.environ.get('DSH_MIRRORS'),
     'agent_setup_timeout_multiplier': 5,
     'timeout_policy': "per-task [agent].timeout_sec; DSH_AGENT_TIMEOUT_CAP overrides; a timeout is an infrastructure failure, not a score",
     'graph_failed_rows': len(graph_failed_rows),

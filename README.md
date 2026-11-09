@@ -162,7 +162,7 @@ TASKS_DIR=/tmp/tb-arm-dsh bash bench/official/subsets/run-product20.sh
 ```
 
 Docker + Harbor and native arm64 task images are required. See [`bench/README.md`](bench/README.md)
-for the image build and proxy notes.
+for the image build and network setup (package mirrors and proxy).
 
 ## Requirements
 

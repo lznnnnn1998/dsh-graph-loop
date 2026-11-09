@@ -71,7 +71,7 @@ records
 ## Run
 
 ```sh
-# prerequisites: Docker (arm64), Harbor, DSH credentials, proxy if needed
+# prerequisites: Docker (arm64), Harbor, DSH credentials, network (see below)
 bash official/terminal-bench/preflight.sh
 bash official/terminal-bench/run-smoke.sh
 TASKS_DIR=/tmp/tb-arm-dsh bash official/subsets/run-product20.sh
@@ -98,21 +98,66 @@ The build script:
 - strips base-image digests so local arm64 tags are used;
 - rewrites the compose `main` service image to the local arm64 env tag (sidecars stay vendor images);
 - sets `UV_HTTP_TIMEOUT=300` for verifier dependency installs;
+- applies the network config from `network.sh` (next section) to the copied task tree before
+  building;
 - passes `HTTP_PROXY/HTTPS_PROXY/NO_PROXY` as build args when exported.
 
 Prebake Node + DSH + pnpm once and overlay `/opt/node` and `/opt/dsh` into each task env image to
-avoid reinstalling DSH in every trial. The benchmark adapter skips `npm install` when `dsh` is on
-`PATH`.
+avoid reinstalling DSH in every trial. Build the base image with
+`bash official/terminal-bench/build-dsh-base.sh` so it uses the same network config; the benchmark
+adapter skips `npm install` when `dsh` is on `PATH`.
 
-## Proxy
+## Network setup (mirrors + proxy)
 
-Docker containers do not inherit the host network. If the host uses a TUN proxy, run an HTTP
-CONNECT proxy reachable from the Colima VM and configure:
+Every benchmark script reads its network settings from one file,
+[`official/terminal-bench/network.sh`](official/terminal-bench/network.sh). Do not re-declare a
+package index, a Node download URL or a proxy variable name in a script, Dockerfile or the Python
+adapter; add it to `network.sh` and let the consumers read it.
 
-- the Docker daemon (`/etc/systemd/system/docker.service.d/http-proxy.conf` in the VM);
-- `HTTP_PROXY`/`HTTPS_PROXY` for builds (the build script passes them);
-- `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` in the harness process (the adapter injects them into
-  setup and run commands).
+### Package mirrors
+
+One switch selects the package sources:
+
+```sh
+source bench/official/terminal-bench/network.sh                  # DSH_MIRRORS=cn (default)
+DSH_MIRRORS=off source bench/official/terminal-bench/network.sh  # upstream sources
+```
+
+In `cn` mode the same resolved values reach every layer:
+
+- **task image builds** — `build-arm64-task.sh` runs `apply-mirrors.py` on the copied task tree: it
+  sets pip/uv/npm env, rewrites explicit pypi / files.pythonhosted / registry.npmjs.org /
+  nodejs.org URLs, points Debian/Ubuntu apt sources at the apt mirror (only in stages that run apt)
+  and rewrites `uv.lock` registry URLs. The task source tree is never modified.
+- **the reusable base image** — `build-dsh-base.sh` applies the same rewrite before `docker build`.
+- **the Harbor process and task containers** — `run-smoke.sh`/`run-subset.sh` source `network.sh`;
+  `dsh_agent.py` forwards the resolved mirror variables and proxy variables into the container's
+  setup and run steps. Node downloads use the Node mirror; pip/uv/npm use theirs.
+
+Each value can be overridden before sourcing (`PIP_INDEX_URL`, `PIP_TRUSTED_HOST`,
+`UV_DEFAULT_INDEX`, `NPM_CONFIG_REGISTRY`, `DSH_NODE_MIRROR`, `DSH_APT_MIRROR`); `DSH_NODE_MIRROR`
+is a base URL without a version. Run `bash official/terminal-bench/network.sh` to print the
+resolved configuration, and `bash official/terminal-bench/check-network.sh` for the offline
+regression check. Use `DSH_MIRRORS=off` for a canonical/upstream run; the mode is recorded in each
+run row and in `summary.json`.
+
+### Proxy
+
+Docker containers do not inherit the host environment. If the host uses a TUN proxy, run an HTTP
+CONNECT proxy reachable from the Colima VM and configure all three consumers:
+
+1. **Docker daemon** (image pulls): set it inside the Colima VM — not on macOS — in
+   `/etc/systemd/system/docker.service.d/http-proxy.conf`, pointing at the host LAN IP on port
+   8899. Re-derive the IP with `ipconfig getifaddr en0`; it changes with the network. The repo does
+   not manage this file.
+2. **Image builds**: export `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`; the build scripts pass them as
+   `--build-arg`.
+3. **Harness and task container**: the same variables are inherited by `harbor` and injected into
+   the container by `dsh_agent.py` (the model API call needs them).
+
+`bash official/terminal-bench/network-doctor.sh` prints the resolved mirror/proxy configuration,
+the host LAN IP and the Docker daemon proxy, and warns when the daemon proxy still points at an old
+IP.
 
 ## Adapter
 

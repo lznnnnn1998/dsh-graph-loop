@@ -46,6 +46,9 @@ if bad:
 print('markdown links OK')
 PY
 
+echo "== benchmark network config (offline)"
+bash bench/official/terminal-bench/check-network.sh
+
 echo "== official benchmark preflights (report only)"
 bash bench/official/terminal-bench/preflight.sh || true
 

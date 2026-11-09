@@ -1,5 +1,6 @@
 # Reusable DSH runtime for native arm64 Terminal-Bench task images.
-# Build once: docker build --platform linux/arm64 -t dsh-base:arm64 -f dsh-base.Dockerfile .
+# Build once with the network-aware wrapper (not plain `docker build`):
+#   bash bench/official/terminal-bench/build-dsh-base.sh
 FROM python:3.12-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl xz-utils \
     && rm -rf /var/lib/apt/lists/*
