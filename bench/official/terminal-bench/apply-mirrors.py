@@ -15,8 +15,9 @@ Rewrites, when the corresponding value is exported:
   - nodejs.org/dist URLs in Dockerfiles                                -> DSH_NODE_MIRROR;
   - Debian/Ubuntu apt sources in Dockerfiles                           -> DSH_APT_MIRROR.
 
-Docker base images, vendor sidecars and GitHub downloads are not package indexes and
-are intentionally not rewritten; use the Docker daemon proxy for those.
+Docker base images, vendor sidecars, GitHub downloads and vendor package indexes
+(for example download.pytorch.org) are not rewritten; use the Docker daemon proxy
+for those.
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 MARKER = "# dsh-mirrors: package sources from network.sh"
+HEREDOC_RE = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 
 
 def _env(name: str) -> str:
@@ -45,7 +47,7 @@ NODE_MIRROR = _env("DSH_NODE_MIRROR")
 MIRRORS_MODE = _env("DSH_MIRRORS")
 
 APT_PATTERN = (
-    r"https?://(?:deb\.debian\.org|security\.debian\.org|archive\.ubuntu\.com"
+    r"https?://(deb\.debian\.org|security\.debian\.org|archive\.ubuntu\.com"
     r"|security\.ubuntu\.com|ports\.ubuntu\.com)"
 )
 
@@ -69,7 +71,12 @@ def env_block() -> str | None:
 
 
 def apt_block() -> str | None:
-    """Rewrite apt sources in-place; only inserted into stages that run apt."""
+    """Rewrite apt sources in-place; only inserted into stages that run apt.
+
+    The pattern is POSIX ERE on purpose: this string is executed by `sed -E`
+    inside the image, not by Python's regex engine. A broken expression fails
+    the build instead of silently keeping upstream sources.
+    """
     if not APT:
         return None
     return (
@@ -77,10 +84,31 @@ def apt_block() -> str | None:
         "      for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list "
         "/etc/apt/sources.list.d/*.sources; do \\\n"
         '        [ -f "$f" ] || continue; \\\n'
-        f"        sed -i -E 's#{APT_PATTERN}#{APT}#g' \"$f\" || true; \\\n"
+        f"        sed -i -E 's#{APT_PATTERN}#{APT}#g' \"$f\" || exit 1; \\\n"
         "      done; \\\n"
         "    fi"
     )
+
+
+def instruction_indices(lines: list[str]) -> set[int]:
+    """Indices of Dockerfile instruction lines, excluding heredoc bodies.
+
+    A `RUN python - <<'PY'` body may contain a line that starts with `FROM `;
+    that line is data, not a stage boundary, and must not receive the mirror
+    block.
+    """
+    inside: list[str] = []
+    instructions: set[int] = set()
+    for index, line in enumerate(lines):
+        if inside:
+            token = line.strip()
+            if token in inside:
+                inside.remove(token)
+            continue
+        instructions.add(index)
+        for match in HEREDOC_RE.finditer(line):
+            inside.append(match.group(2))
+    return instructions
 
 
 ENV_BLOCK = env_block()
@@ -104,7 +132,9 @@ def rewrite_dockerfile(text: str) -> str:
             text = text.replace(old, new)
 
     lines = text.splitlines()
-    froms = [i for i, line in enumerate(lines) if line.startswith("FROM ")]
+    instructions = instruction_indices(lines)
+    froms = [i for i in range(len(lines)) if i in instructions and lines[i].startswith("FROM ")]
+    from_set = set(froms)
     # Only stages that actually run apt get the source rewrite; a distroless stage
     # must not gain a RUN layer it cannot execute.
     stage_needs_apt = []
@@ -122,7 +152,7 @@ def rewrite_dockerfile(text: str) -> str:
     out: list[str] = []
     for i, line in enumerate(lines):
         out.append(line)
-        if i not in froms:
+        if i not in from_set:
             continue
         out.append(MARKER)
         if ENV_BLOCK:

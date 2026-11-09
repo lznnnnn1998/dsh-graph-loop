@@ -4,6 +4,8 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=network.sh
 source "$HERE/network.sh"
+# The smoke Dockerfiles perform no package installs, so apply-mirrors.py has
+# nothing to rewrite here; the proxy build args below still apply.
 BUILD_ARGS=(--platform linux/arm64)
 for name in $DSH_BUILD_PROXY_VARS; do
   value="${!name:-}"

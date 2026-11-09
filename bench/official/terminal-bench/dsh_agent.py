@@ -50,7 +50,7 @@ MIRROR_ENV: dict[str, str] = {
     key: os.environ[key]
     for key in _env_names(
         "DSH_CONTAINER_MIRROR_VARS",
-        "PIP_INDEX_URL PIP_TRUSTED_HOST UV_DEFAULT_INDEX UV_HTTP_TIMEOUT "
+        "PIP_INDEX_URL PIP_TRUSTED_HOST UV_DEFAULT_INDEX "
         "NPM_CONFIG_REGISTRY npm_config_registry",
     )
     if os.environ.get(key)

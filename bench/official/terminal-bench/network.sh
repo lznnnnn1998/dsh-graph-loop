@@ -13,31 +13,38 @@
 #   - dsh_agent.py                             (env injected into the task container)
 #
 # What mirrors cover: pip/uv, npm, Node downloads and Debian/Ubuntu apt sources.
-# What they do not cover: Docker base images, vendor sidecars and the model API — those
-# need the Docker daemon proxy and/or HTTP_PROXY (see bench/README.md, "Network setup").
+# What they do not cover: Docker base images, vendor sidecars, the model API and
+# task-pinned vendor indexes (for example PyTorch wheels) — those need the Docker
+# daemon proxy and/or HTTP_PROXY (see bench/README.md, "Network setup").
 #
 # Proxy values are pass-through, never defaults: export them in the operator shell and
 # every consumer forwards the same names. The lists below are the contract.
 set -u
 
 : "${DSH_MIRRORS:=cn}"
+case "$DSH_MIRRORS" in
+  cn|off) ;;
+  *)
+    printf 'network: invalid DSH_MIRRORS=%s (expected cn or off)\n' "$DSH_MIRRORS" >&2
+    if [ "${BASH_SOURCE[0]}" != "$0" ]; then return 1; else exit 1; fi
+    ;;
+esac
 export DSH_MIRRORS
 
 # Variable-name contracts (space separated; consumers loop over these).
 export DSH_PROXY_VARS="HTTP_PROXY HTTPS_PROXY NO_PROXY NODE_USE_ENV_PROXY"
 export DSH_BUILD_PROXY_VARS="HTTP_PROXY HTTPS_PROXY NO_PROXY"
-export DSH_CONTAINER_MIRROR_VARS="PIP_INDEX_URL PIP_TRUSTED_HOST UV_DEFAULT_INDEX UV_HTTP_TIMEOUT NPM_CONFIG_REGISTRY npm_config_registry"
+export DSH_CONTAINER_MIRROR_VARS="PIP_INDEX_URL PIP_TRUSTED_HOST UV_DEFAULT_INDEX NPM_CONFIG_REGISTRY npm_config_registry"
 
 if [ "$DSH_MIRRORS" = "off" ]; then
   # Upstream package sources: leave the host environment untouched.
-  unset PIP_INDEX_URL PIP_TRUSTED_HOST UV_DEFAULT_INDEX UV_HTTP_TIMEOUT
+  unset PIP_INDEX_URL PIP_TRUSTED_HOST UV_DEFAULT_INDEX
   unset NPM_CONFIG_REGISTRY npm_config_registry
   unset DSH_NODE_MIRROR DSH_APT_MIRROR
 else
   export PIP_INDEX_URL="${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}"
   export PIP_TRUSTED_HOST="${PIP_TRUSTED_HOST:-pypi.tuna.tsinghua.edu.cn}"
   export UV_DEFAULT_INDEX="${UV_DEFAULT_INDEX:-$PIP_INDEX_URL}"
-  export UV_HTTP_TIMEOUT="${UV_HTTP_TIMEOUT:-300}"
   export NPM_CONFIG_REGISTRY="${NPM_CONFIG_REGISTRY:-https://registry.npmmirror.com}"
   export npm_config_registry="${npm_config_registry:-$NPM_CONFIG_REGISTRY}"
   # Base URL without a version: the consumers append /v<VERSION>/node-v<VERSION>-linux.

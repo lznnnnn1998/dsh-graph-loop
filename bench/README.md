@@ -119,8 +119,8 @@ adapter; add it to `network.sh` and let the consumers read it.
 One switch selects the package sources:
 
 ```sh
-source bench/official/terminal-bench/network.sh                  # DSH_MIRRORS=cn (default)
-DSH_MIRRORS=off source bench/official/terminal-bench/network.sh  # upstream sources
+source official/terminal-bench/network.sh                  # DSH_MIRRORS=cn (default)
+DSH_MIRRORS=off source official/terminal-bench/network.sh  # upstream sources
 ```
 
 In `cn` mode the same resolved values reach every layer:
@@ -133,6 +133,9 @@ In `cn` mode the same resolved values reach every layer:
 - **the Harbor process and task containers** — `run-smoke.sh`/`run-subset.sh` source `network.sh`;
   `dsh_agent.py` forwards the resolved mirror variables and proxy variables into the container's
   setup and run steps. Node downloads use the Node mirror; pip/uv/npm use theirs.
+
+Vendor package indexes that a task pins explicitly (for example `download.pytorch.org` wheels) are
+not mirrored by `network.sh`; those fetches still need the Docker daemon proxy.
 
 Each value can be overridden before sourcing (`PIP_INDEX_URL`, `PIP_TRUSTED_HOST`,
 `UV_DEFAULT_INDEX`, `NPM_CONFIG_REGISTRY`, `DSH_NODE_MIRROR`, `DSH_APT_MIRROR`); `DSH_NODE_MIRROR`
