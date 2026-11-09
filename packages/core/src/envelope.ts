@@ -1,8 +1,8 @@
 /**
  * envelope.ts — the per-turn capability envelope.
  *
- * One of the three seeds of the 0.2 composition layer (see `docs/COMPOSITION.md`):
- * the router resolves abstract capability roles to concrete registry nodes and
+ * The envelope is what the composition layer fixes before any step runs: the
+ * router resolves abstract capability roles to concrete registry nodes and
  * compiles the result into an envelope that is fixed for the whole turn.
  *
  * Design constraints:

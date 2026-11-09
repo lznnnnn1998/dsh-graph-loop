@@ -217,7 +217,7 @@ export function planInitialState(plan: TaskPlan, taskHash = ''): GraphState {
   }
 }
 
-/** First `control` edge out of `nodeId`, else `END` (`design/kernel.ts` default). */
+/** First `control` edge out of `nodeId`, else `END` (the default kernel route). */
 export function defaultRoute(plan: TaskPlan, nodeId: NodeId): string {
   const edge = plan.edges.find((candidate) => candidate.from === nodeId && candidate.kind === 'control')
   return edge?.to ?? END

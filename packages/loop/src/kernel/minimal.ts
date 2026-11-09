@@ -499,8 +499,8 @@ function signalFor(signal: AbortSignal | undefined, timeoutMs: number | undefine
 
 /**
  * `KernelPort` implementation: `compile(plan, state)` returns a run handle whose
- * `next()` executes one plan node. Held by the `graph_run` tool and subagent
- * plan execution; the turn driver keeps its own control-inverted scheduler.
+ * `next()` executes one plan node. Used by `KernelTopology` and the kernel tests;
+ * the turn driver keeps its own control-inverted scheduler.
  */
 export class MinimalKernel implements KernelPort {
   private readonly deps: ResolvedKernelDeps
@@ -592,9 +592,9 @@ class MinimalRunHandle implements KernelRunHandle {
 
     // The step cap is checked before the pause hook: a paused step is still a
     // step the host can execute, so checking pause first lets the host run one
-    // extra step past the cap (audit 2026-11-09 §6.3). Budget first keeps the
-    // effective cap at `deps.maxSteps` (the plan budget plus the adapter's one
-    // reserve for a budget-routed answer).
+    // extra step past the cap. Budget first keeps the effective cap at
+    // `deps.maxSteps` (the plan budget plus the adapter's one reserve for a
+    // budget-routed answer).
     if (this.state.superstep >= this.deps.maxSteps) {
       return this.settle(
         this.failed({

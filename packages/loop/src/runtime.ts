@@ -22,7 +22,7 @@ export interface GraphRunRecord {
 export interface Config {
   /** Maximum model-authored topology proposals kept per session (usually one). */
   maxProposals?: number
-  /** Directory for per-turn topology traces consumed by `scripts/preview.mjs`. Empty disables. */
+  /** Directory for per-turn topology trace JSON files. Empty disables writes. */
   traceDir?: string
   /** Maximum completed turn traces kept in memory per session. Defaults to 20. */
   traceLimit?: number

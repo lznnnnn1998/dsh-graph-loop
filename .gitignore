@@ -1,20 +1,55 @@
+# ---------------------------------------------------------------------------
+# The GitHub repository carries graph-loop PRODUCT content only.
+#
+# Local agent-work files, benchmark/network setup and machine-specific records
+# are ignored here as a second line of defence. Ignore rules do NOT untrack:
+# anything already tracked must be removed from the index as well
+# (`git rm --cached <path>`, which keeps the working-tree file). The commit
+# scope guard (automation/bin/check-commit-scope.sh) enforces the same split
+# at commit and push time. Policy: automation/commit-policy.txt.
+# ---------------------------------------------------------------------------
+
+# --- Product build artifacts and installed deps (regenerated, never source) --
 node_modules/
 dist/
 lib/
-.dsh-home/
-*.log
-.DS_Store
-tmp/
-.secrets/
+# Committed script helpers live under scripts/lib/ (not build output).
+!/scripts/lib/
 *.tgz
+*.tsbuildinfo
 .npmrc.local
 
-# Harbor job outputs (local benchmark runs)
+# --- Local-only agent infrastructure (never committed) ----------------------
+# Agent prompts/roles/reports, harness automation, benchmark + network setup,
+# recurring audits, and status records with machine paths / run state.
+/automation/
+/bench/
+/docs/audits/
+/.githooks/
+/PROGRESS.md
+/docs/STATUS.md
+/docs/EVALUATION.md
+# Instruction files for local agents at any depth (root and per-directory).
+AGENTS.md
+
+# --- Local machine state and secrets ---------------------------------------
+.secrets/
+.dsh-home/
+tmp/
 jobs/
 __pycache__/
+*.pyc
+*.pid
+.venv/
+venv/
 
-# Large Harbor job trees under results (rows/summary stay tracked)
-bench/official/results/**/jobs/
-
-# Recurring audit reports (local only; not repo truth)
-docs/audits/
+# --- Editor, OS and test-runner junk ---------------------------------------
+.DS_Store
+*.log
+*.orig
+*.rej
+.idea/
+.vscode/
+coverage/
+playwright-report/
+test-results/

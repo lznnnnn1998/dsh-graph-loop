@@ -112,11 +112,11 @@ export function deriveStepFacts(tools: readonly ObservedTool[], ok: boolean, fai
   }
   facts['failedToolCount'] = failed
   facts['allToolsFailed'] = tools.length > 0 && failed === tools.length
-  // Effects come from ONE classifier shared with the benchmark retry
+  // Effects come from ONE classifier shared with the retry guards
   // (`loop/step-tools.ts`): a successful writer tool or a mutating shell writes,
   // a successful reader tool or a reading shell reads. Two classifiers made the
   // graph route on the narrower one — a shell `cat > f`, `cp`, `sed -i` was a
-  // real mutation the graph reported as `wroteFile=false` (audit 2026-11-09 §4.2).
+  // real mutation the graph reported as `wroteFile=false`.
   facts['wroteFile'] = mutationObserved(tools)
   facts['readFile'] = readObserved(tools)
   // "Some call was answered" is the weakest durable signal that the step did

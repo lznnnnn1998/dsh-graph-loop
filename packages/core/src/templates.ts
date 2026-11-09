@@ -1,9 +1,9 @@
 /**
- * @deprecated 0.1.x legacy. The 0.2 composition layer synthesizes plans from
- * capability facts in `compose.ts`; these tool-name templates are kept only for
- * the frozen graph driver.
- *
  * templates.ts — the shipped template library for the `explore` preset.
+ *
+ * `compose.ts` is the default plan synthesizer in `dynamic` mode. This library
+ * is live whenever the driver runs in `template` mode or falls back from
+ * composition, and `match()` binds its slots to real tools.
  *
  * A template is the routing menu entry: it declares which task classes it
  * applies to (`appliesTo`), which tools must be present and visible

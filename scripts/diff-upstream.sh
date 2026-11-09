@@ -26,7 +26,7 @@
 #   bash scripts/diff-upstream.sh --report       # same, explicit
 #   bash scripts/diff-upstream.sh --check        # exit 1 on unexpected divergence
 #   bash scripts/diff-upstream.sh /path/to/dsh   # explicit checkout
-#   DSH_ROOT=/path/to/dsh bash scripts/diff-upstream.sh
+#   DSH_REPO=/path/to/dsh bash scripts/diff-upstream.sh   # or DSH_ROOT (legacy)
 #
 # The DSH checkout is only read, never written. When no checkout is found the
 # script prints a skip notice and exits 0, so it is safe in a checkout-free CI.
@@ -50,7 +50,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOCAL="$ROOT/packages/loop/src/loop"
 
 CHECK=0
-DSH_INPUT="${DSH_ROOT:-}"
+DSH_INPUT="${DSH_REPO:-${DSH_ROOT:-}}"
 for arg in "$@"; do
   case "$arg" in
     --check) CHECK=1 ;;
@@ -95,8 +95,8 @@ budget_of() {
 }
 
 if ! DSH_ROOT_REAL="$(find_dsh)"; then
-  printf 'diff-upstream: no DSH checkout found (tried $DSH_ROOT, ../deepseek-harness, ~/deepseek-harness)\n'
-  printf 'diff-upstream: skipping; pass a checkout path or set DSH_ROOT\n'
+  printf 'diff-upstream: no DSH checkout found (tried $DSH_REPO, ../deepseek-harness, ~/deepseek-harness)\n'
+  printf 'diff-upstream: skipping; pass a checkout path or set DSH_REPO\n'
   exit 0
 fi
 

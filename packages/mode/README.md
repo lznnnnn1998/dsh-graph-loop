@@ -33,7 +33,7 @@ rather than editing the plugin. The `explore-tools` row accepts:
 | `suggestThreshold` | `0.34` | Minimum score for `suggest_executor` to list a candidate. |
 
 The guard is **blocking**: a `spawn_teammate` call is denied when an idle teammate covers at least
-half of the task's *distinctive* tokens (`GUARD_TEXT_FLOOR`, currently `0.5`) **and** scores at least
+half of the task's *distinctive* tokens (`GUARD_TEXT_FLOOR = 0.5`) **and** scores at least
 `reuseThreshold`. Matching drops stopwords and generic intent words (`fix`, `bug`, `test`, `api`,
 `docs`, …), folds simple suffixes (`tests`/`testing`/`tested` → `test`, `bugs` → `bug`), and ignores
 one-word tasks. The idle-status bonus can rank candidates but cannot deny a spawn on its own.

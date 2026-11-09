@@ -7,8 +7,9 @@
  *
  * Both expose Layer 1 (`createGraph` → `GraphBuilder` → `CompiledGraph`) and
  * Layer 2 (`KernelPort` → `KernelRunHandle.next()`, exactly one plan node per
- * call). `createKernel(kind)` is the factory the driver and `graph_run` use;
- * `Deps` are optional so pure topology stepping needs no wiring.
+ * call). `createKernel(kind)` is the factory `KernelTopology` uses, and the one
+ * tests and embedders call directly; `Deps` are optional so pure topology
+ * stepping needs no wiring.
  *
  *   const kernel = createKernel('minimal')
  *   const run = kernel.compile(plan, state)

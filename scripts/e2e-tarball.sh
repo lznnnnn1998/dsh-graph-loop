@@ -7,9 +7,25 @@
 # are installable the way `dsh plugin add <registry-package>` will be.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DSH="${DSH_ROOT:-/Users/zhinan/deepseek-harness}"
-HOME_DIR="${HOME_DIR:-$(mktemp -d /tmp/dsh-tarball.XXXXXX)}"
-PACKS="$(mktemp -d /tmp/dsh-packs.XXXXXX)"
+# Resolve the read-only DSH checkout: $DSH_REPO wins, then a sibling clone
+# (../deepseek-harness) or ~/deepseek-harness. Fail clearly when none exists.
+find_dsh() {
+  local candidate
+  for candidate in "${DSH_REPO:-}" "${DSH_ROOT:-}" "$ROOT/../deepseek-harness" "$HOME/deepseek-harness"; do
+    if [ -n "$candidate" ] && [ -d "$candidate" ]; then
+      (cd "$candidate" && pwd)
+      return 0
+    fi
+  done
+  return 1
+}
+if ! DSH="$(find_dsh)"; then
+  echo "FAIL: no DSH checkout found; set DSH_REPO=/path/to/deepseek-harness" >&2
+  echo "      (or place a clone next to this repo as ../deepseek-harness)" >&2
+  exit 1
+fi
+HOME_DIR="${HOME_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/dsh-tarball.XXXXXX")}"
+PACKS="$(mktemp -d "${TMPDIR:-/tmp}/dsh-packs.XXXXXX")"
 PROFILE="${PROFILE:-tarball}"
 PORT="${PORT:-8141}"
 LOG="$HOME_DIR/mock.log"

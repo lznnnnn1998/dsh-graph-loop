@@ -1,11 +1,13 @@
 /**
  * compose.ts — capability-driven plan synthesis (0.2 composition layer).
  *
- * The 0.1.x synthesizer (`topology.ts`) and template library (`templates.ts`)
+ * The older synthesizer (`topology.ts`) and template library (`templates.ts`)
  * hardcode DSH tool names (`grep`, `read`, `write`, `bash`, ...), which makes
  * them useless for a craft, an MCP server or any third-party tool. This module
- * replaces that assumption: it knows *stages* and *artifact contracts*, and asks
- * the registry which tool satisfies them.
+ * is the default synthesis path and does not make that assumption: it knows
+ * *stages* and *artifact contracts*, and asks the registry which tool satisfies
+ * them. The older paths remain live for `template` mode and as the dynamic
+ * fallback.
  *
  * Stages are generic verbs:
  *
@@ -391,7 +393,7 @@ export function synthesizeComposition(input: ComposeInput): ComposeResult {
   //   tool error / lastOk=false   -> one repair attempt
   //   stage-specific failure      -> the same repair attempt
   //   stage-specific success      -> next stage (or the answer)
-  // The budget edge is declared first on purpose (audit 2026-11-09 §4.3): at
+  // The budget edge is declared first on purpose: at
   // the answer reserve boundary a stage that keeps failing must be able to
   // leave, otherwise its failure guard wins forever and the kernel ends the run
   // as GRAPH_FAILED with the work unfinished. The guards are generic
@@ -405,7 +407,7 @@ export function synthesizeComposition(input: ComposeInput): ComposeResult {
         // Discovery's contract is "some tool call succeeded", not a literal
         // search/read tool name: a shell `grep`, an MCP lookup or a craft tool
         // is real discovery too. `toolSucceeded` is the generic work classifier
-        // written by the runtime on every step (audit 2026-11-09 §4.2).
+        // written by the runtime on every step.
         return { op: 'fact', key: 'toolSucceeded', equals: true }
       case 'inspect':
         // Same generic contract: any successful non-error tool call inspected

@@ -11,7 +11,6 @@
  *   2. deterministic task features (intent class, artifacts, risk, context, surface)
  *   3. mined co-occurrence from `ctx.sessionQuery` (NPMI, shrunk)
  *   4. measured success/cost priors per template
- *   5. description embeddings — tiebreaker only, weight <= 0.05, never in v1 scoring
  *
  * The pure functions here take their inputs explicitly (fingerprint, registry,
  * co-occurrence table, weights) so the match is a pure function of

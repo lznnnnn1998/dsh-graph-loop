@@ -22,9 +22,9 @@ The fork is tracked as debt; do not hide it behind the graph narrative.
 | Session log, turn/step, prompt, tools, approvals, compaction | DSH | Kept by the fork |
 | Graph execution | LangGraph for every control-edge condition (`artifact`, `noArtifact`, `fact`, `callFailed`, `budget` step axis) and composed plans | Done |
 | Parallel fan-out / subagent batches / reserved ids | `FrontierTopology` | Fallback; documented |
-| Typed channels/reducers | Plugin `GraphState` | Not LangGraph channels |
-| Checkpoints | `MemoryCheckpointer` | Not durable; no read/resume consumer |
-| Send / Command / subgraphs | — | Not adopted |
+| Typed channels/reducers | Plugin `GraphState` | One JSON `state` channel; not LangGraph channels |
+| Checkpoints | `MemoryCheckpointer` | In-memory only; no durable saver or cross-process resume consumer |
+| Send / Command / subgraphs | — | The adapter exposes `Send` fan-out; the live driver does not use it |
 | Interrupt / HITL | DSH tool approvals | Correct owner |
 | Retry/cache policy | DSH inner retry | Not mapped to LangGraph |
 | Graph visualization | Graph tab | Done |
@@ -48,5 +48,5 @@ The fork is tracked as debt; do not hide it behind the graph narrative.
 
 ## Rule for agents
 
-Before adding graph machinery, name the concrete task class that needs it and the test/benchmark that
-proves it. Do not add a feature just to close a table row.
+Before adding graph machinery, name the concrete task class that needs it and the test that proves
+it. Do not add a feature just to close a table row.

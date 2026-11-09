@@ -6,8 +6,9 @@
 > the duplication is tracked as maintenance debt and re-diffed with `scripts/diff-upstream.sh`.
 > The guard is **enforced**: `scripts/ci-local.sh` and `scripts/verify-all.sh` run
 > `diff-upstream.sh --check`, which pins the upstream commit and fails when a shared file diverges
-> or a patched file (`agent.ts`, `index.ts`) outgrows its documented added/removed-line budget.
-> The fork is the active loop (architecture B); there is no separate control-plane product path.
+> or a patched file (`agent.ts`, `index.ts`) outgrows its documented added/removed-line budget (it
+> skips cleanly when no DSH checkout is available). The fork is the active loop (architecture B);
+> there is no separate control-plane product path.
 
 ## Use this package
 
@@ -29,25 +30,31 @@ The installer also adds the Explore mode and verifies the composed profile.
 | Field | Default | Meaning |
 |---|---|---|
 | `topology` | `dynamic` | `template` (curated library), `dynamic` (synthesized from the capability graph), `propose` (model authors it via `graph_plan`) |
-| `kernel` | `langgraph` | `langgraph` (default, falls back to Minimal when absent) or `minimal` |
 | `trivialChars` | `32` | Text length below which a trivial task stays a single node |
 | `maxSteps` | `24` | Upper bound on graph steps in one turn (also the default plan `budget.maxSteps`) |
 | `toolPolicy` | `plan` | `plan` narrows each step to the plan universe (token win); `preset` keeps the full preset tool set for benchmark harnesses |
+| `composition` | `true` | Use the envelope + capability composer in dynamic mode; `false` keeps the legacy `synthesizeTopology` path |
 | `benchGuards` | `false` | Benchmark-only retries: detect DSML-printed tool calls and force a mutation node that did not mutate. Off for normal loop use |
 | `shellTools` | `['bash', 'pwsh']` | Tool names whose lone failed call fails the step's graph node (selects `callFailed` recovery) |
-| `maxParallelToolCalls` | inherited | Stock loop parallel tool-call bound |
+| `maxParallelToolCalls` | `10` | Stock loop parallel tool-call bound |
 | `agents` | `[]` | Declarative startup agents |
 
-Runtime trace storage is configured on the `graph-runtime` row (`traceDir`, `traceLimit`).
+The shipped row does not expose a kernel switch: the driver uses LangGraph when it can drive a
+plan and `FrontierTopology` otherwise. `createGraphTurnDriver({ kernel: 'minimal' | 'off' })` is
+available to tests and embedders.
+
+Runtime trace storage is configured on the `graph-runtime` row (`traceDir`, `traceLimit`,
+`maxProposals`).
 
 ## Extension points
 
 - `graphRegistry` (service): capability graph built from the tool registry.
 - `graphRouter` (service): template library and task matching.
 - `graphRuntime` (service): proposals, live snapshots, per-turn traces.
-- `scheduler.ts`: `createGraphTurnDriver` (loop-facing driver).
-- `kernel/topology.ts`: `KernelTopology` (kernel round-trip; frontier fallback).
-- `kernel/`: `KernelPort` implementations (`minimal`, `langgraph`).
+- `src/scheduler.ts`: `createGraphTurnDriver` (loop-facing driver).
+- `src/kernel/topology.ts`: `KernelTopology` (kernel round-trip; the scheduler uses
+  `FrontierTopology` for plans the kernel cannot drive).
+- `src/kernel/`: `KernelPort` implementations (`minimal`, `langgraph`).
 
 ## Model Experience
 
@@ -58,20 +65,17 @@ model-visible history like the stock loop's injected context, but the stock Web 
 it. Injected subagent batch results use their own `subagent-result` source
 (`{ kind: 'subagent-result', nodeId }`), and the benchmark-only retry corrections use `bench-retry`;
 no synthetic producer claims the human source. Node-level tool admission narrows each step to the
-plan's tool universe plus a small safe floor.
-No prompt-token reduction from that narrowing is claimed: the earlier local-suite measurement was not
-reproducible and is not in this tree. Because node directives enter history, a multi-node turn adds
-prompt bytes compared with a single stock step.
+plan's tool universe plus a small safe floor. No prompt-token reduction from that narrowing is
+claimed. Because node directives enter history, a multi-node turn adds prompt bytes compared with a
+single stock step.
 
 ## Known Limitations
 
 - The driver is a fork; it is not covered by DSH's full conformance/snapshot suite. Local
   conformance/cross-loop scripts cover event invariants, not byte-identical replay.
-- Kernel coverage is partial by plan shape, not by condition: every control-edge condition
-  (`artifact`, `noArtifact`, `fact`, `callFailed`, and `budget` on its step axis) is evaluated by
-  the kernel route hook, and composed plans are kernel-driven. Parallel fan-out/join, subagent
-  batches and plans with LangGraph-reserved ids use `FrontierTopology`; a condition on a data edge
-  is rejected by `validateTaskPlan` because neither engine routes it.
+- Kernel coverage is partial by plan shape, not by condition. The exact plan shape → engine → test
+  table (and the data-edge rejection) is in
+  [`../../docs/KERNEL-COVERAGE.md`](../../docs/KERNEL-COVERAGE.md).
 - Kernel checkpoints are in-memory (`MemoryCheckpointer`); `storageDomain` persistence is pending.
 - `dynamic` synthesis is heuristic, not an optimization over all graphs.
 - Mid-run topology replacement is limited by `adoptPolicy: 'start-only'` by default.

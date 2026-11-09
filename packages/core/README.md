@@ -11,7 +11,8 @@ executor, proposal validation, and the kernel port.
 - `registry.ts` — deterministic capability graph from tool definitions, digest, warnings.
 - `topology.ts` — `synthesizeTopology`, `bootstrapTopology`, `recoveryTopology`, `FrontierTopology`.
 - `proposal.ts` — `graph_plan` JSON schema, validation, materialization.
-- `fallback.ts` — the trivial single-node plan (`fallbackPlan`) used when no template matched.
+- `fallback.ts` — the trivial single-node plan (`fallbackPlan`) used when no composed or matched
+  plan applies.
 - `runtime.ts`, `kernel.ts` — kernel ports and the superstep→DSH event contract.
 
 ## Configuration
@@ -34,4 +35,6 @@ driver injects per-node directives as logged user messages.
 - Synthesis is a fixed set of heuristics (entry, discovery, inspection, optional web/mutation,
   terminal answer), not a graph search.
 - `match` scores a six-template library; new task families need new templates.
-- The minimal kernel and the LangGraph adapter are covered by unit tests, not by the shipped profile.
+- The minimal kernel and the LangGraph adapter are covered by unit tests and by the three-engine
+  transition matrix; the shipped profile drives LangGraph and degrades to the minimal kernel when
+  the optional dependency is absent.

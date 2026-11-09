@@ -3,12 +3,30 @@
 # with a two-node graph; the harness validates it and the driver executes it.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DSH="${DSH_ROOT:-/Users/zhinan/deepseek-harness}"
+# Resolve the read-only DSH checkout: $DSH_REPO wins, then a sibling clone
+# (../deepseek-harness) or ~/deepseek-harness. Fail clearly when none exists.
+find_dsh() {
+  local candidate
+  for candidate in "${DSH_REPO:-}" "${DSH_ROOT:-}" "$ROOT/../deepseek-harness" "$HOME/deepseek-harness"; do
+    if [ -n "$candidate" ] && [ -d "$candidate" ]; then
+      (cd "$candidate" && pwd)
+      return 0
+    fi
+  done
+  return 1
+}
+if ! DSH="$(find_dsh)"; then
+  echo "FAIL: no DSH checkout found; set DSH_REPO=/path/to/deepseek-harness" >&2
+  echo "      (or place a clone next to this repo as ../deepseek-harness)" >&2
+  exit 1
+fi
 PORT="${PORT:-8147}"
-HOME_DIR="${HOME_DIR:-$(mktemp -d /tmp/dsh-explore-propose.XXXXXX)}"
+HOME_DIR="${HOME_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/dsh-explore-propose.XXXXXX")}"
 LOG="$HOME_DIR/mock.log"
-PATCH="$ROOT/packages/loop/dev-propose.patch.yml"
-cleanup() { [ -n "${MOCK_PID:-}" ] && kill "$MOCK_PID" 2>/dev/null || true; }
+# Committed dev overlay template -> absolute path in the temp dir (removed on exit).
+. "$ROOT/scripts/lib/dev-patch.sh"
+PATCH="$(materialize_dev_patch "$ROOT" dev-propose.patch.yml)"
+cleanup() { [ -n "${MOCK_PID:-}" ] && kill "$MOCK_PID" 2>/dev/null || true; rm -f "${PATCH:-}"; }
 trap cleanup EXIT
 
 PROPOSAL='{"rationale":"read then answer","entry":"p1","nodes":[{"id":"p1","tool":"read","instruction":"Read the README and extract the project summary."},{"id":"p2","kind":"terminal","instruction":"Answer with the summary."}],"edges":[{"from":"p1","to":"p2"}]}'

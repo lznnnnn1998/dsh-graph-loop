@@ -1,22 +1,24 @@
+# Committed dev overlay TEMPLATE. scripts/e2e-*.sh materialize it via
+# scripts/lib/dev-patch.sh, substituting __REPO_ROOT__ and __TMP_DIR__.
 # Developer overlay: absolute-path plugins, no install. Apply with:
-#   dsh --profile web --patch <abs>/packages/loop/dev.patch.yml --dump-config
+#   (materialized) dsh --profile web --patch <tmp>/dev.patch.yml --dump-config
 - id: agent-loop
   name: '@deepseek-ai/dsh-agent-loop'
   disabled: true
 
 - insert:
     - id: graph-registry
-      name: /Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/packages/loop/src/registry.ts
+      name: __REPO_ROOT__/packages/loop/src/registry.ts
       config:
         snapshotTtlMs: 0
     - id: graph-router
-      name: /Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/packages/loop/src/router.ts
+      name: __REPO_ROOT__/packages/loop/src/router.ts
     - id: graph-runtime
-      name: /Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/packages/loop/src/runtime.ts
+      name: __REPO_ROOT__/packages/loop/src/runtime.ts
       config:
-        traceDir: /tmp/dsh-graph-traces
+        traceDir: __TMP_DIR__/dsh-graph-traces
     - id: graph-loop
-      name: /Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/packages/loop/src/index.ts
+      name: __REPO_ROOT__/packages/loop/src/index.ts
       config:
         maxParallelToolCalls: 10
         agents: []
@@ -27,4 +29,4 @@
 
 
     - id: graph-tools
-      name: /Users/zhinan/Documents/dsh_workspace/dsh-graph-loop/packages/loop/src/tools.ts
+      name: __REPO_ROOT__/packages/loop/src/tools.ts

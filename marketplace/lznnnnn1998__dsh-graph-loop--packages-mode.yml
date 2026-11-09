@@ -2,5 +2,5 @@ url: https://github.com/lznnnnn1998/dsh-graph-loop/tree/main/packages/mode
 name: lznnnnn1998/dsh-graph-loop#mode
 category: workflow
 description:
-  en: 'Explore agent preset for the graph loop: graph-node prompt policy, the live graph_status tool passthrough, and a duplicate-spawn guard that blocks a teammate spawn when an idle teammate already matches the task.'
-  zh: '图式 agent loop 的 Explore 预设：图节点提示策略、实时 graph_status 工具、以及在已有空闲 teammate 匹配任务时阻断重复 spawn 的保护。'
+  en: 'Explore agent preset for the graph loop: graph-node prompt policy and a duplicate-spawn guard that blocks a teammate spawn when an idle teammate already matches the task.'
+  zh: '图式 agent loop 的 Explore 预设：图节点提示策略，以及在已有空闲 teammate 匹配任务时阻断重复 spawn 的保护。'

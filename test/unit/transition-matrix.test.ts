@@ -26,6 +26,8 @@
  */
 
 import assert from 'node:assert/strict'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { synthesizeComposition } from '../../packages/core/src/compose.ts'
@@ -670,7 +672,7 @@ for (const engine of ENGINES) {
     // The step succeeded and produced a path artifact — but of the wrong type.
     // The author guard is the stage's own artifact contract (P1-2).
     await driver.advance({ ok: true, tools: [
-      { name: 'write', isError: false, arguments: JSON.stringify({ file_path: '/tmp/notes.txt' }) },
+      { name: 'write', isError: false, arguments: JSON.stringify({ file_path: join(tmpdir(), 'notes.txt') }) },
     ] })
     assert.equal(driver.current()?.id, 'n_author_0_repair')
   })
@@ -682,7 +684,7 @@ for (const engine of ENGINES) {
     const driver = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
     driver.adopt(plan)
     await driver.advance({ ok: true, tools: [
-      { name: 'write', isError: false, arguments: JSON.stringify({ file_path: '/tmp/render.png' }) },
+      { name: 'write', isError: false, arguments: JSON.stringify({ file_path: join(tmpdir(), 'render.png') }) },
     ] })
     assert.equal(driver.current()?.id, 'n_answer')
   })
@@ -713,7 +715,7 @@ for (const engine of ENGINES) {
       `engine=${engine}: a failed verify at the reserve boundary must answer, not repair forever`)
     // The answer is a continuation, not a success claim: the failed verify step and its
     // non-zero exit remain observable in the node trail even though the turn reports
-    // `done` (P1-2 diagnostic; see docs/EVALUATION.md#reserve-boundary).
+    // `done` (see docs/KERNEL-COVERAGE.md, "Reserve boundary").
     const verifyTrail = driver.snapshot().trail.at(-1)
     assert.equal(verifyTrail?.id, 'n_verify')
     assert.match(verifyTrail?.tools?.[0]?.output ?? '', /\[exit code: 1\]/u)

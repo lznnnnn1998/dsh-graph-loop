@@ -1,7 +1,7 @@
 /**
- * Stage-routing regression tests for audit `docs/audits/20261109-1158.md` §5.9–5.10.
+ * Stage-routing regression tests for the stage -> repair routing contract.
  *
- * The contract these cases encode (the fix, not HEAD 2872bc8):
+ * The contract these cases encode:
  *
  *   - a repair step that performs the stage's work advances to the next stage;
  *     a repair that does not perform it exits to the tool-enabled answer;
@@ -18,6 +18,8 @@
  */
 
 import assert from 'node:assert/strict'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { synthesizeComposition } from '../../packages/core/src/compose.ts'
@@ -191,7 +193,7 @@ for (const engine of ENGINES) {
       `engine=${engine}: an arrow inside an argument is not a redirect`)
 
     // The repair step performs the actual mutation; it advances to verify.
-    await driver.advance(write('/tmp/out.ts'))
+    await driver.advance(write(join(tmpdir(), 'out.ts')))
     assert.equal(driver.current()?.id, 'n_verify',
       `engine=${engine}: a successful repair write must advance, not restart mutate`)
 

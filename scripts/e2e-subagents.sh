@@ -3,12 +3,30 @@
 # both run as fresh child agents concurrently, then join at the answer.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DSH="${DSH_ROOT:-/Users/zhinan/deepseek-harness}"
+# Resolve the read-only DSH checkout: $DSH_REPO wins, then a sibling clone
+# (../deepseek-harness) or ~/deepseek-harness. Fail clearly when none exists.
+find_dsh() {
+  local candidate
+  for candidate in "${DSH_REPO:-}" "${DSH_ROOT:-}" "$ROOT/../deepseek-harness" "$HOME/deepseek-harness"; do
+    if [ -n "$candidate" ] && [ -d "$candidate" ]; then
+      (cd "$candidate" && pwd)
+      return 0
+    fi
+  done
+  return 1
+}
+if ! DSH="$(find_dsh)"; then
+  echo "FAIL: no DSH checkout found; set DSH_REPO=/path/to/deepseek-harness" >&2
+  echo "      (or place a clone next to this repo as ../deepseek-harness)" >&2
+  exit 1
+fi
 PORT="${PORT:-8157}"
-HOME_DIR="${HOME_DIR:-$(mktemp -d /tmp/dsh-explore-sub.XXXXXX)}"
+HOME_DIR="${HOME_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/dsh-explore-sub.XXXXXX")}"
 LOG="$HOME_DIR/mock.log"
-PATCH="$ROOT/packages/loop/dev-subagents.patch.yml"
-cleanup() { [ -n "${MOCK_PID:-}" ] && kill "$MOCK_PID" 2>/dev/null || true; }
+# Committed dev overlay template -> absolute path in the temp dir (removed on exit).
+. "$ROOT/scripts/lib/dev-patch.sh"
+PATCH="$(materialize_dev_patch "$ROOT" dev-subagents.patch.yml)"
+cleanup() { [ -n "${MOCK_PID:-}" ] && kill "$MOCK_PID" 2>/dev/null || true; rm -f "${PATCH:-}"; }
 trap cleanup EXIT
 
 echo "== 1. mock LLM"

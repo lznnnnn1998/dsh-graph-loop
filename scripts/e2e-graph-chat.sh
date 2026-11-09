@@ -4,14 +4,34 @@
 # Also captures a screenshot when Chrome is available.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DSH="${DSH_ROOT:-/Users/zhinan/deepseek-harness}"
+# Resolve the read-only DSH checkout: $DSH_REPO wins, then a sibling clone
+# (../deepseek-harness) or ~/deepseek-harness. Fail clearly when none exists.
+find_dsh() {
+  local candidate
+  for candidate in "${DSH_REPO:-}" "${DSH_ROOT:-}" "$ROOT/../deepseek-harness" "$HOME/deepseek-harness"; do
+    if [ -n "$candidate" ] && [ -d "$candidate" ]; then
+      (cd "$candidate" && pwd)
+      return 0
+    fi
+  done
+  return 1
+}
+if ! DSH="$(find_dsh)"; then
+  echo "FAIL: no DSH checkout found; set DSH_REPO=/path/to/deepseek-harness" >&2
+  echo "      (or place a clone next to this repo as ../deepseek-harness)" >&2
+  exit 1
+fi
 PORT="${PORT:-3085}"
 LLM_PORT="${LLM_PORT:-8174}"
-HOME_DIR="${HOME_DIR:-$(mktemp -d /tmp/dsh-graph-chat.XXXXXX)}"
+HOME_DIR="${HOME_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/dsh-graph-chat.XXXXXX")}"
 LOG="$HOME_DIR/host.log"
+# Committed dev overlay template -> absolute path in the temp dir (removed on exit).
+. "$ROOT/scripts/lib/dev-patch.sh"
+PATCH="$(materialize_dev_patch "$ROOT" dev.patch.yml)"
 cleanup() {
   [ -n "${HOST_PID:-}" ] && kill "$HOST_PID" 2>/dev/null || true
   [ -n "${MOCK_PID:-}" ] && kill "$MOCK_PID" 2>/dev/null || true
+  rm -f "${PATCH:-}"
 }
 trap cleanup EXIT
 
@@ -25,7 +45,7 @@ grep -q '"type":"ready"' "$HOME_DIR/mock.log" || { echo "mock failed"; cat "$HOM
 echo "== 2. web host with the graph-chat plugin on :$PORT"
 ( cd "$DSH" && exec env DSH_HOME="$HOME_DIR" DEEPSEEK_BASE_URL="http://127.0.0.1:$LLM_PORT" DEEPSEEK_API_KEY=mock \
     node --import tsx/esm apps/cli/src/bin.ts --profile web \
-    --patch "$ROOT/packages/loop/dev.patch.yml" --port "$PORT" --no-open > "$LOG" 2>&1 ) &
+    --patch "$PATCH" --port "$PORT" --no-open > "$LOG" 2>&1 ) &
 HOST_PID=$!
 for _ in $(seq 1 120); do grep -q "dsh web:" "$LOG" && break; sleep 0.5; done
 grep -q "dsh web:" "$LOG" || { echo "host failed"; tail -30 "$LOG"; exit 1; }
@@ -71,8 +91,9 @@ if (!t.trail.every(x => x.status === "ok")) { console.error("FAIL: a node failed
 
 echo "== 6. screenshot (Chrome headless, best effort)"
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-if [ -x "$CHROME" ]; then
+if [ -x "$CHROME" ] && [ -f "$ROOT/scripts/graph-chat-shot.mjs" ]; then
   # The page needs the signed cookie, so the shot goes through the launch URL first.
-  CHROME_PATH="$CHROME" node "$ROOT/scripts/graph-chat-shot.mjs" \
+  # Best effort: the helper is optional, so a missing/failed shot never fails the e2e.
+  CHROME_PATH="$CHROME" node "$ROOT/scripts/graph-chat-shot.mjs" || true
 fi
 echo "PASS  e2e live graph-chat  (home: $HOME_DIR)"

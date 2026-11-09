@@ -1,22 +1,23 @@
 /**
- * runtime.ts — the `explore` driver: how a DSH turn becomes one graph run.
+ * runtime.ts — the `explore` driver contract: how a DSH turn becomes one graph run.
  *
- * This file is the seam between three owners:
- *   - design/kernel.ts (langgraph-engineer): the kernel-agnostic graph interface.
- *     It owns every LangGraph import and is consumed here by TYPE only; the bundle
- *     calls `createGraph`/`compile` from it at runtime.
- *   - design/runtime.ts (this file): the driver contract, node executors, DSH ports,
- *     the superstep -> session-event mapping, and the turn/step machine obligations.
- *   - the shipped `dsh-graph` bundle: implements DshPort against real services,
- *     registers the AgentFactory, disables the `agent-loop` row, ships `explore`.
+ * This file is the seam between three concerns:
+ *   - `packages/core/src/kernel.ts`: the kernel-agnostic graph interface. Concrete
+ *     kernel adapters live in `packages/loop/src/kernel/`; this file consumes them
+ *     by type only.
+ *   - this file (`packages/core/src/runtime.ts`): the driver contract, node
+ *     executors, DSH ports, the superstep -> session-event mapping, and the
+ *     turn/step machine obligations.
+ *   - `packages/loop`: implements the ports against real services, registers the
+ *     AgentFactory, disables the `agent-loop` row, ships `explore`.
  *
- * Scope (Lead update): the graph loop REPLACES the stock driver for `explore`
- * sessions. It is not a control plane around `dsh-agent-loop`. The graph decides
- * which step runs; the DSH per-step pipeline still makes that step (assembly,
- * pre-step waterfall, request header, tool pipeline, session logging), so every
- * existing plugin that listens to `agent/pre-step` or `tools/*` keeps working.
+ * Scope: the graph loop REPLACES the stock driver for `explore` sessions. It is
+ * not a control plane around `dsh-agent-loop`. The graph decides which step runs;
+ * the DSH per-step pipeline still makes that step (assembly, pre-step waterfall,
+ * request header, tool pipeline, session logging), so every existing plugin that
+ * listens to `agent/pre-step` or `tools/*` keeps working.
  *
- * Kernel constraints inherited from design/kernel.ts (do not relax):
+ * Kernel constraints inherited from `kernel.ts` (do not relax):
  *   C1 state is JSON only; C2 node = one DSH step; C3 the session log is the only
  *   history (a checkpoint is never a source of model-visible facts); C4 interrupts
  *   live at node boundaries (prefer `ask_user_question`); C5 no mid-turn resume
@@ -189,17 +190,17 @@ export interface DshPort {
 /**
  * THE MAPPING. One turn is one graph run; each superstep is one DSH step.
  *
- * DSH order (docs/architecture.md:83-104, packages/core/agent-loop/src/agent.ts:278-296):
+ * DSH order (docs/architecture.md and packages/core/agent-loop/src/agent.ts in the
+ * DSH checkout):
  *   turn/start -> [step/start -> request/header -> assistant/message
  *                  -> tool/call* -> tool/result* -> step/end]* -> turn/end
  *
  * Graph loop:
  *   run start                 driver appends turn/start, then step/start for superstep 0
  *   step node                 driver runs the step pipeline (below) inside the open step
- *   subagent node(s)          same open step; the driver emits one synthetic tool/call per
- *                             branch (name `graph:delegate`), runs the child activations
- *                             concurrently, emits one tool/result per branch with the
- *                             structured output, then step/end
+ *   subagent node(s)          child activations run concurrently between parent steps; each
+ *                             completion injects one `subagent-result` user message into
+ *                             the parent, and no parent model request is logged for the batch
  *   onBoundary(superstep k)   step/end (closes k) + step/start (opens k+1); on run end only
  *                             step/end, then turn/end
  *   human gate                `ask_user_question` tool call inside a step (never kernel
@@ -208,11 +209,13 @@ export interface DshPort {
  *                             user/message banner appended at the boundary
  *   run done                  turn/end; graph state is discarded (C5)
  *
- * Why every node is a step even when it makes no model request: the session format
- * pairs tool calls/results inside a step, and `ToolCallRecovery` assumes that
- * enclosure. A delegation-only step is therefore step/start + synthetic tool calls +
- * step/end, with no `request/header` (nothing was requested). This is conformance
- * the conformance decision CD-3.
+ * The canonical table is `SUPERSTEP_EVENT_MAP` in `graph-schema.ts`; keep this
+ * prose and that table in sync instead of adding a third copy.
+ *
+ * @deprecated Not consulted at runtime. The values below predate the shipped
+ * subagent path (which emits DSH's `subagent/catalog`/`subagent/descriptor` and an
+ * injected `subagent-result` message, not a synthetic `graph:delegate` tool call);
+ * use `SUPERSTEP_EVENT_MAP` in `graph-schema.ts`.
  */
 export const SUPERSTEP_MAPPING = {
   runStart: ['turn/start', 'step/start'],
@@ -250,7 +253,7 @@ export const STEP_PIPELINE_ORDER = [
 ] as const
 
 // ---------------------------------------------------------------------------
-// Kernel port layer (implemented by design/kernel.ts)
+// Kernel port layer (implemented in packages/loop/src/kernel/)
 // ---------------------------------------------------------------------------
 
 /**
@@ -289,11 +292,11 @@ export interface KernelRunHandle {
 }
 
 /**
- * The driver-facing kernel. `design/kernel.ts` owns the LangGraph adapter that
- * satisfies it (`createLangGraphKernel(deps): KernelPort`) and the structural
- * `LangGraphSurface` port that keeps `design/` dependency-free.
+ * The driver-facing kernel. `packages/loop/src/kernel/` owns the LangGraph
+ * adapter that satisfies it (`createLangGraphKernel(deps): KernelPort`) and the
+ * structural `LangGraphSurface` port that keeps `packages/core` dependency-free.
  *
- * Required semantics (from kernel.ts and the spike):
+ * Required semantics (from kernel.ts and the kernel tests):
  * - `compile` is pure and deterministic for a given plan + compiledDigest;
  * - checkpoint payloads are JSON only, enforced before writes;
  * - `updateState` + a recompiled graph is the ONLY way to add/remove nodes;
@@ -341,7 +344,7 @@ export interface NodeExecuteContext {
 
 /**
  * A node body bound to the real per-step pipeline (`step`) or a child activation
- * (`subagent`). `design/kernel.ts` takes one executor per kind
+ * (`subagent`). The kernel adapter takes one executor per kind
  * (`LangGraphKernelDeps.executors`) and calls `execute` for the matching node.
  */
 export interface NodeExecutorPort {
@@ -455,8 +458,8 @@ export const DEFAULT_ENVELOPE: RunEnvelope = {
 /**
  * `explore` is a bundle + profile mode. An out-of-tree plugin cannot add a
  * SessionEventMap type, and the factory slot is process-global (`setFactory`
- * throws when occupied — packages/core/agent/src/index.ts:383), so a profile
- * patch disables the `agent-loop` row and mounts `dsh-graph`. `stock` runs the
+ * throws when occupied — packages/core/agent/src/index.ts), so a profile patch
+ * disables the `agent-loop` row and mounts `dsh-graph-loop`. `stock` runs the
  * degenerate single-node graph (t_stock) and is the in-process A/B control arm:
  * same driver, same seam usage, no routing.
  */

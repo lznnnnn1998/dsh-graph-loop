@@ -28,7 +28,23 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DSH="${DSH_ROOT:-/Users/zhinan/deepseek-harness}"
+# Resolve the read-only DSH checkout: $DSH_REPO wins, then a sibling clone
+# (../deepseek-harness) or ~/deepseek-harness. Fail clearly when none exists.
+find_dsh() {
+  local candidate
+  for candidate in "${DSH_REPO:-}" "${DSH_ROOT:-}" "$ROOT/../deepseek-harness" "$HOME/deepseek-harness"; do
+    if [ -n "$candidate" ] && [ -d "$candidate" ]; then
+      (cd "$candidate" && pwd)
+      return 0
+    fi
+  done
+  return 1
+}
+if ! DSH="$(find_dsh)"; then
+  echo "FAIL: no DSH checkout found; set DSH_REPO=/path/to/deepseek-harness" >&2
+  echo "      (or place a clone next to this repo as ../deepseek-harness)" >&2
+  exit 1
+fi
 PROFILE="web"
 DRY_RUN=0
 
@@ -112,9 +128,9 @@ FAIL: $cause
 
       Recover the profile in place:
         1. reproduce the error:
-             ( cd $DSH && node --import tsx/esm apps/cli/src/bin.ts --profile $PROFILE --dump-config )
+             ( cd "$DSH" && node --import tsx/esm apps/cli/src/bin.ts --profile $PROFILE --dump-config )
         2. isolate a broken user layer (omits $PROFILE_DIR/cordis.patch.yml):
-             ( cd $DSH && node --import tsx/esm apps/cli/src/bin.ts --profile $PROFILE --dump-default-config )
+             ( cd "$DSH" && node --import tsx/esm apps/cli/src/bin.ts --profile $PROFILE --dump-default-config )
         3. inspect and repair:
              $PROFILE_DIR/package.json
              $PROFILE_DIR/cordis.patch.yml
@@ -145,7 +161,7 @@ else
     if ! ds --profile "$PROFILE" --from-default-profile web --dump-config > /dev/null; then
       echo "FAIL: could not create profile '$PROFILE' from the web template." >&2
       echo "      Shipped profile names are reserved and need no --from-default-profile; for any" >&2
-      echo "      other name check DSH_ROOT and that '$DSH' is a working dsh checkout." >&2
+      echo "      other name check DSH_REPO and that '$DSH' is a working dsh checkout." >&2
       exit 1
     fi
     if ! profile_exists; then

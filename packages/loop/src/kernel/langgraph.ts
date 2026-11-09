@@ -840,9 +840,9 @@ class LangGraphPlanRun implements KernelRunHandle {
 
     // The step cap is checked before the pause hook: a paused step is still a
     // step the host can execute, so checking pause first lets the host run one
-    // extra step past the cap (audit 2026-11-09 §6.3). Budget first keeps the
-    // effective cap at `deps.maxSteps` (the plan budget plus the adapter's one
-    // reserve for a budget-routed answer).
+    // extra step past the cap. Budget first keeps the effective cap at
+    // `deps.maxSteps` (the plan budget plus the adapter's one reserve for a
+    // budget-routed answer).
     if (this.state.superstep >= this.deps.maxSteps) {
       return this.settle({
         kind: 'failed',

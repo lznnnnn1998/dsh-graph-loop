@@ -4,10 +4,26 @@
 # Chat/Trajectory/Graph tabs and screenshot the Graph panel.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DSH="${DSH_ROOT:-/Users/zhinan/deepseek-harness}"
+# Resolve the read-only DSH checkout: $DSH_REPO wins, then a sibling clone
+# (../deepseek-harness) or ~/deepseek-harness. Fail clearly when none exists.
+find_dsh() {
+  local candidate
+  for candidate in "${DSH_REPO:-}" "${DSH_ROOT:-}" "$ROOT/../deepseek-harness" "$HOME/deepseek-harness"; do
+    if [ -n "$candidate" ] && [ -d "$candidate" ]; then
+      (cd "$candidate" && pwd)
+      return 0
+    fi
+  done
+  return 1
+}
+if ! DSH="$(find_dsh)"; then
+  echo "FAIL: no DSH checkout found; set DSH_REPO=/path/to/deepseek-harness" >&2
+  echo "      (or place a clone next to this repo as ../deepseek-harness)" >&2
+  exit 1
+fi
 PORT="${PORT:-3074}"
 LLM_PORT="${LLM_PORT:-8189}"
-HOME_DIR="${HOME_DIR:-$(mktemp -d /tmp/dsh-graph-tab.XXXXXX)}"
+HOME_DIR="${HOME_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/dsh-graph-tab.XXXXXX")}"
 LOG="$HOME_DIR/host.log"
 cleanup() {
   [ -n "${HOST_PID:-}" ] && kill "$HOST_PID" 2>/dev/null || true

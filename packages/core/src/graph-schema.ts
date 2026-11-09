@@ -1,7 +1,7 @@
 /**
  * graph-schema.ts — the graph model for the DSH graph-native `explore` loop.
  *
- * One diagram, two uses (per the Lead's scope update):
+ * One diagram, two uses:
  *
  * Layer 1 (RegistryGraph): the capability universe built from live DSH registries at
  * plugin init and kept live through `tools/change`, `system-prompt/change`,
@@ -9,28 +9,27 @@
  * (tool / skill / subagent provider / preset / agent role / plugin), edges are typed
  * relations. It is the candidate universe the matcher searches; it is never executed.
  *
- * Layer 2 (TaskPlan): the executable sub-graph. The SAME plan document is
- *   (a) compiled by design/kernel.ts into the loop graph (a LangGraph StateGraph that
- *       the `explore` driver runs instead of the stock agent-loop), and
- *   (b) exported into the `explore` preset's template library, where it describes
- *       which tools/persona that preset offers and which path a task takes through it.
+ * Layer 2 (TaskPlan): the executable sub-graph. The same plan document is
+ * compiled by the kernel adapter into an executable graph that the driver runs
+ * instead of the stock agent-loop, and it is the shape the composer, templates
+ * and `graph_plan` proposals all validate against.
  * A node is one unit of work: one DSH step (executor `step`) or one child activation
- * (executor `subagent`). A graph run spans one turn or, when a turn pauses, resumes
- * from the checkpoint at the next turn boundary.
+ * (executor `subagent`). A graph run spans one turn; DSH closes an interrupted turn
+ * on restore, and the in-memory checkpointer is only for in-run time travel.
  *
  * Everything here is dependency-free so it can live in an out-of-tree bundle
  * (no DSH source change) and be validated by the plugin's unit tests. The kernel
- * binding lives in design/kernel.ts; this file never imports LangGraph.
+ * binding lives in `packages/loop/src/kernel/`; this file never imports LangGraph.
  *
- * Evidence for the facts encoded below:
+ * Evidence for the facts encoded below (paths in the DSH checkout):
  * - docs/tool-catalog.md — real model-facing tool names and parameter schemas.
  * - packages/core/tools/README.md — `register(def,{when})`, `resolve()`, `restrict()`.
  * - packages/core/system-prompt/README.md — dynamic `text({scope, toolSet})` sections.
  * - packages/skill/skill/README.md — `ctx.skills` catalog + invocation policy.
  * - packages/subagent/subagent/README.md — `ctx.subagents.startActivation({...})`.
  * - packages/preset/agent-preset-registry/README.md — presets are composition rows.
- * - packages/core/agent-loop/src/agent.ts:280-290,329 — resolve -> assemble -> pre-step order.
- * - packages/core/session/src/index.ts:401-406 — `session/event` listeners run synchronously
+ * - packages/core/agent-loop/src/agent.ts — resolve -> assemble -> pre-step order.
+ * - packages/core/session/src/index.ts — `session/event` listeners run synchronously
  *   inside `append`, and `append` re-entry inside one is forbidden.
  */
 
@@ -169,7 +168,7 @@ export interface ToolFacts {
   readonly conditional: boolean
   /** True when the tool only exists after a runtime event (MCP connect, browser start, ...). */
   readonly dynamic: boolean
-  /** Measured model-facing schema size, tokens (see design/measurements.md). */
+  /** Measured model-facing schema size, tokens (data table in `registry.ts`). */
   readonly schemaTokens: number
 }
 
@@ -356,7 +355,7 @@ export interface PlanNode {
   readonly hardGate?: boolean
   /**
    * In-session nodes only: the model this node's step requests. Applying a different
-   * route records `model/selection` and a new request/header (see docs/MERGE-LANGGRAPH.md).
+   * route records `model/selection` and a new request/header.
    */
   readonly model?: { readonly provider: string; readonly model: string; readonly reasoningEffort?: string }
   /** Subagent nodes only: provider, presets, handoff sizes and schema. */
@@ -419,8 +418,8 @@ export interface TaskPlan {
 /**
  * The LangGraph superstep <-> DSH durable event mapping. This table is
  * normative: the conformance suite diffs produced event streams against it,
- * and design/runtime.ts implements it. Keep it in one place so docs, kernel
- * binding and tests cannot drift.
+ * and `packages/core/src/runtime.ts` implements it. Keep it in one place so docs,
+ * kernel binding and tests cannot drift.
  *
  * LangGraph concept            DSH durable fact(s)
  * ---------------------------  -------------------------------------------------
@@ -880,7 +879,7 @@ export function validateTaskPlan(graph: RegistryGraph, plan: TaskPlan): Validati
 /**
  * JSON Schema (draft 2020-12) for the on-disk example and for `graph_status`
  * output. The TypeScript types above are the source of truth; this document is
- * kept in sync by `design/example-graph.yaml` validation in the plugin tests.
+ * the wire/document form for external consumers.
  */
 export const REGISTRY_GRAPH_JSON_SCHEMA = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',

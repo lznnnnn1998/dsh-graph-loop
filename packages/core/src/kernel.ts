@@ -1,14 +1,15 @@
 /**
- * `dsh-graph-kernel` — the kernel-agnostic graph interface a DSH agent loop
- * compiles against.
+ * `dsh-graph-loop-core/kernel` — the kernel-agnostic graph interface a DSH agent
+ * loop compiles against.
  *
- * This file is the boundary between the loop design (`design/runtime.ts`) and
- * whatever executes the graph. Two implementations are expected to satisfy it:
+ * This file is the boundary between the driver contract (`packages/core/src/runtime.ts`)
+ * and whatever executes the graph. Two implementations satisfy it:
  *
- *   1. `LangGraphKernel`  — a thin adapter over `@langchain/langgraph@1.7.0`
- *                           (§6).
- *   2. `MinimalKernel`    — the vendored fallback (§9),
- *                           only built if the LangGraph kill criteria fire.
+ *   1. `LangGraphKernel`  — a thin adapter over `@langchain/langgraph@1.7.0`,
+ *                           in `packages/loop/src/kernel/langgraph.ts`.
+ *   2. `MinimalKernel`    — the vendored fallback in
+ *                           `packages/loop/src/kernel/minimal.ts`, used when the
+ *                           optional dependency is absent.
  *
  * Nothing here imports a third-party type. A graph author writes against this
  * file; swapping the kernel must not change call sites.
@@ -26,8 +27,8 @@
  *
  * C2. NODE = ONE DSH STEP. A node body is exactly what
  *     `ReactLoopAgent.step()` does today: one model request plus the tool batch
- *     it emits (`packages/core/agent-loop/src/agent.ts:428-605`). A superstep
- *     boundary is `step/end` followed by the next `step/start`.
+ *     it emits (`packages/core/agent-loop/src/agent.ts` in the DSH checkout). A
+ *     superstep boundary is `step/end` followed by the next `step/start`.
  *
  * C3. THE SESSION LOG IS THE ONLY HISTORY. The checkpointer is a *runtime*
  *     facility. It never replaces a session event, and the adapter must never
@@ -46,22 +47,21 @@
  *         pause point* and the pause must be the first statement that matters.
  *
  * C5. NO MID-TURN RESUME ACROSS PROCESSES. DSH closes an interrupted turn with
- *     synthetic closers on restore (`packages/core/session/src/repair.ts:209`,
- *     called from `packages/core/agent-loop/src/index.ts:801`). A graph run
- *     therefore never continues across a restart; a durable saver buys nothing
- *     for correctness and is only useful for in-turn time travel / debugging.
+ *     synthetic closers on restore (`packages/core/session/src/repair.ts`,
+ *     called from `packages/core/agent-loop/src/index.ts` in the DSH checkout).
+ *     A graph run therefore never continues across a restart; a durable saver
+ *     buys nothing for correctness and is only useful for in-turn time travel /
+ *     debugging.
  */
 
 import type { GraphState, Json, PlanNode, TaskPlan } from './graph-schema.js'
 
 /**
- * NOTE ON LAYERING. `design/runtime.ts` declares `KernelPort`, `KernelRunHandle`
- * and `NodeExecutorPort`, and states that this file exports the LangGraph
- * implementation of them. Those names are deliberately **not** imported here:
- * `runtime.ts` is being edited in parallel, and a type-only import would make
- * this file uncheckable whenever the sibling is mid-change. Instead the pieces
- * this file needs from that contract are re-declared below, structurally, and
- * The two shapes are kept in conformance by the kernel tests.
+ * NOTE ON LAYERING. `packages/core/src/runtime.ts` declares `KernelPort`,
+ * `KernelRunHandle` and `NodeExecutorPort`; this file owns the kernel-facing
+ * graph interface. Those names are deliberately **not** imported here: the
+ * pieces this file needs from that contract are re-declared below,
+ * structurally, and the two shapes are kept in conformance by the kernel tests.
  */
 
 /* ========================================================================== *
@@ -400,7 +400,7 @@ export interface CompiledGraph<S extends StateObject = StateObject> {
   getState(threadId: string): Promise<CheckpointSnapshot<S> | undefined>
   /** Walk a thread's checkpoint chain, newest first. Debugging only. */
   getStateHistory(threadId: string): AsyncIterable<CheckpointSnapshot<S>>
-  /** Replace graph topology *between* runs. See §6.4 of the research note. */
+  /** Replace graph topology *between* runs by rebuilding and recompiling. */
   withTopology(edit: (builder: GraphBuilder<S>) => void): CompiledGraph<S>
   /**
    * LangGraph-materialise this graph as its own `StateGraph` for debugging in
@@ -478,7 +478,7 @@ export declare function createGraph<S extends StateObject>(
 ): GraphBuilder<S>
 
 /* ========================================================================== *
- * Adapter obligations (normative — §7)
+ * Adapter obligations (normative)
  * ========================================================================== *
  *
  * A kernel adapter MUST:
@@ -499,21 +499,19 @@ export declare function createGraph<S extends StateObject>(
  */
 
 /* ========================================================================== *
-/* ========================================================================== *
- * Layer 2 — the DSH-shaped kernel port (`design/runtime.ts` calls this)
+ * Layer 2 — the DSH-shaped kernel port (`packages/core/src/runtime.ts` calls this)
  * ========================================================================== *
  *
- * `design/runtime.ts` owns `KernelPort` / `KernelRunHandle`; this file owns the
- * LangGraph adapter that satisfies them. The split exists so `runtime.ts`, the
- * node executors and the DSH bundle never see a LangGraph type and can be
- * compiled/tested without the dependency installed.
+ * `packages/core/src/runtime.ts` owns `KernelPort` / `KernelRunHandle`; the
+ * concrete adapters in `packages/loop/src/kernel/` satisfy them. The split
+ * exists so `runtime.ts`, the node executors and the DSH bundle never see a
+ * LangGraph type and can be compiled/tested without the dependency installed.
  *
  * The adapter takes the LangGraph module as a *structural port*
- * (`LangGraphSurface`) instead of importing it: `design/` stays
+ * (`LangGraphSurface`) instead of importing it: `packages/core` stays
  * dependency-free, the bundle performs the single
- * `await import('@langchain/langgraph')`, and
- * The KernelPort type checks that the real 1.7.0
- * module still satisfies this port. That file is the upgrade checklist.
+ * `await import('@langchain/langgraph')`, and the kernel conformance test checks
+ * that the real 1.7.0 module still satisfies this port.
  */
 
 /** Structural port of the `@langchain/langgraph` exports this kernel uses. */
@@ -555,7 +553,7 @@ export interface LangGraphCompiledLike {
 /**
  * The checkpointer the driver owns: the session log is authoritative, this is a
  * cache keyed by `(sessionId, atSeq)`. Structurally identical to
- * `design/runtime.ts` `KernelPort['checkpointer']`.
+ * `packages/core/src/runtime.ts` `KernelPort['checkpointer']`.
  */
 export interface KernelCheckpointerPort {
   load(sessionId: string, atSeq: number): Promise<GraphState | undefined>
@@ -565,7 +563,7 @@ export interface KernelCheckpointerPort {
 /** Why a run paused, so the next turn can resume the same graph. */
 export type KernelPauseReason = 'user-input' | 'human-gate' | 'replan' | 'budget' | 'error'
 
-/** A node failure in the shape `design/runtime.ts` `NodeFailure` uses. */
+/** A node failure in the shape `packages/core/src/runtime.ts` `NodeFailure` uses. */
 export interface KernelNodeFailure {
   readonly code:
     | 'tool-failed'
@@ -625,10 +623,11 @@ export interface LangGraphKernelDeps {
   /**
    * Plan policy: which node runs after `nodeId` finished, or `END`.
    *
-   * The kernel deliberately does NOT evaluate plan `Condition`s — that is
-   * `design/` policy. Supplying this keeps the kernel a *kernel*: topology,
-   * stepping, boundaries and checkpoints, with no plan semantics inside.
-   * Default: the first `control` edge leaving `nodeId`, else `END`.
+   * The kernel deliberately does NOT evaluate plan `Condition`s — that is plan
+   * policy owned by `condition.ts` and the kernel adapter. Supplying this keeps
+   * the kernel a *kernel*: topology, stepping, boundaries and checkpoints, with
+   * no plan semantics inside. Default: the first `control` edge leaving
+   * `nodeId`, else `END`.
    */
   readonly route?: (input: {
     readonly plan: TaskPlan
@@ -824,15 +823,15 @@ function pickUpdate(chunk: unknown): [string, Record<string, unknown>] {
   return ['', {}]
 }
 
-/** Shallow JSON merge; `design/` reducers own the real fold (`afterNode`). */
+/** Shallow JSON merge; the caller's `afterNode` hook owns the real fold. */
 function applyDelta(state: GraphState, update: Record<string, unknown>): GraphState {
   return { ...state, ...(update as Partial<GraphState>) }
 }
 
 /**
  * The driver-facing kernel surface. Structurally identical to
- * `design/runtime.ts` `KernelPort` (asserted by the conformance spike); declared
- * here so this file has no type dependency on a file edited in parallel.
+ * `packages/core/src/runtime.ts` `KernelPort` (asserted by the kernel tests);
+ * declared here so this file has no type dependency on the driver module.
  */
 export interface KernelPortLike {
   compile(plan: TaskPlan, state: GraphState): KernelRunHandleLike
@@ -976,7 +975,7 @@ function siblingsOf(plan: TaskPlan, nodeId: string): readonly string[] {
 /**
  * Runtime conformance probe for a LangGraph module. Throws when the installed
  * version has moved a symbol this kernel depends on. Call it once at plugin
- * activation — it is the first half of kill criterion §9.4.
+ * activation.
  */
 export function assertLangGraphSurface(candidate: unknown): asserts candidate is LangGraphSurface {
   if (typeof candidate !== 'object' || candidate === null) {

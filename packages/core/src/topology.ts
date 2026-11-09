@@ -1,7 +1,12 @@
 /**
- * @deprecated 0.1.x legacy. The 0.2 composition layer synthesizes plans from
- * capability facts in `compose.ts`; this module hardcodes DSH tool names and is
- * kept only for the frozen graph driver.
+ * topology.ts — dynamic topology synthesis and the frontier executor.
+ *
+ * `compose.ts` is the default plan synthesizer for the shipped driver. This
+ * module is still live: `templates.ts`/`match()` handle `template` mode and the
+ * dynamic fallback, and `FrontierTopology` executes every plan shape the kernel
+ * adapter does not own (parallel fan-out/join, subagent batches, reserved or
+ * nonconforming node ids). `synthesizeTopology` hardcodes DSH tool names, which
+ * is why the composer is the default; it remains the conservative fallback.
  *
  * Dynamic topology: the run graph is *discovered*, not selected from a fixed
  * template library.
@@ -519,7 +524,7 @@ export class FrontierTopology {
    * alternative endpoints — validation requires each to be a leaf, and a branch
    * plan legitimately reaches only one of them — so any reached terminal counts.
    * Using `every` would mark a branch completion as failed whenever a different
-   * terminal stayed unreached (audit 2026-11-09 §4.4).
+   * terminal stayed unreached.
    */
   private terminalsReached(): boolean {
     return this.basePlan.terminals.some(terminal => this.completed.has(terminal))
@@ -585,8 +590,8 @@ export class FrontierTopology {
     if (this.stepCount >= this.maxSteps) {
       // The step cap is not success. Report done only when the plan actually
       // reached a terminal; otherwise the run stops mid-plan and must settle as
-      // failed (audit 2026-11-09 §4.3/§4.4). Treating the cap as done reported
-      // a truncated run as a completed turn.
+      // failed. Treating the cap as done reported a truncated run as a
+      // completed turn.
       this.state = this.terminalsReached() ? 'done' : 'failed'
       return undefined
     }
