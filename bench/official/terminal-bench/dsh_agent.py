@@ -131,21 +131,41 @@ class DshAgent(BaseAgent):
             f"rm -rf /root/.dsh\ndsh --profile {PROFILE} --from-default-profile headless --dump-config >/dev/null\n",
             timeout=1800,
         )
-        if self.stock:
-            self.logger.info("DSH_STOCK=1: running the stock headless loop (control arm)")
-            return
-        await environment.upload_file(str(self.plugin_tarball), PLUGIN_TARBALL)
+        # Both arms share the same instrument policy. The sandbox is the
+        # container itself (disposable Terminal-Bench env), so danger-full-access
+        # is the container-scoped equivalent of "the workspace is writable";
+        # workspace-write rooted at /app caps tasks that must write /workspace,
+        # /results or installed site-packages. Retries absorb TRANSPORT noise.
+        patch_lines = [
+            '- id: sandbox-policy', '  config:', '    mode: danger-full-access',
+            '- id: llm-deepseek', '  config:', '    retryPolicy:',
+            '      mode: normal', '      maxRetries: 3',
+        ]
+        if not self.stock:
+            patch_lines += [
+                '- id: graph-loop', '  config:',
+                '    toolPolicy: preset', '    benchGuards: true',
+            ]
+        patch_text = '\n'.join(patch_lines)
+        if not self.stock:
+            await environment.upload_file(str(self.plugin_tarball), PLUGIN_TARBALL)
         await self._exec(
             environment,
             "set -e\n"
-            f"dsh plugin --profile {PROFILE} add {PLUGIN_TARBALL} >/tmp/dsh-plugin.log 2>&1 || "
-            "{ tail -100 /tmp/dsh-plugin.log; exit 1; }\n"
-            f"printf '%s\\n' '- id: graph-loop' '  config:' '    toolPolicy: preset' '    benchGuards: true' '- id: llm-deepseek' '  config:' '    retryPolicy:' '      mode: normal' '      maxRetries: 1' > {PATCH}\n"
-            f"dsh --profile {PROFILE} --patch {PATCH} --dump-config >/tmp/dsh-dump.yml\n"
-            "grep -q 'id: graph-loop' /tmp/dsh-dump.yml\n"
-            "grep -q 'toolPolicy: preset' /tmp/dsh-dump.yml\n",
+            + ("" if self.stock else
+               "dsh plugin --profile {0} add {1} >/tmp/dsh-plugin.log 2>&1 || "
+               "{{ tail -100 /tmp/dsh-plugin.log; exit 1; }}\n".format(PROFILE, PLUGIN_TARBALL))
+            + f"cat > {PATCH} <<'DSH_PATCH'\n{patch_text}\nDSH_PATCH\n"
+            + f"dsh --profile {PROFILE} --patch {PATCH} --dump-config >/tmp/dsh-dump.yml\n"
+            + ("grep -q 'id: graph-loop' /tmp/dsh-dump.yml\n"
+               "grep -q 'toolPolicy: preset' /tmp/dsh-dump.yml\n" if not self.stock else
+               "grep -q 'sandbox-policy' /tmp/dsh-dump.yml\n"
+               "grep -q 'danger-full-access' /tmp/dsh-dump.yml\n")
+            + "grep -q 'maxRetries: 3' /tmp/dsh-dump.yml\n",
             timeout=1800,
         )
+        if self.stock:
+            self.logger.info("DSH_STOCK=1: running the stock headless loop with the shared instrument patch")
 
     @override
     async def run(
@@ -156,7 +176,7 @@ class DshAgent(BaseAgent):
     ) -> None:
         env = {**PROXY_ENV, **self.extra_env}
         # DSH's headless profile reads DEEPSEEK_API_KEY from the environment.
-        patch = "" if self.stock else f" --patch {PATCH}"
+        patch = f" --patch {PATCH}"
         servers = getattr(self, 'mcp_servers', None) or []
         mcp_note = ''
         if servers:
@@ -185,4 +205,11 @@ class DshAgent(BaseAgent):
             self.logger.warning(f"could not download DSH sessions: {exc}")
         (self.logs_dir / "dsh-stdout.log").write_text(result.stdout or "")
         (self.logs_dir / "dsh-stderr.log").write_text(result.stderr or "")
-        context.metadata = {"agent": "dsh", "plugin": "dsh-graph-loop" if not self.stock else "stock", "tool_policy": "preset"}
+        transport_failed = "TRANSPORT" in (result.stderr or "") or "TRANSPORT" in (result.stdout or "")
+        context.metadata = {
+            "agent": "dsh",
+            "plugin": "dsh-graph-loop" if not self.stock else "stock",
+            "tool_policy": "preset",
+            "agent_exit": result.return_code,
+            "transport_failed": transport_failed,
+        }

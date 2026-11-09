@@ -110,6 +110,18 @@ if Path(result_path).exists():
 criteria = extract_criteria(Path(result_path).parent) if Path(result_path).exists() else {
     'criteria_passed': None, 'criteria_total': None, 'criteria_failed': [], 'criteria_source': 'unavailable',
 }
+agent_meta = {}
+job_dir = Path(result_path).parent if Path(result_path).exists() else None
+if job_dir is not None:
+    for trial_result in job_dir.glob('*/result.json'):
+        try:
+            trial_data = json.loads(trial_result.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        meta = (trial_data.get('agent_result') or {}).get('metadata') or {}
+        if meta:
+            agent_meta = meta
+            break
 row = {
     'task': task,
     'arm': arm,
@@ -125,6 +137,8 @@ row = {
     'image_verifier': images.get('image_verifier'),
     'result': durable,
     'criteria': criteria,
+    'agent_exit': agent_meta.get('agent_exit'),
+    'transport_failed': agent_meta.get('transport_failed'),
 }
 with open(rows, 'a') as fh:
     fh.write(json.dumps(row) + '\n')
@@ -158,6 +172,10 @@ for arm in ('stock', 'graph'):
             'total': criteria_total,
             'micro_rate': (criteria_passed / criteria_total) if criteria_total else None,
         },
+        'agent_invalid_rows': sum(
+            1 for r in arm_rows
+            if (r.get('agent_exit') not in (0, None)) or r.get('transport_failed') is True
+        ),
     }
 meta = {
     'commit': os.environ.get('GIT_COMMIT'),
