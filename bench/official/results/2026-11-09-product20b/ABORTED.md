@@ -9,6 +9,7 @@ arms, no transport rows), but the graph arm was failing in its own stage loop:
   `/app/harmony.mxl`; verifier correctly 0/13.
 - `photonic-waveguide-routing` graph: 13/14 near-miss (not a routing loop).
 
-These rows are valid trials but not a fair graph-vs-stock measurement; the graph design must be fixed
-before another product20. Marker `/tmp/product20-shard-full.log` now has `_EXIT`; PID 61129/66524 are
-stopped. Do not merge these five rows into a future citable run.
+These rows are completed Harbor trials but not a fair graph-vs-stock measurement (the graph rows are
+routing faults, not capability); the graph design must be fixed before another product20. Marker
+`/tmp/product20-shard-full.log` now has `_EXIT`; PID 61129/66524 are stopped. Do not merge these five
+rows into a future citable run.

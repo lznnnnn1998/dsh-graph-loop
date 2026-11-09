@@ -56,7 +56,7 @@ rebuild either or reset the task dirs before the builder/compose fixes land.
 | Composed plans (per-stage success / no-progress / repair / budget exits) | **LangGraph** | `test/unit/transition-matrix.test.ts` (frontier + minimal + langgraph), `test/unit/scheduler.test.ts` |
 | Parallel fan-out / join | `FrontierTopology` (a forward join waits for every entered predecessor, depth-2+ branches included; retry back-edges still re-enter; a join on a cycle runs once per iteration) | `test/unit/transition-matrix.test.ts`, `test/unit/topology.test.ts` |
 | Subagent batches | `FrontierTopology` | `test/unit/scheduler.test.ts` |
-| Condition on a data edge | `FrontierTopology`; rejected by `validateTaskPlan` (`P023`) | `test/unit/transition-matrix.test.ts` |
+| Condition on a data edge | **Neither engine** routes it; `validateTaskPlan` rejects the plan (`P023`) | `test/unit/transition-matrix.test.ts` |
 | Reserved / nonconforming node ids | `FrontierTopology` | `canKernelDrive()` rejects them |
 
 Only the `budget` **step** axis is routed. `maxTokens` / `maxWallMs` are declared plan capacity with
@@ -185,11 +185,12 @@ The former local 20-task run is not part of this tree and is not citable as curr
 
 1. **Durable checkpoints**: `MemoryCheckpointer` only; no `storageDomain` saver, no restart resume.
    The blocker is the consumer (replay/time-travel), not storage availability.
-2. **Kernel breadth**: parallel fan-out/join, subagent batches, conditions on data edges and
-   reserved/nonconforming node ids still use `FrontierTopology`. `maxTokens`/`maxWallMs` are declared
-   capacity, not routed budget axes. The frontier now waits for every entered predecessor before a
-   forward join (depth-2+ diamonds included) and a join on a cycle runs once per iteration, but only
-   the frontier executes fan-out at all.
+2. **Kernel breadth**: parallel fan-out/join, subagent batches and reserved/nonconforming node ids
+   still use `FrontierTopology`; a condition on a data edge is rejected by `validateTaskPlan` because
+   neither engine routes it. `maxTokens`/`maxWallMs` are declared capacity, not routed budget axes.
+   The frontier now waits for every entered predecessor before a forward join (depth-2+ diamonds
+   included) and a join on a cycle runs once per iteration, but only the frontier executes fan-out at
+   all.
 3. **Budget boundary**: the kernel adapter reserves one extra step for a budget-routed wrap-up node;
    the frontier stops at the plan's step cap. Composed plans target `ANSWER_RESERVE_STEPS` (2), so
    both engines have room in practice; one rule in both engines is still open.

@@ -83,8 +83,9 @@ features.
       graph-to-stock hand-off bounded by the per-turn `maxSteps`, not graph routing. Decide whether
       to document it as intended or implement graph continuation.
 - [ ] Durable checkpoints: `MemoryCheckpointer` only; the read/replay consumer is not designed.
-- [ ] Kernel breadth: parallel fan-out, subagent batches, data-edge conditions and reserved node ids
-      still use `FrontierTopology`.
+- [ ] Kernel breadth: parallel fan-out, subagent batches and reserved node ids still use
+      `FrontierTopology`; data-edge conditions are rejected by `validateTaskPlan` (`P023`) because
+      neither engine routes them.
 - [ ] Budget boundary: the kernel adapter reserves one step for a budget-routed wrap-up node; the
       frontier stops at the plan cap. Composed plans target 2 remaining steps so both have room, but
       one rule in both engines is still open.

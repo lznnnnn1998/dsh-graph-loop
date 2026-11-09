@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One-command verification for the repo: types, unit tests, installed bundle,
 # tarball install, markdown links. The official benchmark preflights are run in
-# report-only mode because this machine has no container runtime.
+# report-only mode so the gate never depends on a container backend.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"

@@ -5,9 +5,10 @@ Harbor calls an agent class; it does not know about DSH. The adapter is the only
 ## Required behaviour
 
 1. One task = one DSH process in the task working directory.
-2. Launch a profile that installs `dsh-graph-loop` (and optionally the Graph tab / Explore mode);
-   do not edit DSH source.
-3. Set `agent-loop.toolPolicy: preset` for benchmark runs so the full benchmark tool set is visible.
+2. Launch a profile that installs `dsh-graph-loop` (and optionally the Graph tab / Explore mode) for
+   the graph arm; do not edit DSH source.
+3. On the graph arm, set `graph-loop.toolPolicy: preset` for benchmark runs so the full benchmark
+   tool set is visible; the stock arm already runs the full preset tool set.
 4. Pass the task instruction as a single non-interactive prompt with `DSH_AGENT_TIMEOUT_SEC`
    (task `[agent].timeout_sec` via the runner; 900 s adapter fallback). `DSH_AGENT_TIMEOUT_CAP` is
    the only override. A timeout is a failed task, not a score.
@@ -35,8 +36,10 @@ Harbor calls an agent class; it does not know about DSH. The adapter is the only
 
 ## Known asymmetries to record
 
-- The graph profile patch sets `llm-deepseek.retryPolicy.maxRetries: 1`; the stock arm uses the
-  default.
+- Both arms share the instrument patch (`sandbox-policy: danger-full-access`,
+  `llm-deepseek.retryPolicy.maxRetries: 3`). The graph arm additionally sets
+  `graph-loop.toolPolicy: preset` and `benchGuards: true`; the stock arm runs the full preset tool
+  set without bench guards. Record the graph-only guards as a harness asymmetry.
 - Task images are rebuilt for linux/arm64; record the image tags with results.
 - A prebaked Node/DSH overlay changes setup time but not the agent prompt. The MCP prompt note is a
   separate asymmetry: for a task with configured MCP servers, the prompt gains the server

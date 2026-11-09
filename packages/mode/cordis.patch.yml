@@ -1,8 +1,8 @@
 # The explore mode: one `@deepseek-ai/dsh-agent-preset` declaration, i.e. a fifth
 # agent MODE in the Web mode chip. This is a per-session plugin composition, NOT a
-# loop replacement: the host keeps the stock agent loop
-# (packages/preset/agent-preset-registry/README.md:56), so every session event,
-# projection, approval, cancellation and compaction path is unchanged.
+# loop replacement: the profile's own loop runs the session (the stock agent loop,
+# or the `dsh-graph-loop` driver when that bundle is installed), so every session
+# event, projection, approval, cancellation and compaction path is unchanged.
 #
 # Child rows are copied verbatim from the shipped `standard` preset
 # (packages/bundle/web-app/presets/standard.patch.yml) with two differences:

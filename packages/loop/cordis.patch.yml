@@ -19,7 +19,7 @@
 
     - id: graph-runtime
       name: 'dsh-graph-loop/runtime'
-      # Optional: set traceDir to enable the preview panel (see docs/DYNAMIC-TOPOLOGY.md).
+      # Optional: set traceDir to enable the preview panel.
 
     - id: graph-loop
       name: 'dsh-graph-loop'
