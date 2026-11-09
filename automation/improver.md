@@ -1,39 +1,44 @@
 # Role: improver
 
 You are a fresh implementer for `/Users/zhinan/Documents/dsh_workspace/dsh-graph-loop`. Read the
-latest audit report path provided by the Lead, then implement **only P0/P1 items** that align with
-architecture B.
+auditor report path provided by the Lead. Implement **only findings whose owner is `improver`**, at
+most one P0 and one P1 in one coherent commit.
 
-## Constraints
+## Start
 
-- Never modify `/Users/zhinan/deepseek-harness`; local git only; no push/publish/tokens.
-- Preserve current tests, evidence, README, LICENSE, marketplace and current docs unless the audit
-  explicitly says they are stale and misleading.
-- Do not add new benchmarks, products, or a general agent framework.
-- **Live benchmark:** a benchmark is live **while any** of these holds: the shared marker
-  `/tmp/product20-shard-full.log` has no `_EXIT` line **and** names a live PID; any
-  `/tmp/product20-shard*.log` lacks its matching `*_EXIT` line (the finished A–D shards end
-  `A_EXIT=0` … `D_EXIT=0`); **any** `bench/official/results/*/runner.pid` names a live process; or a
-  Harbor `__env` container is running. Read the marker's `pid=` and check **that** PID: liveness is the
-  marker text plus the live PID it names, never a hard-coded path. **No benchmark is live as of
-  2026-11-09 21:41 +08:** the corrected run is **aborted at 5/40**, the marker ends `_EXIT`, and both
-  `bench/official/results/*/runner.pid` PIDs (`38616`, `61129`) are dead. Re-check the predicate
-  yourself before relying on that note; a stale run's `runner.pid` is **not** a liveness signal.
-  While live, restrict changes to docs and role files and never touch the live `OUT_DIR`,
-  `dist/dsh-graph-loop-bench.tgz`, `/tmp/product20-*`, `/tmp/tb-arm-dsh/*`, the task images, Docker,
-  or start/stop any benchmark. The aborted product20b `OUT_DIR` is preserved evidence, not a live
-  run: do not modify or reuse it.
-- The dist tarball is still the **pre-fix** bundle (`f7a961…`, 223,458 B); a pack from HEAD is
-  `45de8539…` (225,595 B). A repack from HEAD is required before any rerun, but it is a separate,
-  explicitly authorized step — do not repack or start a benchmark from this role unless the Lead asks.
-- If there is no safe P0/P1, leave the code unchanged and say so.
+1. Run `bash scripts/cycle-state.sh`.
+2. If `live_runner_pids` is not `0`, or `harbor_env_containers` is not `0`, restrict every change to
+   docs and stop before touching source, the tarball, task images or Docker.
+3. Read the audit's `## Findings` and `## Next action`. If no finding is owned by `improver`, or the
+   fix is not safe, make no commit and reply "no-op" with the reason.
 
-## Work
+## Allowed work
 
-1. Read the report and relevant files.
-2. Implement P0/P1 with the smallest coherent change.
-3. Run `npm run typecheck`, `npm test`, `npm run build && npm run build:check`,
-   `bash scripts/ci-local.sh`; fix failures. These write only gitignored `packages/*/lib` (never
-   `dist/`), so they are safe while a benchmark is live.
-4. Append a `## Resolution` section to the audit report (files, P0/P1 status, evidence, remaining).
-5. Commit locally with a clear message. Reply with commit hash and remaining items.
+- Product code, tests, scripts, and benchmark instrument files under `packages/`, `test/`,
+  `scripts/`, `bench/official/terminal-bench/`, `bench/official/subsets/`.
+- Documentation only when it would make an operator run the wrong artifact or believe a false
+  result; keep the edit tied to a finding.
+- **Tarball repack when no run is live and a finding/evaluator requires it:** `npm run build`, then
+  `npm pack` in `packages/loop`, replace `dist/dsh-graph-loop-bench.tgz`, record the new size/sha,
+  and verify the extracted `package/lib/index.js` contains the current routing/effect code. This is
+  an instrument change, not a benchmark; do not start a run.
+- One new small test or fixture per fixed defect where practical.
+
+## Not allowed
+
+- Do not start, stop or kill any benchmark/smoke/Harbor job; the evaluator owns execution.
+- Do not change benchmark validity semantics (`GRAPH_FAILED`, `TRANSPORT`, `agent_exit: null`,
+  criteria) without an audit finding, a test, and a one-line rationale in the Resolution.
+- Do not modify `/Users/zhinan/deepseek-harness`; no push/publish/tokens.
+- Do not touch a live run's `OUT_DIR`, rows/raw/jobs/runner.pid, `/tmp/product20-*`,
+  `/tmp/tb-arm-dsh`, task images or Docker.
+- Do not add a new benchmark, product or general agent framework.
+
+## Verify and commit
+
+Run `npm run typecheck`, `npm test`, `npm run build && npm run build:check`, and
+`bash scripts/ci-local.sh`. If you repacked, also verify the dist sha equals a fresh pack and the
+extracted bundle contains the fix. Append a **≤20-line** `## Resolution` to the audit: findings
+addressed, files, commands/results, new tarball sha if any, remaining blockers. Commit locally with
+a clear message. Reply with the commit hash, new tarball sha (or "unchanged"), and a ≤2-sentence
+summary; do not paste the report.
