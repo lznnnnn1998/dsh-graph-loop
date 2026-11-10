@@ -46,8 +46,11 @@ because neither engine routes it. No claim is made that LangGraph executes arbit
 
 ## Limitations
 
-- Checkpoints are **in-memory** (`MemoryCheckpointer`); `storageDomain` durability is not wired, so a
-  restart cannot resume mid-turn.
+- The kernel checkpointer is **in-memory** (`MemoryCheckpointer`, a per-run cache); `storageDomain`
+  durability is not wired. A completed node boundary is recorded in the session log
+  (`plugin:graph-loop/checkpoint`), so a later turn resumes a kernel-driven plan at the pending node
+  instead of re-running completed ones; a frontier-owned plan records no checkpoint and starts a
+  fresh plan.
 - The fork is maintenance debt. `scripts/diff-upstream.sh --check` pins the upstream commit and
   patch budgets; `scripts/ci-local.sh` and `scripts/verify-all.sh` run it when a DSH checkout is
   available.

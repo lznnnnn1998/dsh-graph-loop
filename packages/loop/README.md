@@ -76,7 +76,10 @@ single stock step.
 - Kernel coverage is partial by plan shape, not by condition. The exact plan shape → engine → test
   table (and the data-edge rejection) is in
   [`../../docs/KERNEL-COVERAGE.md`](../../docs/KERNEL-COVERAGE.md).
-- Kernel checkpoints are in-memory (`MemoryCheckpointer`); `storageDomain` persistence is pending.
+- The kernel checkpointer is a per-run cache (`MemoryCheckpointer`); `storageDomain` persistence is
+  pending. A completed node boundary is durable in the session log (`plugin:graph-loop/checkpoint`)
+  and a resumed turn continues a kernel-driven plan at `state.next` instead of re-running completed
+  nodes; a frontier-owned plan records no checkpoint and starts a fresh plan.
 - `dynamic` synthesis is heuristic, not an optimization over all graphs.
 - `maxSteps` bounds **graph nodes per turn**: a replan, recovery plan or adopted proposal cannot
   reset the allowance, and both engines grant at most one extra wrap-up step when a `budget` edge

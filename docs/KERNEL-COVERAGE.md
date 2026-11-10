@@ -54,6 +54,8 @@ output remain in the node trail and session log. Both engines reserve one extra 
 a declared terminal; a non-terminal that runs out of matching exits reports `failed`, not `done`
 (`packages/loop/src/kernel/topology.ts`, `packages/core/src/topology.ts`).
 
-No claim is made that LangGraph executes arbitrary graphs. Checkpoints are in-memory
-(`MemoryCheckpointer` in `packages/loop/src/kernel/plan.ts`); `storageDomain` durability is not
-wired.
+No claim is made that LangGraph executes arbitrary graphs. The kernel checkpointer is a per-run
+cache (`MemoryCheckpointer` in `packages/loop/src/kernel/plan.ts`); `storageDomain` durability is
+not wired. A completed node boundary is recorded durably in the session log
+(`plugin:graph-loop/checkpoint`), so a resumed kernel-driven turn continues at `state.next`; a
+frontier-owned plan records no checkpoint and starts a fresh plan.

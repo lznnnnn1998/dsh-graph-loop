@@ -23,7 +23,7 @@ The fork is tracked as debt; do not hide it behind the graph narrative.
 | Graph execution | LangGraph for every control-edge condition (`artifact`, `noArtifact`, `fact`, `callFailed`, `budget` step axis) and composed plans | Done |
 | Parallel fan-out / subagent batches / reserved ids | `FrontierTopology` | Fallback; documented |
 | Typed channels/reducers | Plugin `GraphState` | One JSON `state` channel; not LangGraph channels |
-| Checkpoints | `MemoryCheckpointer` | In-memory only; no durable saver or cross-process resume consumer |
+| Checkpoints | Kernel `MemoryCheckpointer` + `plugin:graph-loop/checkpoint` session-log record (`packages/loop/src/graph-state-log.ts`) | Kernel saver is a per-run cache; the session-log boundary record is folded at turn start and resumes the plan at `state.next` (`test/unit/driver-resume.test.ts`). No `storageDomain` saver |
 | Send / Command / subgraphs | — | The adapter exposes `Send` fan-out; the live driver does not use it |
 | Interrupt / HITL | DSH tool approvals | Correct owner |
 | Retry/cache policy | DSH inner retry | Not mapped to LangGraph |
@@ -31,8 +31,9 @@ The fork is tracked as debt; do not hide it behind the graph narrative.
 
 ## What to absorb next
 
-1. **Durable checkpoints**: a tested `storageDomain` saver plus a real read/replay consumer. Do not
-   add a saver before the consumer exists.
+1. **Durable checkpoints**: a tested `storageDomain` saver. The read/replay consumer now exists (the
+   session-log boundary record folded at turn start, `packages/loop/src/graph-state-log.ts`), so the
+   remaining piece is the saver; do not add a second resume path or a second memory store.
 2. **Kernel breadth**: one legitimate parallel shape only if the live loop gains a parallel DSH
    step; otherwise keep the frontier fallback and say so.
 3. **Channels/reducers** if graph state becomes shared across branches; not needed for the current
