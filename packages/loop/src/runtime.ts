@@ -51,7 +51,7 @@ declare module '@deepseek-ai/cordis' {
 
 /** Host-scoped runtime state. */
 export class GraphRuntime extends Service implements GraphRuntimeService {
-  private readonly proposals = new Map<string, TaskPlan>()
+  private readonly proposals = new Map<string, TaskPlan[]>()
   private readonly records = new Map<string, GraphRunRecord>()
   private readonly traces = new Map<string, unknown[]>()
   private readonly live = new Map<string, unknown>()
@@ -68,18 +68,20 @@ export class GraphRuntime extends Service implements GraphRuntimeService {
   }
 
   setProposal(sessionId: string, plan: TaskPlan): void {
-    this.proposals.delete(sessionId)
-    this.proposals.set(sessionId, plan)
-    while (this.proposals.size > this.maxProposals) {
-      const oldest = this.proposals.keys().next().value
-      if (oldest === undefined) break
-      this.proposals.delete(oldest)
-    }
+    // The cap is per session, not global: one session's `graph_plan` must never
+    // evict another session's pending plan (two open chats, or a root and a
+    // concurrently running child).
+    const pending = this.proposals.get(sessionId) ?? []
+    pending.push(plan)
+    while (pending.length > this.maxProposals) pending.shift()
+    this.proposals.set(sessionId, pending)
   }
 
   takeProposal(sessionId: string): TaskPlan | undefined {
-    const plan = this.proposals.get(sessionId)
-    if (plan !== undefined) this.proposals.delete(sessionId)
+    const pending = this.proposals.get(sessionId)
+    if (pending === undefined) return undefined
+    const plan = pending.shift()
+    if (pending.length === 0) this.proposals.delete(sessionId)
     return plan
   }
 
@@ -118,7 +120,7 @@ export class GraphRuntime extends Service implements GraphRuntimeService {
     this.live.delete(sessionId)
     const history = this.traces.get(sessionId) ?? []
     history.push(snapshot)
-    while (history.length > 20) history.shift()
+    while (history.length > this.traceLimit) history.shift()
     this.traces.set(sessionId, history)
     const payload = { snapshot: undefined, turns: history }
     for (const listener of this.listeners.get(sessionId) ?? []) listener(payload)

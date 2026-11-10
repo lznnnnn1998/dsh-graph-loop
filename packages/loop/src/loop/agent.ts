@@ -47,6 +47,14 @@ import { AssistantStreamAttempt } from './assistant-stream.ts'
 import { SystemPromptProjection } from './runtime-context.ts'
 import { isMutatingNode, mutationObserved, restrictToolSet, DEFAULT_SHELL_TOOLS, shellFailureTool } from './step-tools.ts'
 
+/** Projected facts consumed by this driver; registration stays with the factory. */
+interface LoopProjections {
+  /** Current model selection, including pending changes. */
+  readonly modelSelection: () => ModelSelectionProjectionState
+  /** Current queued and claimed input. */
+  readonly inbox: () => InboxState
+}
+
 type Phase =
   | { kind: 'idle'; lastTurn: number }
   | {
@@ -210,16 +218,15 @@ export class ReactLoopAgent implements Agent {
     public readonly id: SessionId,
     public readonly options: AgentOptions,
     public readonly session: Session,
-    readModel: () => ModelSelectionProjectionState,
-    readInbox: () => InboxState,
+    projections: LoopProjections,
     lastTurn: number,
   ) {
     this.requestSurfaceGeneration = session.surface.contentGeneration
     this.dispatch = agentEvents(loopCtx, this)
     this.scope = createScope(loopCtx, this)
     this.ctx = this.scope.ctx
-    this.model = new AgentModel(readModel, session, options)
-    this.inbox = new ReactLoopInbox(readInbox, session, this.dispatch)
+    this.model = new AgentModel(projections.modelSelection, session, options)
+    this.inbox = new ReactLoopInbox(projections.inbox, session, this.dispatch)
     this.phase = { kind: 'idle', lastTurn }
     this.runtimeContext = new RuntimeContextProjection(this.ctx, session)
     this.systemPrompt = new SystemPromptProjection(session)
@@ -242,6 +249,7 @@ export class ReactLoopAgent implements Agent {
     const signal = this.phase.kind === 'running' ? this.phase.abort.signal : new AbortController().signal
     await Promise.all(batch.map(async (node) => {
       let activation: Awaited<ReturnType<SubagentsLike['startActivation']>> | undefined
+      let completing = false
       try {
         activation = await subagents.startActivation({
           provider: 'spawn',
@@ -255,6 +263,13 @@ export class ReactLoopAgent implements Agent {
           signal,
         })
         const result = await activation.result
+        // A cancelled turn cleared its inbox on purpose; a child that resolves
+        // with `aborted` instead of rejecting must not inject a model-visible
+        // result into the next turn.
+        if (signal.aborted) {
+          this.ctx.logger.warn(`agent "${this.id}": subagent node "${node.id}" result dropped after cancel`)
+          return
+        }
         const text = result.output
           .map(block => block.type === 'text' ? block.text ?? '' : '')
           .join('\n')
@@ -265,8 +280,15 @@ export class ReactLoopAgent implements Agent {
           this.ctx.logger.warn(`agent "${this.id}": subagent node "${node.id}" ended with "${String(result.stopReason)}"`)
         }
         this.inject(createSubagentResult(node.id, result.stopReason, text))
+        // Mark the completion before awaiting it: if the graph advance throws
+        // after settling the node, the catch must not complete it a second time.
+        completing = true
         await this.turnGraph?.completeNode(node.id, ok)
       } catch (error: unknown) {
+        if (completing) {
+          this.ctx.logger.warn(`agent "${this.id}": subagent node "${node.id}" completion failed: ${errorChain(error)}`)
+          throw error
+        }
         // A failed child is a failed graph node, not a silent success: the
         // scheduler decides whether recovery/replan can still save the turn.
         this.ctx.logger.warn(`agent "${this.id}": subagent node "${node.id}" failed: ${errorChain(error)}`)
@@ -523,7 +545,7 @@ export class ReactLoopAgent implements Agent {
     }
     phase.turn = turn
     let turnEnds: TurnEndReason | null = null
-    let formatRetries = 0
+    const formatRetries = new Map<string, number>()
     // Per-node, not per-turn: a turn can visit several mutating nodes (a plan's
     // `n_*_mutate` stages, then a repair node), and one node's retry must not
     // consume a later node's correction. Keyed by node id; each node gets one.
@@ -533,7 +555,10 @@ export class ReactLoopAgent implements Agent {
       // beginTurn runs inside the turn boundary: a failing graph start must
       // still close the turn it opened, exactly once, through the catch below.
       if (this.turnGraph !== undefined) {
-        const pending = [...this.inbox.nextTurn]
+        // The turn can be opened by a `next-step` steer (idle agent); planning
+        // from `next-turn` alone would synthesize the graph from an empty task
+        // even though the first step is about to claim the steered message.
+        const pending = [...this.inbox.nextStep, ...this.inbox.nextTurn]
         await this.turnGraph.beginTurn({ text: inboxText(pending), surface: 'api' })
       }
       while (true) {
@@ -573,6 +598,7 @@ export class ReactLoopAgent implements Agent {
           return false
         }
         let stepFailedTool: string | undefined
+        let stepEnd: StepEndReason | null = null
         let stepDsml = false
         const stepTools: { name: string; callId: string; isError: boolean; arguments?: string; output?: string }[] = []
         try {
@@ -618,7 +644,7 @@ export class ReactLoopAgent implements Agent {
           try {
             // max-tokens is sticky: once any step hits the ceiling, later steps
             // that complete normally must not downgrade the turn outcome.
-            const stepEnd = await this.step(decision)
+            stepEnd = await this.step(decision)
             // max-tokens stays sticky: a later completed step must not
             // downgrade the turn outcome.
             if (turnEnds === null || turnEnds.kind !== 'max-tokens') turnEnds = stepEnd
@@ -650,10 +676,14 @@ export class ReactLoopAgent implements Agent {
           && this.turnGraph !== undefined
           && stepDsml
           && stepTools.length === 0
-          && formatRetries < 1
-          && (retryNode?.toolAllow?.length ?? 1) > 0) {
-          formatRetries += 1
+          && retryNode !== undefined
+          && (formatRetries.get(retryNode.id) ?? 0) < 1
+          && (retryNode.toolAllow?.length ?? 1) > 0) {
+          formatRetries.set(retryNode.id, (formatRetries.get(retryNode.id) ?? 0) + 1)
           this.inject(createBenchRetryCorrection('Your previous response printed a tool call as text. Re-issue the same tool call through the actual tool-call interface; do not print tool-call, DSML or XML syntax.'))
+          // The retry is another step of this turn: it must not claim a queued
+          // next-turn prompt (the loop's bottom assignment is skipped by continue).
+          target = 'next-step'
           continue
         }
         // A mutation node must actually mutate. Exploration on a mutation node
@@ -667,11 +697,12 @@ export class ReactLoopAgent implements Agent {
           && this.turnGraph !== undefined
           && retryNode !== undefined
           && isMutatingNode(retryNode)
-          && !mutationObserved(stepTools)
+          && !mutationObserved(stepTools, this.shellTools)
           && (mutationRetries.get(retryNode.id) ?? 0) < 1
           && !signal.aborted) {
           mutationRetries.set(retryNode.id, (mutationRetries.get(retryNode.id) ?? 0) + 1)
           this.inject(createBenchRetryCorrection('This node must perform the requested change. Call a mutating tool (`write` for a new artifact, `edit`/`str_replace_editor` for an in-place change) or a shell mutation now; do not run more exploratory commands.'))
+          target = 'next-step'
           continue
         }
         signal.throwIfAborted()
@@ -680,7 +711,10 @@ export class ReactLoopAgent implements Agent {
           // the model routinely tries an unavailable tool and then succeeds with
           // another one in the same step. Fail the node only when the step did not
           // complete, or when every tool it called failed.
-          const stepCompleted = turnEnds === null || turnEnds.kind === 'completed' || turnEnds.kind === 'max-tokens'
+          // The node is complete only when this step completed. `turnEnds` is
+          // sticky for max-tokens (a later step must not downgrade the turn),
+          // so it cannot answer "did this node finish"; use the step's own result.
+          const stepCompleted = stepEnd === null || stepEnd.kind === 'completed'
           const allToolsFailed = stepTools.length > 0 && stepTools.every(tool => tool.isError)
           const noToolAfterFailure = stepTools.length === 0 && stepFailedTool !== undefined
           // A read-before-write node is advisory: a missing input file must not

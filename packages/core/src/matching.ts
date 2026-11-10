@@ -30,6 +30,7 @@ import {
   type RegistryNode,
   type TaskPlan,
 } from './graph-schema.js'
+import { validateTaskPlan } from './graph-schema.js'
 
 // ---------------------------------------------------------------------------
 // Task fingerprint
@@ -150,15 +151,21 @@ function uniqSorted<T extends string>(values: readonly T[]): T[] {
 function countTerms(text: string, terms: readonly string[]): number {
   let count = 0
   for (const term of terms) {
-    let from = 0
-    for (;;) {
-      const at = text.indexOf(term, from)
-      if (at === -1) break
-      count += 1
-      from = at + term.length
-    }
+    // Word-boundary matching, not substring: the lexicon contains short common
+    // words (`add`, `fix`, `spec`, `edit`) and a substring count turns ordinary
+    // English into the wrong intent ("inspect" -> document, "address" ->
+    // code-change, "credit" -> mutating). Multi-word terms keep their inner
+    // spaces; only the two ends are bounded.
+    const escaped = term.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
+    const matcher = new RegExp(`(?:^|[^a-z0-9_])${escaped}(?=$|[^a-z0-9_])`, 'gu')
+    for (const _match of text.matchAll(matcher)) count += 1
   }
   return count
+}
+
+/** Code-unit ordering: deterministic across hosts, unlike locale collation. */
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0
 }
 
 /** Deterministic, rule-based extractor. O(|text| + |lexicon|). */
@@ -330,6 +337,10 @@ export interface InstantiatedPlan {
 /** Hard constraints first: a template is admissible only when all of these hold. */
 export function isAdmissible(template: TaskTemplate, fingerprint: TaskFingerprint, graph: RegistryGraph): boolean {
   if (!template.appliesTo.intent.includes(fingerprint.intent) && !template.appliesTo.intent.includes('other')) return false
+  // The mutating contract is symmetric. Only rejecting `false` against a
+  // mutating fingerprint admitted a mutation template (`t_doc`, write stage) for
+  // a read-only document request.
+  if (template.appliesTo.mutating === true && !fingerprint.mutating) return false
   if (template.appliesTo.mutating === false && fingerprint.mutating) return false
   if (template.appliesTo.parallelizable === true && !fingerprint.parallelizable) return false
   const availableTools = new Set(graph.nodes.filter((node) => node.kind === 'tool' && !node.tool?.conditional && !node.tool?.dynamic).map((node) => node.tool?.name))
@@ -751,30 +762,44 @@ export function match(input: MatchInput): MatchResult {
     explain,
   })
 
-  if (input.previousFailure === true) {
-    explain.push('previous run failed: forcing fallback')
-    const fallback = instantiate(fallbackTemplate, input.fingerprint, input.graph, input.cooccurrence, input.weights)
+  // The conservative plan is a real plan, not a flag on the specialized one.
+  // It must obey the same preset/admissibility filter as every other candidate.
+  const conservativeInstantiate = (): InstantiatedPlan | undefined => {
+    if (!fallbackTemplate.toolUniverse.every(tool => input.presetTools.includes(tool))) return undefined
+    if (!isAdmissible(fallbackTemplate, input.fingerprint, input.graph)) return undefined
+    return instantiate(fallbackTemplate, input.fingerprint, input.graph, input.cooccurrence, input.weights)
+  }
+  const conservativePlan = (reason: MatchResult['decision']['fallbackReason']): MatchResult => {
+    const fallback = conservativeInstantiate()
     if (!fallback) throw new Error('fallback template cannot be instantiated')
-    return planOf(fallback, true, 'previous-failure', 0, 0)
+    return planOf(fallback, true, reason, 0, 0)
   }
 
-  candidates.sort((left, right) => right.score - left.score || left.template.id.localeCompare(right.template.id))
+  if (input.previousFailure === true) {
+    explain.push('previous run failed: forcing fallback')
+    return conservativePlan('previous-failure')
+  }
+
+  candidates.sort((left, right) => right.score - left.score || compareText(left.template.id, right.template.id))
   const best = candidates[0]
   const runnerUp = candidates[1]
   if (!best) {
     explain.push('no candidate passed the hard filter: fallback')
-    const fallback = instantiate(fallbackTemplate, input.fingerprint, input.graph, input.cooccurrence, input.weights)
-    if (!fallback) throw new Error('fallback template cannot be instantiated')
-    return planOf(fallback, true, 'candidates-empty', 0, 0)
+    return conservativePlan('candidates-empty')
   }
   const margin = runnerUp ? best.score - runnerUp.score : 1
   const confidence = best.score
-  if (confidence < input.weights.confidence.absMin) {
-    explain.push(`best score ${confidence.toFixed(3)} < absMin ${input.weights.confidence.absMin}: fallback`)
-    return planOf(best, true, 'below-threshold', confidence, margin)
-  }
-  if (margin < input.weights.confidence.marginMin) {
-    explain.push(`margin ${margin.toFixed(3)} < marginMin ${input.weights.confidence.marginMin}: fallback`)
+  if (confidence < input.weights.confidence.absMin || margin < input.weights.confidence.marginMin) {
+    const limit = confidence < input.weights.confidence.absMin
+      ? `best score ${confidence.toFixed(3)} < absMin ${input.weights.confidence.absMin}`
+      : `margin ${margin.toFixed(3)} < marginMin ${input.weights.confidence.marginMin}`
+    const fallback = conservativeInstantiate()
+    if (fallback !== undefined) {
+      explain.push(`${limit}: conservative fallback`)
+      return planOf(fallback, true, 'below-threshold', 0, 0)
+    }
+    // No admissible conservative template: dispatch the best plan but say so.
+    explain.push(`${limit}: no admissible fallback, dispatching best`)
     return planOf(best, true, 'below-threshold', confidence, margin)
   }
   explain.push(`selected ${best.template.id} (confidence ${confidence.toFixed(3)}, margin ${margin.toFixed(3)})`)
@@ -784,7 +809,7 @@ export function match(input: MatchInput): MatchResult {
 function toTaskPlan(instantiated: InstantiatedPlan, graph: RegistryGraph, confidence: number, fallback: boolean): TaskPlan {
   const nodes = instantiated.nodes.length > 0 ? instantiated.nodes : synthesizeNodes(instantiated.template, instantiated.bindings)
   const entry = nodes[0]?.id ?? 'n_entry'
-  return {
+  const plan: TaskPlan = {
     id: `${instantiated.template.id}@g${graph.version}`,
     templateId: instantiated.template.id,
     version: 1,
@@ -799,11 +824,21 @@ function toTaskPlan(instantiated: InstantiatedPlan, graph: RegistryGraph, confid
     confidence,
     compiledDigest: hash16(canonicalJson({ template: instantiated.template.id, bindings: instantiated.bindings.map((binding) => ({ slot: binding.slot, tool: binding.tool })), nodes: nodes as unknown as Json })),
   }
+  return checkedPlan(plan, graph)
+}
+
+/** Validate a materialized plan before it leaves the matcher. */
+function checkedPlan(plan: TaskPlan, graph: RegistryGraph): TaskPlan {
+  const validation = validateTaskPlan(graph, plan)
+  if (!validation.ok) {
+    throw new Error(`matched plan is invalid: ${validation.errors.map(error => `${error.code} ${error.path}: ${error.message}`).join('; ')}`)
+  }
+  return plan
 }
 
 /** Default node shape for slot templates: one step node per slot, in sorted order. */
 export function synthesizeNodes(template: TaskTemplate, bindings: readonly Binding[]): PlanNode[] {
-  const ordered = [...bindings].sort((left, right) => left.slot.localeCompare(right.slot))
+  const ordered = [...bindings].sort((left, right) => compareText(left.slot, right.slot))
   const nodes: PlanNode[] = ordered.map((binding, index) => ({
     id: `n_${binding.slot}`,
     kind: 'tool-call',
@@ -826,7 +861,7 @@ export function synthesizeNodes(template: TaskTemplate, bindings: readonly Bindi
 }
 
 export function synthesizeEdges(template: TaskTemplate, bindings: readonly Binding[]): PlanEdge[] {
-  const ordered = [...bindings].sort((left, right) => left.slot.localeCompare(right.slot)).map((binding) => `n_${binding.slot}`)
+  const ordered = [...bindings].sort((left, right) => compareText(left.slot, right.slot)).map((binding) => `n_${binding.slot}`)
   const edges: PlanEdge[] = []
   for (let index = 0; index + 1 < ordered.length; index += 1) {
     edges.push({ from: ordered[index] as string, to: ordered[index + 1] as string, kind: 'control' })

@@ -573,9 +573,20 @@ export type LangGraphStateChannel = (typeof LANGGRAPH_STATE_CHANNELS)[number]
  */
 export const LANGGRAPH_RESERVED_NODE_IDS: readonly string[] = [...LANGGRAPH_STATE_CHANNELS, START, END]
 
+/**
+ * Names inherited from `Object.prototype`. LangGraph tests `key in channels`
+ * against a plain-object channel map, so these collide even though they are not
+ * own state channels; `canKernelDrive` must keep such plans on the frontier.
+ */
+const OBJECT_PROTOTYPE_NODE_IDS = new Set([
+  'constructor', 'toString', 'toLocaleString', 'valueOf', 'hasOwnProperty',
+  'isPrototypeOf', 'propertyIsEnumerable', '__proto__',
+  '__defineGetter__', '__defineSetter__', '__lookupGetter__', '__lookupSetter__',
+])
+
 /** True when LangGraph cannot use `id` as a node name. */
 export function isReservedPlanNodeId(id: string): boolean {
-  return LANGGRAPH_RESERVED_NODE_IDS.includes(id)
+  return LANGGRAPH_RESERVED_NODE_IDS.includes(id) || OBJECT_PROTOTYPE_NODE_IDS.has(id)
 }
 
 /**

@@ -340,7 +340,10 @@ export function canKernelDrive(plan: TaskPlan): boolean {
  * without it the last affordable node would be routed but never run.
  */
 function budgetReserveSteps(plan: TaskPlan): number {
-  return plan.edges.some(edge => edge.when?.op === 'budget') ? 1 : 0
+  // Only a budget edge to a declared terminal is the wrap-up the reserve exists
+  // for. Reserving on any budget edge (including an inert one) let the kernel
+  // run one superstep past a plan that never routes on the budget.
+  return plan.edges.some(edge => edge.when?.op === 'budget' && plan.terminals.includes(edge.to)) ? 1 : 0
 }
 
 /**

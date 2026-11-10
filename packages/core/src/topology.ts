@@ -460,7 +460,11 @@ export class FrontierTopology {
         // A detached batch node is still running; its completion is the next
         // arrival, so the frontier is waiting rather than done.
         if (this.detached.size > 0) return undefined
-        this.state = 'done'
+        // An empty frontier is not automatically success: a guarded edge that
+        // did not match (or a plan with no exit) leaves work unfinished. Report
+        // `done` only when a declared terminal actually ran, otherwise `failed`
+        // so the turn is not reported completed without its endpoint.
+        this.state = this.terminalsReached() ? 'done' : 'failed'
         return undefined
       }
       let index = this.pending.findIndex(id => !this.joinBlocked(id))
@@ -650,6 +654,20 @@ export class FrontierTopology {
       // reached a terminal; otherwise the run stops mid-plan and must settle as
       // failed. Treating the cap as done reported a truncated run as a
       // completed turn.
+      //
+      // One-step reserve: a matching `budget` edge to a declared terminal is the
+      // plan's own wrap-up. The kernel adapter already grants this step (it
+      // checks the cap before the pause hook); without it the frontier failed
+      // where the kernel ran the answer, and the engines disagreed for the same
+      // plan.
+      const budgetExit = routeOrder(this.adjacency.filter(edge => edge.from === id && edge.kind === 'control'))
+        .find(edge => edge.when?.op === 'budget'
+          && this.basePlan.terminals.includes(edge.to)
+          && evaluateCondition(edge.when, routingState))
+      if (budgetExit !== undefined && this.nodeById.has(budgetExit.to)) {
+        this.enqueue(budgetExit.to, id)
+        return this.current()
+      }
       this.state = this.terminalsReached() ? 'done' : 'failed'
       return undefined
     }

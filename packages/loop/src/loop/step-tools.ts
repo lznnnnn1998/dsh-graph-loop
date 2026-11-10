@@ -8,9 +8,6 @@ const MUTATION_TOOLS = new Set(['write', 'edit', 'str_replace_editor', 'apply_pa
 /** Tools whose successful call inspects the workspace without changing it. */
 const READ_TOOLS = new Set(['read', 'read_image', 'glob', 'grep'])
 
-/** Shells can mutate too, but only on a node that is asked to mutate. */
-const SHELL_TOOLS = new Set(['bash', 'pwsh'])
-
 /** A stage word appears in the node id or its instruction. */
 const MUTATION_STAGE = /(?:^|[_\s:/-])(?:mutate|mutation|edit|write|patch|apply)(?=$|[_\s:/-])/iu
 
@@ -28,7 +25,7 @@ const MUTATION_STAGE = /(?:^|[_\s:/-])(?:mutate|mutation|edit|write|patch|apply)
 const MUTATION_COMMAND = /(?:^|[\s;&|()])[0-9]?>>?\|?(?!\s*(?:&|\/dev\/null))|(?:^|[\s;&|()])(?:mv|rm|mkdir|cp|tee|truncate|dd)\s|sed\s+-i|perl\s+-pi/u
 
 /** A writer opened from an interpreter one-liner (`open(path, 'w')`). */
-const OPEN_WRITE = /open\([^)]*['"]w/u
+const OPEN_WRITE = /open\([^)]*,\s*(?:[A-Za-z_][A-Za-z0-9_]*\s*=\s*)?['"][wax]/u
 
 /**
  * Shell commands that only read. `sed`/`awk` are readers only when the same
@@ -40,8 +37,16 @@ const OPEN_WRITE = /open\([^)]*['"]w/u
  */
 const READ_COMMAND = /(?:^|[\s;&|()])(?:cat|head|tail|grep|rg|awk|sed|ls|find|stat|diff)(?=$|[\s;&|()<>])/u
 
-/** Argument keys that carry a shell command in the known tool schemas. */
-const COMMAND_KEYS = ['command', 'cmd', 'script'] as const
+/** Shell-like tools whose command payload carries filesystem effects. */
+const SHELL_TOOL_NAMES = new Set(['bash', 'pwsh', 'run_code'])
+
+/** Argument keys that carry a shell/script payload in the known tool schemas. */
+const COMMAND_KEYS = ['command', 'cmd', 'script', 'code'] as const
+
+/** True for the shipped shells, the PTC runner, and any configured shell name. */
+function isShellTool(name: string, shellTools: ReadonlySet<string>): boolean {
+  return SHELL_TOOL_NAMES.has(name) || shellTools.has(name)
+}
 
 /**
  * Remove single- and double-quoted spans from a shell command.
@@ -75,9 +80,33 @@ function unquotedShell(command: string): string {
 
 /**
  * A shell wrapper that runs its quoted argument as a command (`bash -c "…"`,
- * `sh -lc '…'`). Quote stripping alone would hide the redirect inside it.
+ * `sh -lc '…'`, and the split-flag form `bash -e -c "…"`).
  */
-const SHELL_WRAPPER = /\b(?:ba|z|da|k)?sh\s+-[A-Za-z]*c[A-Za-z]*\s+(['"])([\s\S]*?)\1/gu
+const SHELL_WRAPPER = /\b(?:ba|z|da|k)?sh\s+(?:-[A-Za-z]+\s+)*-[A-Za-z]*c[A-Za-z]*\s+(['"])([\s\S]*?)\1/gu
+
+/**
+ * Drop heredoc bodies before effect matching. A heredoc body is data (a commit
+ * message, a config file, a test fixture), not shell: `git commit -F - <<'EOF'`
+ * whose message contains `rm ` must not read as a deletion. The terminator is
+ * the line equal to the word after `<<`/`<<-`, optionally quoted.
+ * @param command - the shell command as recorded in tool arguments.
+ * @returns the command with heredoc bodies removed.
+ */
+function stripHeredocs(command: string): string {
+  if (!command.includes('\n')) return command
+  const kept: string[] = []
+  let terminator: string | undefined
+  for (const line of command.split('\n')) {
+    if (terminator !== undefined) {
+      if (line.trim() === terminator) terminator = undefined
+      continue
+    }
+    kept.push(line)
+    const marker = /<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/u.exec(line)
+    if (marker !== null) terminator = marker[2]
+  }
+  return kept.join('\n')
+}
 
 /**
  * The command text and any shell-wrapper payloads it contains.
@@ -85,8 +114,9 @@ const SHELL_WRAPPER = /\b(?:ba|z|da|k)?sh\s+-[A-Za-z]*c[A-Za-z]*\s+(['"])([\s\S]
  * @returns the outer command plus each `-c` argument, in encounter order.
  */
 function shellPayloads(command: string): string[] {
-  const payloads = [command]
-  for (const match of command.matchAll(SHELL_WRAPPER)) {
+  const clean = stripHeredocs(command)
+  const payloads = [clean]
+  for (const match of clean.matchAll(SHELL_WRAPPER)) {
     const payload = match[2]
     if (payload !== undefined && payload.length > 0) payloads.push(payload)
   }
@@ -211,18 +241,22 @@ export function isMutatingNode(node: NodeIntent): boolean {
   const tools = node.toolAllow ?? []
   if (tools.some(name => MUTATION_TOOLS.has(name))) return true
   if (MUTATION_STAGE.test(node.id)) return true
-  return tools.some(name => SHELL_TOOLS.has(name)) && MUTATION_STAGE.test(node.instruction ?? '')
+  return tools.some(name => SHELL_TOOL_NAMES.has(name)) && MUTATION_STAGE.test(node.instruction ?? '')
 }
 
 /**
  * Whether any successful tool call mutated the workspace.
  * @param tools - the step's recorded tool calls.
+ * @param shellTools - configured shell tool names (a deployment may rename them).
  * @returns true when a writer tool ran, or a shell call contained a mutating command.
  */
-export function mutationObserved(tools: readonly StepTool[]): boolean {
+export function mutationObserved(
+  tools: readonly StepTool[],
+  shellTools: ReadonlySet<string> = new Set(DEFAULT_SHELL_TOOLS),
+): boolean {
   return tools.some(tool => !tool.isError && (
     MUTATION_TOOLS.has(tool.name)
-    || (SHELL_TOOLS.has(tool.name) && mutatingCommand(shellCommand(tool.arguments)))
+    || (isShellTool(tool.name, shellTools) && mutatingCommand(shellCommand(tool.arguments)))
   ))
 }
 
@@ -233,13 +267,17 @@ export function mutationObserved(tools: readonly StepTool[]): boolean {
  * mutation, so `sed -i` and `cat > file` are writes, never reads. This is the
  * single definition the graph's `readFile` fact and the benchmark retry share.
  * @param tools - the step's recorded tool calls.
+ * @param shellTools - configured shell tool names.
  * @returns true when a reader tool ran, or a shell ran a reading command.
  */
-export function readObserved(tools: readonly StepTool[]): boolean {
+export function readObserved(
+  tools: readonly StepTool[],
+  shellTools: ReadonlySet<string> = new Set(DEFAULT_SHELL_TOOLS),
+): boolean {
   return tools.some((tool) => {
     if (tool.isError) return false
     if (READ_TOOLS.has(tool.name)) return true
-    if (!SHELL_TOOLS.has(tool.name)) return false
+    if (!isShellTool(tool.name, shellTools)) return false
     const command = shellCommand(tool.arguments)
     return !mutatingCommand(command)
       && shellPayloads(command).some(payload => READ_COMMAND.test(unquotedShell(payload)))

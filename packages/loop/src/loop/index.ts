@@ -173,7 +173,6 @@ interface AgentInitializationOptions {
   readonly stored?: StoredSession | undefined
   readonly setup?: AgentSetup | undefined
   readonly signal?: AbortSignal | undefined
-  readonly parentAgent?: Agent | undefined
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -267,7 +266,7 @@ export interface Config {
   topology: 'template' | 'dynamic' | 'propose'
   /** Text length below which a trivial task is kept at one step. Defaults to 32. */
   trivialChars: number
-  /** Upper bound on nodes in one synthesized topology. Defaults to 24. */
+  /** Upper bound on graph nodes in one turn (replans/proposals cannot reset it). Defaults to 24. */
   maxSteps: number
   /**
    * Tool admission. `plan` (default) narrows to the plan universe; `preset`
@@ -541,7 +540,7 @@ export class AgentLoop extends Service implements AgentFactory {
     ownerCtx: Context,
     options: AgentInitializationOptions,
   ): Promise<AgentHandle> {
-    const { session, agentOptions, source, stored, setup, signal: callerSignal, parentAgent } = options
+    const { session, agentOptions, source, stored, setup, signal: callerSignal } = options
     const id = session.id
     const loopCtx = this.runtime.ctx
     const loopConfig = this.config
@@ -629,8 +628,6 @@ export class AgentLoop extends Service implements AgentFactory {
       }
     }
     const untrack = this.ownership.track(dispose)
-    const modelProjectionHandle = this.modelProjectionHandle
-    const inboxProjectionHandle = this.inboxProjectionHandle
     try {
       assertAgentOptions(agentOptions)
       ownerCtx.fiber.assertActive()
@@ -645,11 +642,14 @@ export class AgentLoop extends Service implements AgentFactory {
       const topologyMode = this.config.topology
       const delegationDepth = session.header.delegationDepth ?? 0
       const lastTurn = loopCtx.agents.turnBoundaryOf(session).lastTurn
+      const projections = {
+        modelSelection: this.modelProjectionHandle.readerFor(session),
+        inbox: this.inboxProjectionHandle.readerFor(session),
+      }
       unfollowOwner = ownerCtx.effect(function* () {
         const created = machine = new ReactLoopAgent(
           loopCtx, id, agentOptions, session,
-          () => modelProjectionHandle.stateOf(session),
-          () => inboxProjectionHandle.stateOf(session),
+          projections,
           lastTurn,
         )
         created.setBenchGuards(loopConfig.benchGuards)
@@ -694,6 +694,7 @@ export class AgentLoop extends Service implements AgentFactory {
         created.setTurnGraph(createGraphTurnDriver({
           mode: topologyMode,
           maxSteps: loopConfig.maxSteps,
+          shellTools: loopConfig.shellTools,
           trivialChars: loopConfig.trivialChars,
           toolPolicy: loopConfig.toolPolicy,
           composition: loopConfig.composition,
@@ -774,7 +775,7 @@ export class AgentLoop extends Service implements AgentFactory {
           assertLive()
           // The mounted backend routes announced live events into the active
           // write handle by session id; the loop only owns the handle itself.
-          detachAgent = loopCtx.agents.enter(agent, parentAgent)
+          detachAgent = loopCtx.agents.enter(agent)
           await loopCtx.agents.announce(agent, source, abort.signal)
           assertLive()
           ready = true
@@ -879,7 +880,6 @@ export class AgentLoop extends Service implements AgentFactory {
         setup: options.setup,
         signal: options.signal,
         source: 'startup',
-        parentAgent: options.parentAgent,
       })
     })()
     this.ownership.trackWrapper(published)
@@ -964,7 +964,6 @@ export class AgentLoop extends Service implements AgentFactory {
           setup: options.setup,
           signal: options.signal,
           source: 'resume',
-          parentAgent: options.parentAgent,
         })
       } finally {
         preparation?.[Symbol.dispose]()

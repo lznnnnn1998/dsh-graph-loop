@@ -10,7 +10,7 @@
 
 import type { RoutingArtifact } from 'dsh-graph-loop-core/condition'
 import type { ArtifactType, Json, RegistryNode } from 'dsh-graph-loop-core/graph-schema'
-import { mutationObserved, readObserved } from './loop/step-tools.ts'
+import { DEFAULT_SHELL_TOOLS, mutationObserved, readObserved } from './loop/step-tools.ts'
 
 /** One tool call as the agent loop reports it. */
 export interface ObservedTool {
@@ -78,9 +78,18 @@ function artifactTypeFor(path: string): ArtifactType {
  * so the graph, the composer's stage guards and the benchmark retry agree on what
  * a mutation is, including shell writes and shell reads.
  */
-export function deriveStepFacts(tools: readonly ObservedTool[], ok: boolean, failedTool?: string): Record<string, Json> {
+export function deriveStepFacts(
+  tools: readonly ObservedTool[],
+  ok: boolean,
+  failedTool?: string,
+  shellTools: ReadonlySet<string> = new Set(DEFAULT_SHELL_TOOLS),
+): Record<string, Json> {
   let exitFailure = false
   for (const tool of tools) {
+    // An exit status belongs to a process. A `read`/`grep`/`web_fetch` result is
+    // text that may quote a `[exit code: 1]` from a log; scanning every tool let
+    // that text fail a verification step whose own shell exited 0.
+    if (!shellTools.has(tool.name) && tool.name !== 'run_code') continue
     if (tool.isError || tool.output === undefined) continue
     for (const match of tool.output.matchAll(/\[exit code:\s*(-?\d+)\]/gu)) {
       if (Number(match[1]) !== 0) {
@@ -104,11 +113,24 @@ export function deriveStepFacts(tools: readonly ObservedTool[], ok: boolean, fai
     // from a previous step cannot satisfy a later `callFailed` guard.
     failedTool: failedTool ?? false,
   }
+  // Per-tool facts are step-scoped. Write both keys for every tool this step
+  // called (false `failed` too), and make `.ok` mean "every call to it
+  // succeeded": a fail-then-succeed sequence must not leave `.failed=true`,
+  // and a later step's unrelated call must not inherit an earlier failure.
+  const perTool = new Map<string, { ok: boolean; failed: boolean }>()
+  for (const tool of tools) {
+    const entry = perTool.get(tool.name) ?? { ok: true, failed: false }
+    entry.ok = entry.ok && !tool.isError
+    entry.failed = entry.failed || tool.isError
+    perTool.set(tool.name, entry)
+  }
   let failed = 0
   for (const tool of tools) {
     if (tool.isError) failed += 1
-    facts[`tool.${tool.name}.ok`] = !tool.isError
-    if (tool.isError) facts[`tool.${tool.name}.failed`] = true
+  }
+  for (const [name, entry] of perTool) {
+    facts[`tool.${name}.ok`] = entry.ok
+    facts[`tool.${name}.failed`] = entry.failed
   }
   facts['failedToolCount'] = failed
   facts['allToolsFailed'] = tools.length > 0 && failed === tools.length
@@ -117,8 +139,8 @@ export function deriveStepFacts(tools: readonly ObservedTool[], ok: boolean, fai
   // a successful reader tool or a reading shell reads. Two classifiers made the
   // graph route on the narrower one — a shell `cat > f`, `cp`, `sed -i` was a
   // real mutation the graph reported as `wroteFile=false`.
-  facts['wroteFile'] = mutationObserved(tools)
-  facts['readFile'] = readObserved(tools)
+  facts['wroteFile'] = mutationObserved(tools, shellTools)
+  facts['readFile'] = readObserved(tools, shellTools)
   // "Some call was answered" is the weakest durable signal that the step did
   // anything at all; unlike `lastOk` it survives an unrelated failing call.
   facts['toolSucceeded'] = tools.some(tool => !tool.isError)
@@ -182,6 +204,11 @@ export function deriveStepArtifacts(
   }
   for (const tool of tools) {
     if (tool.isError || !MUTATION_TOOLS.has(tool.name)) continue
+    // A path artifact is a real mutation outcome even when an equivalent tool
+    // produced it: the stage contract is the artifact type, not a literal tool
+    // name (a composed repair may use `write` where the plan named a craft
+    // renderer). The failure case is a *wrong type* (edit a .txt for an author
+    // contracted to file.image), which the type guard already rejects.
     const path = pathFromArguments(parseArguments(tool.arguments))
     if (path !== undefined) add(artifactTypeFor(path), path)
   }

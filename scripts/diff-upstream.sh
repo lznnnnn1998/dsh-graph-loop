@@ -34,12 +34,12 @@ set -euo pipefail
 
 # --- Pinned fork surface ---------------------------------------------------
 # Upstream commit the fork is diffed against. The checkout's `git describe` at
-# baseline: dsh-v0.2.1-rc.3-1533-g22ddee3792. Bump only with a re-diff.
-PINNED_UPSTREAM_COMMIT="22ddee3792"
+# baseline: dsh-v0.2.2-rc.1-811-gfcc0ad4621. Bump only with a re-diff.
+PINNED_UPSTREAM_COMMIT="fcc0ad4621"
 # Expected patch size at the pin (added/removed lines) and the headroom a
 # legitimate small fix may use before the guard fails. A patch that exceeds
 # these is fork debt, not maintenance.
-PATCH_BUDGETS="agent.ts:333:15 index.ts:152:10"
+PATCH_BUDGETS="agent.ts:372:16 index.ts:154:11"
 ADD_TOLERANCE=15
 DEL_TOLERANCE=5
 LOCAL_ONLY_FILES="bench-retry.ts graph-node.ts step-tools.ts subagent-result.ts"

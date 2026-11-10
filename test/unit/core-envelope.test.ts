@@ -323,7 +323,11 @@ test('the preset baseline can keep unannotated tools without annotations', () =>
     presetTools: ['read', 'acme_tool'],
     includePresetTools: false,
   })
-  assert.ok(!narrow.envelope.tools.universe.includes('acme_tool'))
+  // An unannotated preset tool matches no curated role, but the plan universe is
+  // a hard allowlist: dropping it here makes a craft/MCP tool uncallable. The
+  // envelope keeps unclassified preset tools as a baseline even when curated
+  // tools still narrow by role.
+  assert.ok(narrow.envelope.tools.universe.includes('acme_tool'))
 })
 
 test('an annotation that matches nothing is reported', () => {

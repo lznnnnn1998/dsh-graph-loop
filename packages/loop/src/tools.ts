@@ -94,12 +94,18 @@ function buildStatus(ctx: Context): ToolDefinition {
             parameters: definition.parameters as Readonly<Record<string, unknown>>,
           })),
         })
+        // The scoped branch must still report the last run for this session;
+        // `last('')` in the host branch can never match a real session id.
+        const runtime = service<RuntimeLike>(ctx, 'graphRuntime')
+        const sessionId = (agent as { readonly session?: { readonly id?: string } } | undefined)?.session?.id
+        const run = sessionId === undefined ? undefined : runtime?.last(sessionId)
         return Promise.resolve({
           mode: 'explore',
           graphTools: snapshot.graph.nodes.length,
           graphDigest: snapshot.digest,
           warnings: snapshot.warnings,
           templates: (router?.templates().templates ?? []).map(template => template.id),
+          ...(run === undefined ? {} : { lastRun: run }),
         })
       }
       if (registry === undefined) {
@@ -137,11 +143,30 @@ function buildPlanTool(ctx: Context): ToolDefinition {
       const registry = registryOf(ctx)
       const runtime = service<RuntimeLike>(ctx, 'graphRuntime')
       const sessionId = exec.agent?.session.id
-      if (registry === undefined || runtime === undefined || sessionId === undefined) {
+      // Validate against the graph this agent will actually execute against.
+      // Preset/agent-scoped tools are registered inside the agent's scope, so the
+      // host registry can be empty or a superset; either way the proposal and the
+      // driver would disagree about which tools exist.
+      const scoped = exec.agent === undefined ? undefined : ctx.tools.definitions(exec.agent)
+      const snapshot = scoped !== undefined && scoped.length > 0
+        ? buildRegistrySnapshot({
+          tools: scoped.map(definition => ({
+            name: definition.name,
+            description: definition.description,
+            parameters: definition.parameters as Readonly<Record<string, unknown>>,
+          })),
+        })
+        : registry?.snapshot()
+      if (snapshot === undefined || runtime === undefined || sessionId === undefined) {
         return Promise.resolve({ ok: false, errors: ['graph runtime is not mounted for this agent'] })
       }
-      const snapshot = registry.snapshot()
-      const result = validateProposal(args, snapshot.graph, toolSchemas(snapshot.graph), { maxNodes: 12, maxSteps: 24 })
+      const agentLoop = ctx.get('agentLoop') as { readonly config?: { readonly maxSteps?: number } } | undefined
+      const result = validateProposal(args, snapshot.graph, toolSchemas(snapshot.graph), {
+        maxNodes: 12,
+        // Clamp to the driver's configured cap, not a hardcoded 24: a proposal
+        // adopted into a smaller turn must not claim a larger budget.
+        maxSteps: agentLoop?.config?.maxSteps ?? 24,
+      })
       if (!result.ok || result.plan === undefined) {
         return Promise.resolve({ ok: false, errors: [...result.errors], warnings: [...result.warnings] })
       }

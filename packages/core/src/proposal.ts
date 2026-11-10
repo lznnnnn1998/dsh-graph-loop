@@ -16,7 +16,7 @@ import type {
   TaskPlan,
 } from './graph-schema.ts'
 import type { RegistryGraph } from './graph-schema.ts'
-import { validateTaskPlan } from './graph-schema.ts'
+import { ARTIFACT_TYPES, validateTaskPlan } from './graph-schema.ts'
 import { withStageFailureExits } from './topology.ts'
 
 export interface ProposalNode {
@@ -58,17 +58,37 @@ export interface ProposalResult {
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/u
 const DEFAULT_LIMITS: Required<ProposalLimits> = { maxNodes: 12, maxSteps: 24, maxInstructionChars: 600 }
 
+/** A closure over the closed artifact vocabulary; a typo must be a proposal error. */
+function artifactTypeOf(value: unknown): ArtifactType | undefined {
+  return typeof value === 'string' && (ARTIFACT_TYPES as readonly string[]).includes(value)
+    ? value as ArtifactType
+    : undefined
+}
+
 function normalizeCondition(value: unknown): Condition | undefined {
   if (value === undefined) return undefined
   const condition = value as { op?: unknown }
   switch (condition.op) {
     case 'always': return { op: 'always' }
-    case 'artifact': return { op: 'artifact', type: (value as { type: ArtifactType }).type }
-    case 'noArtifact': return { op: 'noArtifact', type: (value as { type: ArtifactType }).type }
+    case 'artifact': {
+      const type = artifactTypeOf((value as { type?: unknown }).type)
+      return type === undefined ? undefined : { op: 'artifact', type }
+    }
+    case 'noArtifact': {
+      const type = artifactTypeOf((value as { type?: unknown }).type)
+      return type === undefined ? undefined : { op: 'noArtifact', type }
+    }
     case 'fact': {
       const fact = value as { key?: unknown; equals?: unknown }
-      if (typeof fact.key !== 'string') return undefined
-      return { op: 'fact', key: fact.key, equals: fact.equals as string | number | boolean }
+      // `equals` is required: an omitted scalar normalizes to `undefined`, and
+      // `facts[key] === undefined` is true for an absent fact — a guard meant to
+      // test a value would fire before that fact was ever written.
+      const equals = fact.equals
+      if (typeof fact.key !== 'string'
+        || (typeof equals !== 'string' && typeof equals !== 'number' && typeof equals !== 'boolean')) {
+        return undefined
+      }
+      return { op: 'fact', key: fact.key, equals }
     }
     case 'callFailed': {
       const call = value as { tool?: unknown }
@@ -78,8 +98,14 @@ function normalizeCondition(value: unknown): Condition | undefined {
     case 'budget': {
       const b = value as { axis?: unknown; remainingAtMost?: unknown }
       // Only the step axis has a producer; a token/wall guard would be silently
-      // inert, so it is an unsupported condition in a proposal.
-      if (b.axis !== 'steps' || typeof b.remainingAtMost !== 'number') return undefined
+      // inert, so it is an unsupported condition in a proposal. A negative or
+      // non-finite threshold is inert too (it can never fire / always fires).
+      if (b.axis !== 'steps'
+        || typeof b.remainingAtMost !== 'number'
+        || !Number.isFinite(b.remainingAtMost)
+        || b.remainingAtMost < 0) {
+        return undefined
+      }
       return { op: 'budget', axis: b.axis, remainingAtMost: b.remainingAtMost }
     }
     default: return undefined
@@ -157,7 +183,11 @@ export function validateProposal(
       instruction: instruction || (kind === 'terminal'
         ? 'Answer the task with the evidence gathered above.'
         : 'Continue the task. Use only capabilities that advance it.'),
-      toolAllow: kind === 'terminal' ? [] : (presetTools as readonly string[]).slice(0, 0),
+      // A terminal node is answer-only. A non-terminal agent step must NOT carry
+      // an explicit empty allowlist: the driver reads `toolAllow: []` as
+      // answer-only and would strip every tool from an authored work node. Omit
+      // the field so the step uses the plan's tool universe.
+      ...(kind === 'terminal' ? { toolAllow: [] as readonly string[] } : {}),
       ...(node.model === undefined ? {} : { model: node.model }),
     })
   }
@@ -188,9 +218,13 @@ export function validateProposal(
       errors.push(`edges[${index}] is an unconditional self-loop at "${edge.from}"`)
       continue
     }
-    const key = `${edge.from}->${edge.to}`
+    // Two guards from the same node to the same target are a normal way to say
+    // "answer on failure OR when the artifact exists". Only an exact duplicate
+    // (same condition) is a duplicate; keying on the endpoints alone silently
+    // dropped one of the two branches.
+    const key = `${edge.from}->${edge.to}::${condition === undefined ? 'always' : JSON.stringify(condition)}`
     if (edgeKeys.has(key)) {
-      warnings.push(`edges[${index}] duplicates ${key}; ignored`)
+      warnings.push(`edges[${index}] duplicates ${edge.from}->${edge.to}; ignored`)
       continue
     }
     edgeKeys.add(key)

@@ -90,6 +90,8 @@ export type AfterNodeHook = (input: {
   readonly node: PlanNode
   readonly state: GraphState
   readonly superstep: number
+  /** Set only when the node ended the run unsuccessfully (no recovery route). */
+  readonly failure?: NodeFailure
 }) => Promise<{ readonly atSeq: number; readonly state: GraphState; readonly failure?: NodeFailure }>
 
 /** Plan policy: successor of a finished node, or `END`. */
@@ -243,11 +245,11 @@ export function routeNext(
 }
 
 /** Default fold: append journal, count the node, advance nothing else. */
-export const defaultAfterNode: AfterNodeHook = async ({ node, state, superstep }) => {
+export const defaultAfterNode: AfterNodeHook = async ({ node, state, superstep, failure }) => {
   const journalEntry = {
     nodeId: node.id,
     superstep,
-    outcome: 'ok' as const,
+    outcome: failure === undefined ? 'ok' as const : 'failed' as const,
     atSeq: superstep,
   }
   const priorJournal = Array.isArray(state.journal) ? state.journal : []
@@ -315,13 +317,13 @@ async function runNodeBody(
   node: PlanNode,
   state: GraphState,
   step: number,
-): Promise<JsonUpdate> {
+): Promise<{ update: JsonUpdate; failure?: NodeFailure }> {
   const inline = deps.nodes?.[node.id]
   if (inline !== undefined) {
     const emitted: JsonValue[] = []
     const update = await inline(nodeContext(deps, plan, node, state, step, emitted))
     if (deps.validateJson) assertJson(update, `update from "${node.id}"`, node.id)
-    return update
+    return { update }
   }
 
   const executor = deps.executors.find((candidate) => candidate.kind === node.executor)
@@ -332,7 +334,7 @@ async function runNodeBody(
       })
     }
     // Zero-deps mode: pure topology walk, no side effects.
-    return {}
+    return { update: {} }
   }
 
   const retry = retryPolicyOf(node, deps)
@@ -351,11 +353,9 @@ async function runNodeBody(
         siblings: siblingsOf(plan, node.id),
       })
       const update = updateOf(outcome, state, deps.validateJson, node.id)
-      if (outcome.failure !== undefined) {
-        // Reported, not thrown: the after-node fold decides whether it is fatal.
-        return update
-      }
-      return update
+      // Carry the reported failure to the boundary fold. Dropping it folded a
+      // failed node as a success and let the run end `done`.
+      return outcome.failure === undefined ? { update } : { update, failure: outcome.failure }
     } catch (error) {
       const retryable = retry.retryOn(error)
       if (!retryable || attempt >= retry.maxAttempts) throw asKernelError(error, node.id)
@@ -444,21 +444,34 @@ export async function executePlanNode(input: {
     throw new KernelError(`plan has no node "${nodeId}"`, 'UNDECLARED_TARGET', { node: nodeId })
   }
   const state = input.state
-  const update = await runNodeBody(deps, plan, node, state, input.step)
+  const { update, failure } = await runNodeBody(deps, plan, node, state, input.step)
 
   const merged = mergeState(state, update)
   if (deps.validateJson) assertJson(merged, `state after "${nodeId}"`, nodeId)
 
   const destination = routeNext(deps, plan, nodeId, merged)
+  // Reaching END is success only when this node is a declared terminal. A
+  // non-terminal whose guards did not match is a dead end: reporting it as
+  // `done` let the driver finish a turn that never reached its answer. A
+  // reported executor failure at END fails the run instead of folding as ok.
+  const terminal = plan.terminals.includes(nodeId)
+  const ended = destination === END
+  const runFailed = ended && (failure !== undefined || !terminal)
   const candidate: GraphState = stripPregelKeys({
     ...merged,
     superstep: merged.superstep + 1,
-    next: destination === END ? null : destination,
-    status: destination === END ? 'done' : 'running',
+    next: ended ? null : destination,
+    status: runFailed ? 'failed' : ended ? 'done' : 'running',
   })
   if (deps.validateJson) assertJson(candidate, `state handed to afterNode after "${nodeId}"`, nodeId)
 
-  const after = await deps.afterNode({ plan, node, state: candidate, superstep: candidate.superstep })
+  const after = await deps.afterNode({
+    plan,
+    node,
+    state: candidate,
+    superstep: candidate.superstep,
+    ...(runFailed && failure !== undefined ? { failure } : {}),
+  })
   if (deps.validateJson) assertJson(after.state, `checkpoint state after "${nodeId}"`, nodeId)
   return { nodeId, update, after }
 }

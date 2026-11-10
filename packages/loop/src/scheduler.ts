@@ -27,6 +27,7 @@ import { synthesizeComposition } from 'dsh-graph-loop-core/compose'
 import { selectEnvelopeForTask } from 'dsh-graph-loop-core/envelope'
 import { KernelTopology, canKernelDrive } from './kernel/topology.ts'
 import { deriveCapabilityFacts, deriveStepArtifacts, deriveStepFacts } from './step-facts.ts'
+import { DEFAULT_SHELL_TOOLS } from './loop/step-tools.ts'
 import type { RoutingArtifact } from 'dsh-graph-loop-core/condition'
 import type { ArtifactType, Json } from 'dsh-graph-loop-core/graph-schema'
 import { fallbackPlan } from 'dsh-graph-loop-core/fallback'
@@ -134,6 +135,8 @@ export interface GraphTurnDriverOptions {
   readonly presetId?: string
   readonly fallbackInstruction?: string
   readonly maxSteps?: number
+  /** Shell tool names for effect/exit-code classification (defaults to bash/pwsh). */
+  readonly shellTools?: readonly string[]
   /** Text length below which a trivial task gets the single-node plan. */
   readonly trivialChars?: number
   /** False for subagent children: no nested fan-out. */
@@ -202,6 +205,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
   const cooccurrence = toCooccurrenceTable(options.cooccurrence)
   const presetId = options.presetId ?? 'explore'
   const maxSteps = options.maxSteps ?? 24
+  const shellTools = new Set(options.shellTools ?? DEFAULT_SHELL_TOOLS)
   const trivialChars = options.trivialChars ?? 32
   const liveGraph = async (): Promise<RegistryGraph | undefined> => await options.graphProvider?.() ?? currentGraph
   const liveTemplates = (): TemplateLibrary | undefined => options.templatesProvider?.() ?? currentTemplates
@@ -219,6 +223,12 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
    * from an earlier stage.
    */
   let producedTypes = new Set<ArtifactType>()
+  /** Executed node ids in run order; the snapshot's `visited` must describe the run, not the plan. */
+  let visited: string[] = []
+  /** Tool names this turn has seen, so a later step can reset their step-scoped facts. */
+  const knownToolNames = new Set<string>()
+  /** Serializes batch completions: `completeNode` selects shared topology state across an await. */
+  let completeQueue: Promise<unknown> = Promise.resolve()
 
   function presetToolsOf(graph: RegistryGraph, task: TurnTask): readonly string[] {
     if (task.presetTools !== undefined) return task.presetTools
@@ -238,7 +248,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       node: topology?.current()?.id ?? lastNode,
       step: topology?.steps() ?? 0,
       status: topology?.status() ?? 'failed',
-      visited: [...(topology?.snapshot().nodes.map(node => node.id) ?? [])].slice(0, topology?.steps() ?? 0),
+      visited: [...visited],
       rationale,
       trail: [...trail],
       replans,
@@ -255,22 +265,31 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
 
   function install(next: TaskPlan): void {
     adoptedAtStep = undefined
-    plan = next
+    // `maxSteps` is a per-turn cap, not a per-plan one. A replan/recovery plan or
+    // a model-authored proposal that arrives after N steps must not reset the
+    // allowance and run another full budget; clamp the installed plan to the
+    // steps this turn has left. (Each plan still owns its own earlier cap.)
+    const remaining = Math.max(1, maxSteps - trail.length)
+    const bounded = next.budget.maxSteps <= remaining
+      ? next
+      : { ...next, budget: { ...next.budget, maxSteps: remaining } }
+    plan = bounded
     const kernelMode = options.kernel ?? 'langgraph'
     try {
       // `KernelTopology` owns its step-budget reserve for a budget-routed
       // wrap-up node, so the driver does not special-case the plan budget.
-      topology = kernelMode !== 'off' && canKernelDrive(next)
-        ? new KernelTopology(next, { kind: kernelMode, taskHash: next.id })
-        : new FrontierTopology(next)
+      topology = kernelMode !== 'off' && canKernelDrive(bounded)
+        ? new KernelTopology(bounded, { kind: kernelMode, taskHash: bounded.id })
+        : new FrontierTopology(bounded)
     } catch {
-      topology = new FrontierTopology(next)
+      topology = new FrontierTopology(bounded)
     }
     lastNode = topology.current()?.id
   }
 
   /** Append one executed node to the run trail. */
   function recordTrail(id: string, executor: string | undefined, outcome: NodeOutcome): void {
+    visited.push(id)
     trail.push({
       id,
       step: (topology?.steps() ?? 0) + 1,
@@ -289,6 +308,10 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     if (outcome.ok || topology === undefined || topology.status() !== 'failed') return
     const maxReplans = plan?.budget.maxReplans ?? 0
     if (replans >= maxReplans) return
+    // No room left in the turn: installing a recovery plan with a forced
+    // one-step budget ran past `maxSteps`. Leave the run failed; the turn
+    // reports GRAPH_FAILED instead of spending another step.
+    if (trail.length >= maxSteps) return
     replans += 1
     const failedNode = lastNode ?? 'unknown'
     const graph = await liveGraph()
@@ -326,6 +349,10 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     if (options.proposalSource === undefined) return
     const proposed = options.proposalSource()
     if (proposed === undefined) return
+    if (trail.length >= maxSteps) {
+      rationale = [...rationale, 'proposal ignored: no step budget left']
+      return
+    }
     const steps = topology?.steps() ?? 0
     const allowed = adoptPolicy === 'always'
       || (adoptPolicy === 'start-only' && steps <= 1)
@@ -354,12 +381,27 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     if (record !== undefined) recordTrail(record.id, record.executor, outcome)
     lastNode = lastNodeId ?? lastNode
     const observed = outcome.tools ?? []
-    const facts = deriveStepFacts(observed, outcome.ok, outcome.failedTool)
+    const facts = deriveStepFacts(observed, outcome.ok, outcome.failedTool, shellTools)
+    // Tool facts are step-scoped: a tool that failed in an earlier step must not
+    // leave `tool.<name>.failed=true` (or a stale `.ok`) for a later step that
+    // never called it. Reset every name this turn has seen, then let this step's
+    // values win.
+    for (const name of knownToolNames) {
+      if (observed.some(tool => tool.name === name)) continue
+      facts[`tool.${name}.ok`] = false
+      facts[`tool.${name}.failed`] = false
+    }
+    for (const tool of observed) knownToolNames.add(tool.name)
     const graph = await liveGraph()
     const capability = record?.capabilityId === undefined
       ? undefined
       : graph?.nodes.find(node => node.id === record.capabilityId)
-    const declaredTypes = capability?.produces.map(spec => spec.type) ?? []
+    // A reader declares its *output* (`produces: file.text`), but a read cannot
+    // author an artifact. Never credit a read-only capability's declared types to
+    // an author stage; the composer also refuses to bind an author to one.
+    const declaredTypes = capability?.tool?.permission === 'read-only'
+      ? []
+      : capability?.produces.map(spec => spec.type) ?? []
     // Credit the capability's declared artifacts only when that capability's
     // tool actually ran; an unrelated successful call does not fulfill the
     // node's artifact contract.
@@ -434,6 +476,8 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       envelopeId = undefined
       trail = []
       producedTypes = new Set<ArtifactType>()
+      visited = []
+      knownToolNames.clear()
       // Per-turn state: a new turn gets its own replan allowance and adoption
       // window. Leaving these to accumulate permanently disables boundary
       // recovery once an early turn exhausts the plan's replan budget.
@@ -586,20 +630,30 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       }
       return detached
     },
-    async completeNode(id: string, ok: boolean): Promise<void> {
-      if (topology === undefined) return
-      const node = topology.select(id)
-      // A batch node superseded by a recovery replan no longer exists in the
-      // live topology. Ignore it instead of advancing a node its completion
-      // never ran; the remaining batch members settle the same way.
-      if (node === undefined) return
-      // A batch completion is still a graph boundary: route it through the same
-      // trail/advance/replan path as a model step so a failed subagent can
-      // trigger recovery instead of silently advancing the topology. A
-      // model-authored proposal is not adopted mid-batch; that stays a step
-      // boundary decision.
-      await advanceNode(node, id, { ok }, false)
-      options.onSnapshot?.(snapshot())
+    completeNode(id: string, ok: boolean): Promise<void> {
+      const run = async (): Promise<void> => {
+        if (topology === undefined) return
+        const node = topology.select(id)
+        // A batch node superseded by a recovery replan no longer exists in the
+        // live topology. Ignore it instead of advancing a node its completion
+        // never ran; the remaining batch members settle the same way.
+        if (node === undefined) return
+        // A batch completion is still a graph boundary: route it through the same
+        // trail/advance/replan path as a model step so a failed subagent can
+        // trigger recovery instead of silently advancing the topology. A
+        // model-authored proposal is not adopted mid-batch; that stays a step
+        // boundary decision.
+        await advanceNode(node, id, { ok }, false)
+        options.onSnapshot?.(snapshot())
+      }
+      // `completeNode` selects `currentId`, then awaits `liveGraph()` before
+      // `topology.advance()`. Two concurrent completions (the agent's
+      // `Promise.all` over a subagent batch) would interleave and advance the
+      // wrong node — including marking the terminal complete without running it.
+      // Serialize completions for this turn.
+      const result = completeQueue.then(run, run)
+      completeQueue = result.then(() => undefined, () => undefined)
+      return result
     },
     done(): boolean {
       return topology === undefined || topology.done()

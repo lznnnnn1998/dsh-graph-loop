@@ -115,7 +115,7 @@ without one.
 
 ## Requirements
 
-- DeepSeek Harness satisfying the driver's `engines.dsh` range (`^0.2.1-rc.3` in
+- DeepSeek Harness satisfying the driver's `engines.dsh` range (`^0.2.2-rc.1` in
   `packages/loop/package.json`).
 - Node 24+ (the bundles target Node 24; the workspace types are `@types/node` 24).
 - `@langchain/langgraph` 1.7.0 is an optional dependency; when it is absent the driver falls back to

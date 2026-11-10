@@ -709,9 +709,20 @@ export function validateTaskPlan(graph: RegistryGraph, plan: TaskPlan): Validati
   if (plan.terminals.length === 0) {
     errors.push({ code: 'P003', path: 'terminals', message: 'plan needs at least one terminal node' })
   }
+  if (!Number.isInteger(plan.budget.maxSteps) || plan.budget.maxSteps < 1) {
+    errors.push({ code: 'P026', path: 'budget.maxSteps', message: 'maxSteps must be a positive integer' })
+  }
+  if (!Number.isInteger(plan.budget.maxNodes) || plan.budget.maxNodes < 1) {
+    errors.push({ code: 'P026', path: 'budget.maxNodes', message: 'maxNodes must be a positive integer' })
+  }
 
+  const seenNodeIds = new Set<string>()
   for (const [index, node] of plan.nodes.entries()) {
     const path = `nodes[${index}]`
+    if (seenNodeIds.has(node.id)) {
+      errors.push({ code: 'P024', path: `${path}.id`, message: `duplicate node id "${node.id}"` })
+    }
+    seenNodeIds.add(node.id)
     if (node.capabilityId !== undefined && !registryIds.has(node.capabilityId)) {
       errors.push({ code: 'P004', path: `${path}.capabilityId`, message: `unknown capability "${node.capabilityId}"` })
     }
@@ -834,6 +845,31 @@ export function validateTaskPlan(graph: RegistryGraph, plan: TaskPlan): Validati
   for (const node of plan.nodes) {
     if (!reachable.has(node.id)) {
       warnings.push({ code: 'W004', path: `nodes.${node.id}`, message: 'unreachable from entry' })
+    }
+  }
+
+  // A terminal the entry can only reach over a data edge is not an endpoint
+  // either engine can run: both engines route control edges only. Reject it
+  // instead of letting the run stop with `done` and no terminal executed.
+  if (plan.entry !== '' && nodeById.has(plan.entry)) {
+    const controlReachable = new Set<string>([plan.entry])
+    const controlStack: string[] = [plan.entry]
+    while (controlStack.length > 0) {
+      const current = controlStack.pop() as string
+      for (const edge of outgoing.get(current) ?? []) {
+        if (edge.kind !== 'control' || controlReachable.has(edge.to) || !nodeById.has(edge.to)) continue
+        controlReachable.add(edge.to)
+        controlStack.push(edge.to)
+      }
+    }
+    for (const terminal of plan.terminals) {
+      if (nodeById.has(terminal) && !controlReachable.has(terminal)) {
+        errors.push({
+          code: 'P025',
+          path: `terminals.${terminal}`,
+          message: `terminal "${terminal}" is not reachable from entry over control edges`,
+        })
+      }
     }
   }
 

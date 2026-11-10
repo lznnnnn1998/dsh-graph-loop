@@ -78,4 +78,11 @@ single stock step.
   [`../../docs/KERNEL-COVERAGE.md`](../../docs/KERNEL-COVERAGE.md).
 - Kernel checkpoints are in-memory (`MemoryCheckpointer`); `storageDomain` persistence is pending.
 - `dynamic` synthesis is heuristic, not an optimization over all graphs.
+- `maxSteps` bounds **graph nodes per turn**: a replan, recovery plan or adopted proposal cannot
+  reset the allowance, and both engines grant at most one extra wrap-up step when a `budget` edge
+  targets a declared terminal. It does **not** count agent retries (DSML/mutation corrections) or
+  subagent child steps; a child agent runs its own single-node budget, so a wide batch multiplies
+  child work even though the parent trail grows by one per child. `TaskBudget.maxTokens` and
+  `maxWallMs` are declared capacity, not enforced at a step boundary — the host `agent.timeout_sec`
+  and abort are the wall-clock bound.
 - Mid-run topology replacement is limited by `adoptPolicy: 'start-only'` by default.

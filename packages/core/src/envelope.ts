@@ -27,6 +27,7 @@ import type {
   RegistryNode,
 } from './graph-schema.ts'
 import { hash16, type IntentClass, type TaskFingerprint } from './matching.ts'
+import { UNMAPPED_TAG } from './registry.ts'
 import { DEFAULT_ENVELOPE, type RunEnvelope } from './runtime.ts'
 
 // ---------------------------------------------------------------------------
@@ -621,6 +622,21 @@ export function selectEnvelopeForTask(input: SelectEnvelopeInput): EnvelopeDecis
   if (input.includePresetTools === true) {
     for (const name of input.presetTools ?? []) {
       if (toolNames.has(name)) extraTools.add(name)
+    }
+  } else {
+    // A preset tool the registry cannot classify (an MCP/craft tool without
+    // `tags`/`produces` annotations) matches no role and would be silently
+    // dropped. The composer promises that an unannotated tool stays usable, and
+    // a non-empty `toolUniverse` is a hard allowlist — so keep unclassified
+    // preset tools as a baseline. Curated tools still narrow by role.
+    const unclassified = new Set(
+      input.graph.nodes
+        .filter(node => node.kind === 'tool' && node.tool !== undefined
+          && (node.tags.length === 0 || node.tags.includes(UNMAPPED_TAG)))
+        .map(node => node.tool!.name),
+    )
+    for (const name of input.presetTools ?? []) {
+      if (toolNames.has(name) && unclassified.has(name)) extraTools.add(name)
     }
   }
 

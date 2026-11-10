@@ -97,7 +97,7 @@ const STAGE_ORDER: readonly ComposeStage[] = ['discover', 'inspect', 'mutate', '
  * this many steps remain, so the answer node always has room to run before
  * `budget.maxSteps` is reached.
  */
-const ANSWER_RESERVE_STEPS = 2
+const ANSWER_RESERVE_STEPS = 1
 
 const INVESTIGATIVE_INTENTS = new Set<TaskFingerprint['intent']>([
   'code-question',
@@ -146,7 +146,11 @@ function firstWithTag(tools: readonly RegistryNode[], tags: readonly string[]): 
 }
 
 function firstProducing(tools: readonly RegistryNode[], type: ArtifactType): RegistryNode | undefined {
-  return cheapest(tools.filter(tool => produces(tool, type)))
+  // A reader also declares `produces: file.text` (its output is the file's
+  // content), but it cannot author an artifact. An author stage needs a tool
+  // that can write; otherwise a successful read satisfies `produced.<type>` and
+  // the run reports a deliverable it never made.
+  return cheapest(tools.filter(tool => tool.tool?.permission !== 'read-only' && produces(tool, type)))
 }
 
 function firstReadTool(tools: readonly RegistryNode[]): RegistryNode | undefined {
@@ -255,14 +259,27 @@ function planStages(input: ComposeInput): { stages: StagePlan[]; issues: Compose
   }
 
   const maxSteps = stepBudgetOf(input)
-  // Every composed plan spends one step on the answer node. Capping the stages
-  // at maxSteps - 1 leaves that step. A stage owns two nodes (work + repair), so
-  // the plan may declare more nodes than maxSteps; maxSteps bounds executed
-  // steps through the budget/repair exits, not the declared node count.
-  const maxStages = Math.max(0, maxSteps - 1)
+  // Reserve one step for the answer: at the stage exit, remaining == 1 means
+  // the answer can still run (the frontier checks its cap after the answer).
+  // Reserving two skipped the last admitted stage (3 stages at maxSteps 4 ran
+  // inspect -> mutate -> answer and never verify) and disagreed with the cap.
+  const maxStages = Math.max(0, maxSteps - ANSWER_RESERVE_STEPS)
   if (stages.length > maxStages) {
-    stages.splice(maxStages)
-    issues.push({ code: 'budget-capped', severity: 'warning', detail: `stages capped at ${maxStages}` })
+    // Trim the least goal-critical stages first: discovery, then inspection, then
+    // extra authors, then mutation/verification. Splicing from the tail used to
+    // drop the artifact-producing author and the verify stage before discovery.
+    const dropOrder: readonly ComposeStage[] = ['discover', 'inspect', 'verify', 'author', 'mutate']
+    while (stages.length > maxStages) {
+      const stageToDrop = dropOrder.find(candidate => stages.some(stage => stage.stage === candidate))
+      if (stageToDrop === undefined) break
+      const index = stageToDrop === 'author'
+        ? stages.map(stage => stage.stage).lastIndexOf('author')
+        : stages.findIndex(stage => stage.stage === stageToDrop)
+      const [dropped] = stages.splice(index, 1)
+      if (dropped !== undefined) {
+        issues.push({ code: 'budget-capped', severity: 'warning', detail: `dropped ${dropped.stage} stage to fit ${maxSteps} steps` })
+      }
+    }
   }
 
   return { stages: stages.sort((left, right) => STAGE_ORDER.indexOf(left.stage) - STAGE_ORDER.indexOf(right.stage)), issues, rationale }
@@ -503,7 +520,10 @@ export function synthesizeComposition(input: ComposeInput): ComposeResult {
     terminals: [answerId],
     nodes,
     edges,
-    budget,
+    // The declared node cap must describe this plan. `budgetOf` defaults to 12
+    // but multi-artifact plans can emit more nodes, and no engine enforces the
+    // field; claiming a cap below the node count makes the budget fiction.
+    budget: { ...budget, maxNodes: nodes.length },
     toolUniverse,
     gatePolicy: 'turn',
     fallback: stages.length === 0,

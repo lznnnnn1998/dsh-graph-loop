@@ -24,7 +24,7 @@
   },
   "description": "Graph-native agent driver for DeepSeek Harness: one turn runs a per-turn topology.",
   "engines": {
-    "dsh": "^0.2.1-rc.3"
+    "dsh": "^0.2.2-rc.1"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",

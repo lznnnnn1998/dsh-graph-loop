@@ -30,7 +30,7 @@ out-edge per node (`packages/loop/src/kernel/topology.ts`).
 
 Defined in `packages/core/src/compose.ts`. Each stage declares its exits in evaluation order:
 
-1. a **budget exit** to the tool-enabled `n_answer` when `ANSWER_RESERVE_STEPS` (2) steps remain;
+1. a **budget exit** to the tool-enabled `n_answer` when `ANSWER_RESERVE_STEPS` (1) step remains;
 2. its failure exits — `callFailed`, `lastOk = false`, and its own no-progress guard — to **one**
    repair node;
 3. its success guard to the next stage, or to `n_answer`.
@@ -50,10 +50,9 @@ producer tool ran), and `verificationRan`/`verificationFailed` for verify. A non
 **Reserve boundary.** Because the budget exit is evaluated first, a stage that cannot succeed at the
 answer reserve goes to `n_answer` instead of repairing forever. `n_answer` is a **continuation, not
 a success claim**: the run reports `done`, but the failed verify step and its `[exit code: N]`
-output remain in the node trail and session log. The kernel adapter reserves one extra step for a
-budget-routed wrap-up node; the frontier stops at the plan's step cap and reports `done` only when a
-terminal was reached, otherwise `failed` (`packages/loop/src/kernel/topology.ts`,
-`packages/core/src/topology.ts`).
+output remain in the node trail and session log. Both engines reserve one extra step for a budget-routed wrap-up node when the `budget` edge targets
+a declared terminal; a non-terminal that runs out of matching exits reports `failed`, not `done`
+(`packages/loop/src/kernel/topology.ts`, `packages/core/src/topology.ts`).
 
 No claim is made that LangGraph executes arbitrary graphs. Checkpoints are in-memory
 (`MemoryCheckpointer` in `packages/loop/src/kernel/plan.ts`); `storageDomain` durability is not

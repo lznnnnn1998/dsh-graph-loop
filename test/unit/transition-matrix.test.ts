@@ -282,7 +282,7 @@ function thirdPartyComposition(
     ],
     [
       { tool: 'acme_read', permission: 'read-only', tags: ['filesystem'], produces: [{ type: 'file.text', required: true }] },
-      { tool: 'acme_render', tags: ['authoring', 'image'], produces: [{ type: 'file.image', required: true }] },
+      { tool: 'acme_render', tags: ['authoring', 'image'], produces: [{ type: 'file.image', required: true }, { type: 'file.text', required: true }] },
     ],
   )
   assert.equal(annotated.unmatched.length, 0)
@@ -692,10 +692,9 @@ for (const engine of ENGINES) {
 
 for (const engine of ENGINES) {
   engineTest(`at maxSteps 5 a failed verify reaches the answer, not a repair dead end [${engine}]`, engine, async () => {
-    // maxSteps 5: inspect, mutate, verify (fails with exit 1) leaves exactly the
-    // answer reserve (2). The budget exit is evaluated first, so the failed
-    // verify reaches the tool-enabled answer instead of a repair node the
-    // kernel cannot run (audit 2026-11-09 §4.3, §5.6).
+    // maxSteps 5: inspect, mutate, verify (fails with exit 1) leaves two steps:
+    // one repair and the answer. The repair runs, then the budget exit hands the
+    // last step to the tool-enabled answer.
     const graph = graphOf({ tools: CORE_TOOLS })
     const envelope = buildEnvelope({
       roles: [role('workspace-read'), role('workspace-write'), role('shell'), role('verification')],
@@ -711,17 +710,18 @@ for (const engine of ENGINES) {
     await driver.advance({ ok: true, tools: [{ name: 'read', isError: false }] })
     await driver.advance({ ok: true, tools: [{ name: 'edit', isError: false }] })
     await driver.advance({ ok: true, tools: [{ name: 'bash', isError: false, output: 'FAIL\n[exit code: 1]' }] })
-    assert.equal(driver.current()?.id, 'n_answer',
-      `engine=${engine}: a failed verify at the reserve boundary must answer, not repair forever`)
-    // The answer is a continuation, not a success claim: the failed verify step and its
-    // non-zero exit remain observable in the node trail even though the turn reports
-    // `done` (see docs/KERNEL-COVERAGE.md, "Reserve boundary").
-    const verifyTrail = driver.snapshot().trail.at(-1)
-    assert.equal(verifyTrail?.id, 'n_verify')
+    // Two steps remain at the failed verify: one repair, then the answer. The
+    // failed verify and its non-zero exit remain observable in the trail even
+    // though the turn eventually reports `done` (see docs/KERNEL-COVERAGE.md,
+    // "Reserve boundary").
+    assert.equal(driver.current()?.id, 'n_verify_repair', `engine=${engine}`)
+    const verifyTrail = driver.snapshot().trail.find(row => row.id === 'n_verify')
     assert.match(verifyTrail?.tools?.[0]?.output ?? '', /\[exit code: 1\]/u)
+    await driver.advance({ ok: true })
+    assert.equal(driver.current()?.id, 'n_answer', `engine=${engine}`)
     assert.notEqual(driver.status?.(), 'failed')
     await driver.advance({ ok: true })
-    assert.equal(driver.status?.(), 'done')
+    assert.equal(driver.status?.(), 'done', `engine=${engine}`)
     driver.endTurn()
   })
 }
@@ -853,46 +853,20 @@ test('the budget guard fires at maxSteps - 1 and maxSteps - 2 on every engine', 
   }
 })
 
-test('the last planned step keeps its budget-routed wrap-up node (kernel adapter reserve)', async () => {
-  // maxSteps 1: one planned step remains after `a`, so the guard's target `b`
-  // would be a second step. The kernel adapter itself reserves one step for the
-  // wrap-up node, so the node is folded and committed instead of being run by
-  // the host and discarded at the budget boundary.
+test('the last planned step keeps its budget-routed wrap-up node (frontier and kernel reserve)', async () => {
+  // maxSteps 1: after `a`, the budget guard (remainingAtMost 0) routes to the
+  // terminal `b`. Both engines grant the one step that lets that wrap-up run,
+  // so the same plan has the same route and status on every engine.
   for (const engine of ENGINES) {
-    if (engine === 'frontier') continue
-    const topology = new KernelTopology(budgetPlan(1, 0), { kind: engine, taskHash: 'matrix' })
-    try {
-      assert.equal(topology.current()?.id, 'a')
-      assert.equal((await topology.advance({ ok: true }))?.id, 'b', `engine=${engine}`)
-      assert.equal(await topology.advance({ ok: true }), undefined)
-      assert.equal(topology.status(), 'done')
-      assert.deepEqual(topology.stateSnapshot().journal.map(entry => entry.nodeId), ['a', 'b'])
-    } finally {
-      await topology.dispose()
-    }
-  }
-
-  // The driver uses the same rule; the scheduler no longer special-cases it.
-  for (const engine of ENGINES) {
-    if (engine === 'frontier') continue
-    const driver = createGraphTurnDriver({ kernel: engine })
+    const driver = createGraphTurnDriver({ kernel: engine === 'frontier' ? 'off' : engine })
     driver.adopt(budgetPlan(1, 0))
     await driver.advance({ ok: true })
     assert.equal(driver.current()?.id, 'b', `engine=${engine}`)
     await driver.advance({ ok: true })
-    assert.equal(driver.status?.(), 'done')
-    assert.deepEqual(driver.snapshot().trail.map(row => row.id), ['a', 'b'])
+    assert.equal(driver.status?.(), 'done', `engine=${engine}`)
+    assert.deepEqual(driver.snapshot().trail.map(row => row.id), ['a', 'b'], `engine=${engine}`)
     driver.endTurn()
   }
-
-  // The frontier is the fallback engine and stops at the plan's step cap: a
-  // guard that fires only when zero steps remain cannot add a step. Composed
-  // plans target `ANSWER_RESERVE_STEPS` (2), so the wrap-up has room there.
-  const frontier = createGraphTurnDriver({ kernel: 'off' })
-  frontier.adopt(budgetPlan(1, 0))
-  await frontier.advance({ ok: true })
-  assert.equal(frontier.done(), true)
-  assert.deepEqual(frontier.snapshot().trail.map(row => row.id), ['a'])
 })
 
 // ---------------------------------------------------------------------------
@@ -908,9 +882,10 @@ test('a budget guard on a removed token/wall axis is rejected by validation', ()
   assert.equal(rejected.ok, false)
   assert.ok(rejected.errors.some(error => error.code === 'P022'), rejected.errors.map(error => error.code).join(','))
 
-  const stepGuard = planOf([
-    { from: 'a', to: 'b', kind: 'control', when: { op: 'budget', axis: 'steps', remainingAtMost: 1 } },
-  ])
+  const stepGuard = planOf(
+    [{ from: 'a', to: 'b', kind: 'control', when: { op: 'budget', axis: 'steps', remainingAtMost: 1 } }],
+    { nodes: ['a', 'b'], terminals: ['b'] },
+  )
   assert.equal(validateTaskPlan(graph, stepGuard).ok, true)
 })
 

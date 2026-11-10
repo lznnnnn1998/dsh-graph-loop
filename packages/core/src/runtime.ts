@@ -448,7 +448,7 @@ export interface RunEnvelope {
 }
 
 export const DEFAULT_ENVELOPE: RunEnvelope = {
-  maxSupersteps: 32,
+  maxSupersteps: 40,
   maxSteps: 40,
   maxTokens: 400_000,
   maxWallMs: 30 * 60_000,
