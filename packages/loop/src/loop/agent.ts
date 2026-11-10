@@ -46,6 +46,7 @@ import { RuntimeContextProjection } from './runtime-context.ts'
 import { AssistantStreamAttempt } from './assistant-stream.ts'
 import { SystemPromptProjection } from './runtime-context.ts'
 import { isMutatingNode, mutationObserved, restrictToolSet, DEFAULT_SHELL_TOOLS, shellFailureTool } from './step-tools.ts'
+import { foldGraphCheckpoint, recordGraphBoundary } from '../graph-state-log.ts'
 
 /** Projected facts consumed by this driver; registration stays with the factory. */
 interface LoopProjections {
@@ -559,7 +560,9 @@ export class ReactLoopAgent implements Agent {
         // from `next-turn` alone would synthesize the graph from an empty task
         // even though the first step is about to claim the steered message.
         const pending = [...this.inbox.nextStep, ...this.inbox.nextTurn]
-        await this.turnGraph.beginTurn({ text: inboxText(pending), surface: 'api' })
+        // The session log is the only history (C3): a run paused mid-plan is
+        // folded back into the plan + state this turn continues from.
+        await this.turnGraph.beginTurn({ text: inboxText(pending), surface: 'api' }, foldGraphCheckpoint(this.session))
       }
       while (true) {
         signal.throwIfAborted()
@@ -599,6 +602,7 @@ export class ReactLoopAgent implements Agent {
         }
         let stepFailedTool: string | undefined
         let stepEnd: StepEndReason | null = null
+        let stepEndSeq: SessionSeq | undefined
         let stepDsml = false
         const stepTools: { name: string; callId: string; isError: boolean; arguments?: string; output?: string }[] = []
         try {
@@ -662,7 +666,7 @@ export class ReactLoopAgent implements Agent {
             throw error
           } finally {
             stopRecovery()
-            this.session.append('step/end', { turn, step })
+            stepEndSeq = this.session.append('step/end', { turn, step }).seq
           }
         } finally {
           // Admission closes once the step's tool batch settles or no step opens.
@@ -725,7 +729,11 @@ export class ReactLoopAgent implements Agent {
             ok,
             ...(stepFailedTool === undefined ? {} : { failedTool: stepFailedTool }),
             tools: stepTools,
+            ...(stepEndSeq === undefined ? {} : { atSeq: stepEndSeq }),
           })
+          // The node boundary is durable as `step/end`; record the folded state
+          // beside it so a later turn can resume this run.
+          recordGraphBoundary(this.session, this.turnGraph, stepEndSeq)
         }
         if (this.turnGraph !== undefined) {
           if (this.turnGraph.done()) {

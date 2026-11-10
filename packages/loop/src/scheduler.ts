@@ -10,7 +10,7 @@
  * In every mode the driver exposes `current()/instruction()/advance()/done()`.
  * A model-authored proposal may replace the live topology between steps.
  */
-import type { PlanNode, PlanStatus, RegistryGraph, TaskPlan } from 'dsh-graph-loop-core/graph-schema'
+import type { GraphState, PlanNode, PlanStatus, RegistryGraph, TaskPlan } from 'dsh-graph-loop-core/graph-schema'
 import {
   DEFAULT_WEIGHTS,
   extractFingerprint,
@@ -31,6 +31,7 @@ import { DEFAULT_SHELL_TOOLS } from './loop/step-tools.ts'
 import type { RoutingArtifact } from 'dsh-graph-loop-core/condition'
 import type { ArtifactType, Json } from 'dsh-graph-loop-core/graph-schema'
 import { fallbackPlan } from 'dsh-graph-loop-core/fallback'
+import type { GraphResumeState } from './graph-state-log.ts'
 
 export type { TopologyMode }
 
@@ -73,7 +74,13 @@ export interface GraphTurnSnapshot {
 }
 
 export interface GraphTurnDriver {
-  beginTurn(task: TurnTask): Promise<GraphTurnSnapshot>
+  /**
+   * Open the turn's graph. `resume` is the folded state of a run that was still
+   * in flight when the previous turn ended: the recorded plan is reused and the
+   * first step runs `state.next` instead of a plan re-derived from the new
+   * turn's text.
+   */
+  beginTurn(task: TurnTask, resume?: GraphResumeState): Promise<GraphTurnSnapshot>
   current(): PlanNode | undefined
   instruction(): string | undefined
   /**
@@ -86,6 +93,8 @@ export interface GraphTurnDriver {
     readonly ok: boolean
     readonly failedTool?: string
     readonly tools?: readonly { readonly name: string; readonly callId?: string; readonly isError: boolean; readonly arguments?: string; readonly output?: string }[]
+    /** Session seq of the `step/end` that closed this node's boundary. */
+    readonly atSeq?: number
   }): Promise<GraphTurnSnapshot>
   adopt(plan: TaskPlan): void
   /** Detach and return all queued subagent nodes (parallel batch). */
@@ -101,6 +110,12 @@ export interface GraphTurnDriver {
   status?(): PlanStatus
   /** Called once by the driver after `turn/end`; flushes the trace. */
   endTurn(): void
+  /**
+   * Folded graph state at the current boundary, for the durable checkpoint
+   * record. Absent for the frontier topology: only the kernel owns a state a
+   * later turn can resume.
+   */
+  stateSnapshot?(): GraphState | undefined
   snapshot(): GraphTurnSnapshot
 }
 
@@ -167,11 +182,14 @@ interface TurnTopology {
     readonly failedTool?: string
     readonly facts?: Readonly<Record<string, Json>>
     readonly artifacts?: readonly RoutingArtifact[]
+    readonly atSeq?: number
   }): PlanNode | undefined | Promise<PlanNode | undefined>
   done(): boolean
   status(): 'running' | 'done' | 'failed'
   steps(): number
   snapshot(): TaskPlan
+  /** Folded kernel state, when this topology owns one (the kernel does). */
+  stateSnapshot?(): GraphState | undefined
   dispose?(): Promise<void> | void
 }
 
@@ -180,6 +198,23 @@ interface NodeOutcome {
   readonly ok: boolean
   readonly failedTool?: string
   readonly tools?: readonly { readonly name: string; readonly callId?: string; readonly isError: boolean; readonly arguments?: string; readonly output?: string }[]
+  /** Session seq of the `step/end` that closed this node's boundary. */
+  readonly atSeq?: number
+}
+
+/**
+ * Whether a folded log state can resume instead of starting a new plan.
+ *
+ * The frontier topology has no inspectable state, so a seed that cannot be
+ * installed as a `KernelTopology` would silently drop the completed nodes back
+ * into the run. The fold already restricts the state to a running run of the
+ * same plan version; `kernel: 'off'` is refused at the call site.
+ */
+function canResumePlan({ plan, state }: GraphResumeState): boolean {
+  if (state.planId !== plan.id || state.planVersion !== plan.version) return false
+  if (state.status !== 'running' || state.next === null) return false
+  if (!plan.nodes.some(node => node.id === state.next)) return false
+  return canKernelDrive(plan)
 }
 
 /**
@@ -263,7 +298,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     return snap
   }
 
-  function install(next: TaskPlan): void {
+  function install(next: TaskPlan, resume?: GraphState): void {
     adoptedAtStep = undefined
     // `maxSteps` is a per-turn cap, not a per-plan one. A replan/recovery plan or
     // a model-authored proposal that arrives after N steps must not reset the
@@ -279,7 +314,11 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       // `KernelTopology` owns its step-budget reserve for a budget-routed
       // wrap-up node, so the driver does not special-case the plan budget.
       topology = kernelMode !== 'off' && canKernelDrive(bounded)
-        ? new KernelTopology(bounded, { kind: kernelMode, taskHash: bounded.id })
+        ? new KernelTopology(bounded, {
+            kind: kernelMode,
+            taskHash: bounded.id,
+            ...(resume === undefined ? {} : { state: resume }),
+          })
         : new FrontierTopology(bounded)
     } catch {
       topology = new FrontierTopology(bounded)
@@ -445,6 +484,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       ...(outcome.failedTool === undefined ? {} : { failedTool: outcome.failedTool }),
       facts,
       ...(artifacts.length === 0 ? {} : { artifacts }),
+      ...(outcome.atSeq === undefined ? {} : { atSeq: outcome.atSeq }),
     }))
     await recoverAfterFailure(outcome)
     if (adoptProposal) adoptProposalAtBoundary()
@@ -467,7 +507,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
   }
 
   return {
-    async beginTurn(task: TurnTask): Promise<GraphTurnSnapshot> {
+    async beginTurn(task: TurnTask, resume?: GraphResumeState): Promise<GraphTurnSnapshot> {
       plan = undefined
       decision = undefined
       topology = undefined
@@ -499,6 +539,18 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       if (options.forceFallback === true) {
         install(fallbackPlan({ id: fingerprint.hash, instruction: options.fallbackInstruction, maxSteps }))
         rationale = ['child agent: single-node fallback']
+        return emit()
+      }
+
+      // A turn that starts from a folded graph state continues the paused plan.
+      // Re-deriving a plan from the new turn's text replaced the paused graph
+      // with a fresh one (the continuation text matched `t_stock`), so the seed
+      // carries both the plan identity and the node the next step must run.
+      // The log fold only offers a `running` state; a completed or failed run
+      // falls through and starts a new plan.
+      if (resume !== undefined && (options.kernel ?? 'langgraph') !== 'off' && canResumePlan(resume)) {
+        install(resume.plan, resume.state)
+        rationale = [`resume ${resume.plan.id} at ${String(resume.state.next)}`]
         return emit()
       }
 
@@ -606,6 +658,8 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     readonly ok: boolean
     readonly failedTool?: string
     readonly tools?: readonly { readonly name: string; readonly callId?: string; readonly isError: boolean; readonly arguments?: string; readonly output?: string }[]
+    /** Session seq of the `step/end` that closed this node's boundary. */
+    readonly atSeq?: number
   }): Promise<GraphTurnSnapshot> {
       if (topology === undefined) return snapshot()
       const node = topology.current()
@@ -660,6 +714,9 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     },
     status(): PlanStatus {
       return topology?.status() ?? 'failed'
+    },
+    stateSnapshot(): GraphState | undefined {
+      return topology?.stateSnapshot?.()
     },
     endTurn(): void {
       const finishing = topology

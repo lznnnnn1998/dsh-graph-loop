@@ -28,8 +28,10 @@ import type { KernelResult, KernelRunHandle } from 'dsh-graph-loop-core/runtime'
 import { createLangGraphKernel, isReservedPlanNodeId } from './langgraph.ts'
 import { createMinimalKernel } from './minimal.ts'
 import {
+  MemoryCheckpointer,
   planInitialState,
   type KernelDeps,
+  type PlanCheckpointer,
   type PlanExecutorPort,
   type PlanNodeOutcome,
 } from './plan.ts'
@@ -42,6 +44,8 @@ export interface KernelAdvanceOutcome {
   readonly facts?: Readonly<Record<string, Json>>
   /** Artifact refs produced by this step; the route hook reads them. */
   readonly artifacts?: readonly RoutingArtifact[]
+  /** Session seq of the `step/end` that closed this node's boundary. */
+  readonly atSeq?: number
 }
 
 export type KernelEngine = 'minimal' | 'langgraph'
@@ -50,6 +54,18 @@ export interface KernelTopologyOptions {
   readonly kind?: KernelEngine
   readonly taskHash?: string
   readonly maxSteps?: number
+  /**
+   * Folded state from the session log prefix. A resumed run enters at
+   * `state.next` instead of the plan entry; a state that is not `running` (or
+   * names no declared node) is ignored and the run starts fresh.
+   */
+  readonly state?: GraphState
+  /**
+   * Runtime checkpoint cache. The kernel persists one row per node boundary;
+   * the adapter reads it back at the boundary. It is never the resume vehicle:
+   * the session log fold owns that (C3/C5).
+   */
+  readonly checkpointer?: PlanCheckpointer
 }
 
 export class KernelTopology {
@@ -57,6 +73,7 @@ export class KernelTopology {
   private readonly engine: KernelEngine
   private readonly handle: KernelRunHandle
   private readonly nodeById: Map<string, PlanNode>
+  private readonly checkpointer: PlanCheckpointer
   private state: GraphState
   private currentId: string | undefined
   private stateStatus: 'running' | 'done' | 'failed' = 'running'
@@ -67,8 +84,15 @@ export class KernelTopology {
     this.plan = plan
     this.engine = options.kind ?? 'langgraph'
     this.nodeById = new Map(plan.nodes.map(node => [node.id, node]))
-    this.state = planInitialState(plan, options.taskHash ?? plan.id)
-    this.currentId = this.nodeById.get(plan.entry)?.id ?? plan.entry
+    this.checkpointer = options.checkpointer ?? new MemoryCheckpointer()
+    // A folded state resumes at the node it names; only a running state that
+    // points at a declared node continues a run. Anything else — a completed
+    // run, a state from another plan — starts at the entry, not by replaying.
+    const seed = resumableSeed(plan, this.nodeById, options.state)
+    this.state = seed ?? planInitialState(plan, options.taskHash ?? plan.id)
+    this.currentId = seed !== undefined && seed.next !== null
+      ? seed.next
+      : this.nodeById.get(plan.entry)?.id ?? plan.entry
 
     const executor = (kind: 'step' | 'subagent'): PlanExecutorPort => ({
       kind,
@@ -82,6 +106,9 @@ export class KernelTopology {
 
     const deps: KernelDeps = {
       executors: [executor('step'), executor('subagent')],
+      // The runtime checkpoint cache the engines persist each boundary into;
+      // `advance()` reads the boundary row back below.
+      checkpointer: this.checkpointer,
       // The only condition this adapter accepts; the route is a real branch
       // (success edge vs `callFailed` recovery edge) that the compiled graph
       // takes as a conditional edge.
@@ -153,6 +180,7 @@ export class KernelTopology {
         ...(outcome.facts ?? {}),
       },
       ...(outcome.artifacts === undefined ? {} : { artifacts: outcome.artifacts }),
+      ...(outcome.atSeq === undefined ? {} : { atSeq: outcome.atSeq }),
       ...(outcome.ok
         ? {}
         : {
@@ -197,10 +225,19 @@ export class KernelTopology {
 
       // The kernel returns a boundary after executing the bridge node. Pause it
       // once more so `current()` points at the node the next DSH step must run.
+      //
+      // The engine persisted this boundary's checkpoint row before returning
+      // the boundary (A1/A5). Read it back: the runtime saver is the authority
+      // for the boundary state the adapter reports to the driver, so a host
+      // that supplies its own cache sees exactly the row it will checkpoint.
+      // The saver stays a runtime facility (C5); resuming a later turn folds
+      // the session log, never this row (C3).
+      let boundaryState: GraphState | undefined
       if (result.kind === 'boundary') {
+        boundaryState = await this.checkpointer.load(this.plan.id, result.boundary.atSeq)
         if (result.state.next === null || result.state.status !== 'running') {
           this.lastResult = result
-          this.state = result.state
+          this.state = boundaryState ?? result.state
           this.stateStatus = result.state.status === 'failed' ? 'failed' : 'done'
           this.currentId = undefined
           return undefined
@@ -209,7 +246,7 @@ export class KernelTopology {
       }
 
       this.lastResult = result
-      this.state = result.state
+      this.state = boundaryState ?? result.state
       if (result.kind === 'paused') {
         this.currentId = result.state.next ?? undefined
         if (this.currentId === undefined) this.stateStatus = 'done'
@@ -263,6 +300,24 @@ export class KernelTopology {
   dispose(): Promise<void> {
     return this.handle.dispose()
   }
+}
+
+/**
+ * The folded state a resumed run may enter from, or undefined to start fresh.
+ *
+ * Only a `running` state of the same plan version that names a declared node is
+ * a continuation. A completed or failed state describes the previous turn's
+ * result; entering from its `next` would replay work nobody asked for.
+ */
+function resumableSeed(
+  plan: TaskPlan,
+  nodeById: ReadonlyMap<string, PlanNode>,
+  seed: GraphState | undefined,
+): GraphState | undefined {
+  if (seed === undefined) return undefined
+  if (seed.planId !== plan.id || seed.planVersion !== plan.version) return undefined
+  if (seed.status !== 'running' || seed.next === null) return undefined
+  return nodeById.has(seed.next) ? seed : undefined
 }
 
 /**

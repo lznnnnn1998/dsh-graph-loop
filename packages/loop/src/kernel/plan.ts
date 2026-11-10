@@ -90,6 +90,11 @@ export type AfterNodeHook = (input: {
   readonly node: PlanNode
   readonly state: GraphState
   readonly superstep: number
+  /**
+   * Session seq that closed this node's boundary, when the host reports one.
+   * The kernel never reads a session (C3); it only carries the number.
+   */
+  readonly atSeq?: number
   /** Set only when the node ended the run unsuccessfully (no recovery route). */
   readonly failure?: NodeFailure
 }) => Promise<{ readonly atSeq: number; readonly state: GraphState; readonly failure?: NodeFailure }>
@@ -245,12 +250,17 @@ export function routeNext(
 }
 
 /** Default fold: append journal, count the node, advance nothing else. */
-export const defaultAfterNode: AfterNodeHook = async ({ node, state, superstep, failure }) => {
+export const defaultAfterNode: AfterNodeHook = async ({ node, state, superstep, atSeq, failure }) => {
+  // A durable session seq when the host reports one; the superstep is only the
+  // fallback for hosts that append no session event (the kernel never reads a
+  // session, C3). Without this the journal claimed a step counter was a Session
+  // seq and every checkpoint row was keyed by the wrong coordinate.
+  const boundarySeq = atSeq ?? superstep
   const journalEntry = {
     nodeId: node.id,
     superstep,
     outcome: failure === undefined ? 'ok' as const : 'failed' as const,
-    atSeq: superstep,
+    atSeq: boundarySeq,
   }
   const priorJournal = Array.isArray(state.journal) ? state.journal : []
   const journal = [...priorJournal, journalEntry].slice(-GRAPH_STATE_LIMITS.maxJournal)
@@ -261,7 +271,7 @@ export const defaultAfterNode: AfterNodeHook = async ({ node, state, superstep, 
     wallMs: state.budget?.wallMs ?? 0,
   }
   const candidate: GraphState = { ...state, journal, budget }
-  return { atSeq: superstep, state: candidate }
+  return { atSeq: boundarySeq, state: candidate }
 }
 
 /* ========================================================================== *
@@ -317,7 +327,7 @@ async function runNodeBody(
   node: PlanNode,
   state: GraphState,
   step: number,
-): Promise<{ update: JsonUpdate; failure?: NodeFailure }> {
+): Promise<{ update: JsonUpdate; failure?: NodeFailure; atSeq?: number }> {
   const inline = deps.nodes?.[node.id]
   if (inline !== undefined) {
     const emitted: JsonValue[] = []
@@ -354,8 +364,13 @@ async function runNodeBody(
       })
       const update = updateOf(outcome, state, deps.validateJson, node.id)
       // Carry the reported failure to the boundary fold. Dropping it folded a
-      // failed node as a success and let the run end `done`.
-      return outcome.failure === undefined ? { update } : { update, failure: outcome.failure }
+      // failed node as a success and let the run end `done`. The reported
+      // `atSeq` is the durable boundary coordinate the host logged.
+      return {
+        update,
+        ...(outcome.failure === undefined ? {} : { failure: outcome.failure }),
+        ...(outcome.atSeq === undefined ? {} : { atSeq: outcome.atSeq }),
+      }
     } catch (error) {
       const retryable = retry.retryOn(error)
       if (!retryable || attempt >= retry.maxAttempts) throw asKernelError(error, node.id)
@@ -444,7 +459,7 @@ export async function executePlanNode(input: {
     throw new KernelError(`plan has no node "${nodeId}"`, 'UNDECLARED_TARGET', { node: nodeId })
   }
   const state = input.state
-  const { update, failure } = await runNodeBody(deps, plan, node, state, input.step)
+  const { update, failure, atSeq } = await runNodeBody(deps, plan, node, state, input.step)
 
   const merged = mergeState(state, update)
   if (deps.validateJson) assertJson(merged, `state after "${nodeId}"`, nodeId)
@@ -470,6 +485,7 @@ export async function executePlanNode(input: {
     node,
     state: candidate,
     superstep: candidate.superstep,
+    ...(atSeq === undefined ? {} : { atSeq }),
     ...(runFailed && failure !== undefined ? { failure } : {}),
   })
   if (deps.validateJson) assertJson(after.state, `checkpoint state after "${nodeId}"`, nodeId)
