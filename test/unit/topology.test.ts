@@ -60,9 +60,11 @@ test('mutating tasks synthesize inspect → edit → verify', () => {
 test('research tasks fan out to search + fetch and join at the answer', () => {
   const fp = fingerprint('research the latest state of the art and compare approaches')
   const { plan } = synthesizeTopology({ taskHash: fp.hash, fingerprint: fp, graph: snapshot.graph, presetTools })
-  const fromEntry = plan.edges.filter(edge => edge.from === 'd_entry')
+  // The fan-out and the join are the unconditional edges; every stage also owns
+  // a guarded failure exit to the answer, so filter by condition.
+  const fromEntry = plan.edges.filter(edge => edge.from === 'd_entry' && (edge.when === undefined || edge.when.op === 'always'))
   assert.equal(fromEntry.length, 2)
-  const intoAnswer = plan.edges.filter(edge => edge.to === 'd_answer')
+  const intoAnswer = plan.edges.filter(edge => edge.to === 'd_answer' && (edge.when === undefined || edge.when.op === 'always'))
   assert.equal(intoAnswer.length, 2)
 })
 

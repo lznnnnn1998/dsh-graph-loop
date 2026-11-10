@@ -30,6 +30,7 @@
  */
 import type {
   ArtifactType,
+  Condition,
   Json,
   PlanEdge,
   PlanNode,
@@ -143,6 +144,63 @@ function node(id: string, tool: string, instruction: string, model?: PlanNode['m
     ...(optional ? { optional: true } : {}),
     ...(model === undefined ? {} : { model }),
   }
+}
+
+/** The tool-agnostic step-failure guard both engines route on. */
+const STAGE_FAILED: Condition = { op: 'fact', key: 'lastOk', equals: false }
+
+/** True for a guard that already routes a failed step (`callFailed` / `lastOk=false` / `toolSucceeded=false`). */
+function isStageFailureGuard(when: Condition | undefined): boolean {
+  if (when === undefined) return false
+  if (when.op === 'callFailed') return true
+  return when.op === 'fact'
+    && (when.key === 'lastOk' || when.key === 'toolSucceeded')
+    && when.equals === false
+}
+
+/** Nearest declared terminal reachable from `from` over control edges. */
+function nearestTerminal(edges: readonly PlanEdge[], from: string, terminals: ReadonlySet<string>): string | undefined {
+  const seen = new Set<string>([from])
+  const queue: string[] = [from]
+  while (queue.length > 0) {
+    const id = queue.shift() as string
+    for (const edge of edges) {
+      if (edge.from !== id || edge.kind !== 'control') continue
+      if (terminals.has(edge.to)) return edge.to
+      if (seen.has(edge.to)) continue
+      seen.add(edge.to)
+      queue.push(edge.to)
+    }
+  }
+  return undefined
+}
+
+/**
+ * Give every non-terminal stage a state-driven failure exit to a declared
+ * terminal. Without it a failed stage can only walk its unconditional success
+ * edge (or stop at the step cap / GRAPH_FAILED); both engines route
+ * `lastOk=false` over a guarded edge, so the stage answers instead.
+ *
+ * An authored failure guard wins: it is not replaced, so a plan that escalates
+ * keeps its own recovery path. The target is the nearest terminal reachable
+ * from the node, which keeps each branch pointed at its own endpoint.
+ */
+export function withStageFailureExits(
+  nodes: readonly PlanNode[],
+  edges: readonly PlanEdge[],
+  terminals: readonly string[],
+): PlanEdge[] {
+  const terminalSet = new Set(terminals)
+  if (terminalSet.size === 0) return [...edges]
+  const guarded = new Set(edges.filter(edge => isStageFailureGuard(edge.when)).map(edge => edge.from))
+  const result = [...edges]
+  for (const node of nodes) {
+    if (terminalSet.has(node.id) || guarded.has(node.id)) continue
+    const target = nearestTerminal(result, node.id, terminalSet)
+    if (target === undefined) continue
+    result.push({ from: node.id, to: target, kind: 'control', when: STAGE_FAILED })
+  }
+  return result
 }
 
 /**
@@ -305,7 +363,7 @@ function finish(
     entry,
     terminals,
     nodes,
-    edges,
+    edges: withStageFailureExits(nodes, edges, terminals),
     budget,
     toolUniverse: [...new Set([
       ...nodes.flatMap(node => node.toolAllow ?? []),
@@ -724,11 +782,11 @@ export function repairTopology(input: {
     entry: 'r_diagnose',
     terminals: ['r_answer'],
     nodes,
-    edges: [
+    edges: withStageFailureExits(nodes, [
       { from: 'r_diagnose', to: 'r_edit', kind: 'control' },
       { from: 'r_edit', to: 'r_verify', kind: 'control' },
       { from: 'r_verify', to: 'r_answer', kind: 'control' },
-    ],
+    ], ['r_answer']),
     budget,
     toolUniverse: [],
     gatePolicy: 'cold',
@@ -778,10 +836,10 @@ export function recoveryTopology(input: {
     entry: 'r_diagnose',
     terminals: ['r_answer'],
     nodes,
-    edges: [
+    edges: withStageFailureExits(nodes, [
       { from: 'r_diagnose', to: 'r_retry', kind: 'control' },
       { from: 'r_retry', to: 'r_answer', kind: 'control' },
-    ],
+    ], ['r_answer']),
     budget,
     toolUniverse: [],
     gatePolicy: 'cold',

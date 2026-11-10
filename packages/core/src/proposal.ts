@@ -17,6 +17,7 @@ import type {
 } from './graph-schema.ts'
 import type { RegistryGraph } from './graph-schema.ts'
 import { validateTaskPlan } from './graph-schema.ts'
+import { withStageFailureExits } from './topology.ts'
 
 export interface ProposalNode {
   readonly id: string
@@ -234,6 +235,11 @@ export function validateProposal(
     }
   }
 
+  // Every non-terminal stage keeps a state-driven failure exit to a declared
+  // terminal, even when the model authored only success edges. The model may
+  // author its own `when` guard (see `GRAPH_PROPOSAL_SCHEMA`); that one wins.
+  const edgesWithExits = withStageFailureExits(planNodes, planEdges, terminals)
+
   const plan: TaskPlan = {
     id: `proposed:${hashText(JSON.stringify(proposal)).slice(0, 12)}`,
     templateId: 'proposed',
@@ -241,7 +247,7 @@ export function validateProposal(
     entry,
     terminals,
     nodes: planNodes,
-    edges: planEdges,
+    edges: edgesWithExits,
     budget: {
       maxNodes: planNodes.length,
       maxSteps: Math.min(cap.maxSteps, Math.max(planNodes.length, planNodes.length * 2)),
@@ -253,7 +259,7 @@ export function validateProposal(
     gatePolicy: 'cold',
     fallback: false,
     confidence: 0.9,
-    compiledDigest: `proposed:${hashText(JSON.stringify({ nodes: planNodes, edges: planEdges })).slice(0, 16)}`,
+    compiledDigest: `proposed:${hashText(JSON.stringify({ nodes: planNodes, edges: edgesWithExits })).slice(0, 16)}`,
   }
   // Schema-level invariants (unknown capability, terminal-outgoing, tool universe,
   // unconditional cycles, handoff bounds, ...) apply to a proposal too; merge them
@@ -302,6 +308,20 @@ export const GRAPH_PROPOSAL_SCHEMA = {
         properties: {
           from: { type: 'string' },
           to: { type: 'string' },
+          when: {
+            type: 'object',
+            description: 'Optional guard evaluated from typed state; the edge is taken only when it matches. A failed stage without one gets an automatic lastOk=false exit to a terminal.',
+            properties: {
+              op: { type: 'string', enum: ['always', 'artifact', 'noArtifact', 'fact', 'callFailed', 'budget'] },
+              type: { type: 'string' },
+              key: { type: 'string' },
+              equals: { type: ['string', 'number', 'boolean'] },
+              tool: { type: 'string' },
+              axis: { type: 'string', enum: ['steps'] },
+              remainingAtMost: { type: 'number' },
+            },
+            required: ['op'],
+          },
         },
         required: ['from', 'to'],
       },

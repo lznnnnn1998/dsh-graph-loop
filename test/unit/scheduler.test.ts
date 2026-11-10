@@ -115,17 +115,33 @@ test('propose mode starts from a frame and adopts a model-authored topology at t
   assert.ok(driver.snapshot().rationale.some(line => line.includes('adopted')))
 })
 
+/** Two stages with only unconditional success edges: the plan owns no failure exit. */
+function plainPlan(maxReplans: number): TaskPlan {
+  return {
+    id: 'plan:plain',
+    templateId: 'test',
+    version: 1,
+    entry: 'w1',
+    terminals: ['w2'],
+    nodes: [
+      { id: 'w1', kind: 'agent-step', executor: 'step', instruction: 'work' },
+      { id: 'w2', kind: 'terminal', executor: 'step', instruction: 'answer', toolAllow: [] },
+    ],
+    edges: [{ from: 'w1', to: 'w2', kind: 'control' }],
+    budget: { maxNodes: 2, maxSteps: 4, maxTokens: 1_000, maxWallMs: 60_000, maxReplans },
+    toolUniverse: [],
+    gatePolicy: 'turn',
+    fallback: false,
+    confidence: 0.5,
+    compiledDigest: 'test:plain',
+  }
+}
+
 test('a failed work node triggers a boundary recovery plan', async () => {
-  const driver = createGraphTurnDriver({
-    mode: 'dynamic',
-    composition: false,
-    graphProvider: () => registry.graph,
-  })
-  const started = await driver.beginTurn({ text: 'fix the failing test in the loader' })
-  assert.equal(started.templateId, 'dynamic')
-  assert.equal(driver.current()?.id, 'd_read')
-  await driver.advance({ ok: true })
-  // Fail the next work node; the scheduler must install a recovery topology.
+  // Every generated plan now owns a failure exit, so the scheduler's replan is
+  // the safety net for a plan that does not (e.g. a hand-written plan).
+  const driver = createGraphTurnDriver({ kernel: 'off' })
+  driver.adopt(plainPlan(2))
   await driver.advance({ ok: false, failedTool: 'bash' })
   const snapshot = driver.snapshot()
   assert.equal(snapshot.replans, 1)
@@ -250,14 +266,11 @@ test('a failed subagent with no replan budget leaves the run failed', async () =
 })
 
 test('each turn gets its own replan allowance', async () => {
-  // composition:false keeps the legacy dynamic topology, whose stages have no
-  // composed repair exit; that path still uses the scheduler replan allowance.
-  const driver = createGraphTurnDriver({ mode: 'dynamic', composition: false, graphProvider: () => registry.graph })
+  const driver = createGraphTurnDriver({ kernel: 'off' })
   for (let turn = 1; turn <= 3; turn += 1) {
     await driver.beginTurn({ text: 'fix the failing test in the loader' })
-    assert.equal(driver.current()?.id, 'd_read')
-    await driver.advance({ ok: true })
-    assert.equal(driver.current()?.id, 'd_edit')
+    // A plan without its own failure exit relies on the scheduler replan.
+    driver.adopt(plainPlan(2))
     await driver.advance({ ok: false, failedTool: 'bash' })
     assert.equal(driver.snapshot().replans, 1, `turn ${turn} must start with a fresh replan budget`)
     assert.equal(driver.current()?.id, 'r_diagnose', `turn ${turn} must install the recovery plan`)
