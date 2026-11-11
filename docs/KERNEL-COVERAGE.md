@@ -65,10 +65,15 @@ The repair node mirrors the budget/failure exits to `n_answer`, carries the same
 ends with an unconditional answer fallback. There is **no repair → stage back-edge**: one repair
 attempt per stage, then the answer continues abandoned work.
 
-Success guards are step-scoped, computed from what the step actually did
-(`packages/loop/src/step-facts.ts`): `toolSucceeded` for discover/inspect (any successful tool
-call), the shell-aware `wroteFile` for mutate, `produced.<type>` for author (only when the planned
-producer tool ran), and `verificationRan`/`verificationFailed` for verify. A non-zero shell exit
+Success does not follow from step activity: each composed node carries a declared
+`NodeEvidenceContract` (`PlanNode.evidence`) and its success guard is the node-scoped fact
+`evidence.ok`. `synthesizeComposition` fills the contract from capability data only — the artifact
+types the stage's capability declares for discover/inspect/mutate, the author's one required
+artifact type, and for verify a verifier clause (the declared verifier must have run against an
+artifact an earlier step produced, with a clean status). `satisfiesNodeEvidence`
+(`packages/core/src/condition.ts`) evaluates it over that node's own step projection
+(`packages/loop/src/step-facts.ts`). A stage with no declared contract emits no success exit;
+`verificationFailed` remains the verify failure exit. A non-zero shell exit
 (`[exit code: N]`) is a normal DSH result, not a tool-invocation error: it is folded into
 `verificationFailed`, while `lastOk` stays about tool invocation, so an inspect step running
 `grep`/`diff` is not sent to repair.

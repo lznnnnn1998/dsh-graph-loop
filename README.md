@@ -34,10 +34,13 @@ executes arbitrary graphs.
 - **Composed stage routing** — each stage declares, in evaluation order: a budget exit to the
   tool-enabled answer first, its failure/no-progress exits to one repair node, then its success
   exit. The repair node mirrors those exits to the answer and has no back-edge to its stage, so a
-  stage gets one repair attempt and the answer continues abandoned work. Success guards are
-  step-scoped: `toolSucceeded` for discover/inspect, the shell-aware `wroteFile` for mutate,
-  `produced.<type>` for author, and `verificationRan`/`verificationFailed` for verify. The answer is
-  a **continuation, not a success claim**.
+  stage gets one repair attempt and the answer continues abandoned work. Success requires the
+  stage's own declared evidence (`PlanNode.evidence`, evaluated per step as the fact `evidence.ok`):
+  the artifact types the stage's capability declares, an author's one required artifact type, or —
+  for verify — its declared verifier having run against an earlier step's artifact with a clean
+  status. No step aggregate (`toolSucceeded`, `wroteFile`, `verificationRan`) can certify a stage,
+  and a stage that declares no contract emits no success exit. The answer is a **continuation, not
+  a success claim**.
 - **Failure recovery** — bounded recovery/repair graphs when a work node fails; failed turns are
   reported as `GRAPH_FAILED`.
 - **Graph tab** — live topology, node → tool-call inspector, `/graph-chat` API.

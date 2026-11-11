@@ -19,8 +19,8 @@ not recorded here.
   the end of the plan.
 - Composed stage routing: each stage declares a budget exit to the tool-enabled answer first, then
   one repair node for failure/no-progress, then its success exit; the repair node has no back-edge
-  to its stage. Success guards are step-scoped (`toolSucceeded`, `wroteFile`, `produced.<type>`,
-  `verificationRan`/`verificationFailed`).
+  to its stage. A stage's success exit requires its own declared evidence contract
+  (`PlanNode.evidence` → the node-scoped fact `evidence.ok`), never a step-activity aggregate.
 - `FrontierTopology` fallback for fan-out outside the acyclic all-unconditional class, subagent
   batches and reserved/nonconforming node ids. A forward join waits for every entered predecessor
   (depth-2+ branches included), a join on a cycle runs once per iteration, and explicit repair
