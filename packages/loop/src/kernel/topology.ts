@@ -9,18 +9,25 @@
  * kernel's node executor is a bridge that consumes that pending outcome, so the
  * kernel still owns routing, state folding and checkpoints.
  *
- * This adapter handles plans the kernel can route without the frontier's
- * parallel batching: no subagent nodes and no fan-out. Every control-edge
+ * This adapter handles plans the kernel can route on one cursor: no subagent
+ * nodes, and any fan-out/join is the widened class below. Every control-edge
  * condition (`artifact`, `noArtifact`, `fact`, `callFailed`, `budget` on the
  * step axis) is evaluated by the shared `evaluateCondition`, so a guarded route
- * is a real conditional edge, not a second code path outside the kernel. Composed
- * plans are kernel-driven. Plans with a parallel fan-out, subagent batches, a
- * condition on a data edge, or an engine-reserved node id still use
- * `FrontierTopology`.
+ * is a real conditional edge, not a second code path outside the kernel.
+ * Composed plans are kernel-driven.
+ *
+ * A step-executor fan-out/join is kernel-driven when it is acyclic, every
+ * control edge is unconditional, the plan declares one terminal, and it fits
+ * the journal (`readySetRoutable`). The runtime entered set the frontier keeps
+ * is derived from `state.journal` on every route decision, so a split runs one
+ * branch per step and the join waits until every entered predecessor completed.
+ * A guarded or cyclic fan-out, subagent batches, a condition on a data edge and
+ * engine-reserved node ids still use `FrontierTopology`.
  */
 
 import { END, KernelError } from 'dsh-graph-loop-core/kernel'
-import type { GraphState, Json, PlanNode, TaskPlan } from 'dsh-graph-loop-core/graph-schema'
+import { GRAPH_STATE_LIMITS } from 'dsh-graph-loop-core/graph-schema'
+import type { GraphState, Json, PlanEdge, PlanNode, TaskPlan } from 'dsh-graph-loop-core/graph-schema'
 import type { RoutingArtifact } from 'dsh-graph-loop-core/condition'
 import { evaluateCondition, routeOrder, type RoutingState } from 'dsh-graph-loop-core/condition'
 import type { KernelResult, KernelRunHandle } from 'dsh-graph-loop-core/runtime'
@@ -329,6 +336,13 @@ function resumableSeed(
  * The returned successor becomes `state.next`; the compiled graph then takes it
  * through a conditional edge, so a branch is a real graph branch, not a second
  * code path outside the kernel.
+ *
+ * A plan in the widened fan-out class (`readySetRoutable`) routes as a ready
+ * set instead: every control edge is unconditional and acyclic, so the nodes
+ * `state.journal` already completed decide which node is entered and which one
+ * may run next. A split sibling is not a successor of the node that just ran,
+ * but it is entered and ready; the join is held until every entered predecessor
+ * completed, exactly like the frontier's barrier (`packages/core/src/topology.ts`).
  */
 export function routeKernelPlan(input: {
   readonly plan: TaskPlan
@@ -351,6 +365,7 @@ export function routeKernelPlan(input: {
       .find(edge => edge.when !== undefined && edge.when.op !== 'always' && evaluateCondition(edge.when, routingState))
     return recovery?.to ?? END
   }
+  if (readySetRoutable(input.plan)) return routeReadySet(input.plan, input.nodeId, input.state)
   const forward = routeOrder(control).find(edge => evaluateCondition(edge.when, routingState))
   return forward?.to ?? END
 }
@@ -372,20 +387,166 @@ export function canKernelDrive(plan: TaskPlan): boolean {
     if (edge.when === undefined || edge.when.op === 'always') continue
     if (edge.kind !== 'control') return false
   }
-  // One unconditional out-edge per node: the kernel pauses before every node and
-  // a DSH step is sequential, so a parallel diamond cannot run here. A
-  // `callFailed` edge may sit next to that single success edge, making the
-  // failure branch a genuine two-destination conditional edge.
+  // One unconditional out-edge per node is the classic kernel shape: the kernel
+  // pauses before every node and a DSH step is sequential. A `callFailed` edge
+  // may sit next to that single success edge, making the failure branch a
+  // genuine two-destination conditional edge. A step-executor fan-out (more than
+  // one unconditional out-edge) is drivable only in the widened class
+  // `readySetRoutable` accepts; anything else keeps the frontier.
+  if (hasFanOutSplit(plan) && !readySetRoutable(plan)) return false
+  return true
+}
+
+/** True for a control edge that routes unconditionally (an `always` guard is one). */
+function isUnconditionalControlEdge(edge: PlanEdge): boolean {
+  return edge.kind === 'control' && (edge.when === undefined || edge.when.op === 'always')
+}
+
+/** True when some node declares more than one unconditional control out-edge. */
+function hasFanOutSplit(plan: TaskPlan): boolean {
   const unconditionalOut = new Map<string, number>()
   for (const edge of plan.edges) {
+    if (!isUnconditionalControlEdge(edge)) continue
+    const count = (unconditionalOut.get(edge.from) ?? 0) + 1
+    if (count > 1) return true
+    unconditionalOut.set(edge.from, count)
+  }
+  return false
+}
+
+/**
+ * True when a plan is in the widened fan-out class the kernel can own.
+ *
+ * The entered set the frontier keeps at runtime is the one thing folded
+ * `GraphState` does not carry, so the ready-set route derives it from
+ * `state.journal`: a node is entered when a completed node has a control edge to
+ * it. That derivation is only exact under these bounds, and each is a
+ * correctness condition, not a taste:
+ *
+ *  - every control edge is unconditional — a guarded branch that did not fire
+ *    must not look entered, and the journal cannot tell which arm was taken;
+ *  - acyclic — a completed node would be both done and pending again, which a
+ *    single `next` cannot express (`validateTaskPlan` P013 already bans an
+ *    unconditional cycle, but the gate must not depend on validation running);
+ *  - at most `maxJournal` nodes — the journal is trimmed to its newest
+ *    entries, so a larger plan would lose a completed predecessor and hold (or
+ *    release) a join on stale data;
+ *  - one declared terminal — both kernels end the run at a declared terminal
+ *    (LangGraph wires it to `END`), so a second terminal branch could not run
+ *    on the cursor engine. Such plans keep the frontier, which can run every
+ *    terminal branch;
+ *  - every control predecessor is control-reachable from the entry — a
+ *    predecessor that never runs can never complete, and the journal cannot tell
+ *    "never entered" from "not entered yet". The frontier distinguishes them
+ *    (`entered`), so these plans stay there.
+ */
+function readySetRoutable(plan: TaskPlan): boolean {
+  if (!hasFanOutSplit(plan)) return false
+  if (plan.terminals.length !== 1) return false
+  if (plan.nodes.length > GRAPH_STATE_LIMITS.maxJournal) return false
+  if (plan.edges.some(edge => edge.kind === 'control' && !isUnconditionalControlEdge(edge))) return false
+  const reachable = controlReachableFromEntry(plan)
+  if (plan.edges.some(edge => edge.kind === 'control' && !reachable.has(edge.from))) return false
+  return !hasControlCycle(plan)
+}
+
+/**
+ * Nodes the entry can reach over control edges. An edge out of a node outside
+ * this set can never fire, so its target would never be entered.
+ */
+function controlReachableFromEntry(plan: TaskPlan): ReadonlySet<string> {
+  const reachable = new Set<string>()
+  const stack = [plan.entry]
+  while (stack.length > 0) {
+    const id = stack.pop() as string
+    if (reachable.has(id)) continue
+    reachable.add(id)
+    for (const target of controlOutgoing(plan, id)) stack.push(target)
+  }
+  return reachable
+}
+
+/** Control-edge targets declared out of `id`. */
+function controlOutgoing(plan: TaskPlan, id: string): string[] {
+  const targets: string[] = []
+  for (const edge of plan.edges) {
+    if (edge.kind === 'control' && edge.from === id) targets.push(edge.to)
+  }
+  return targets
+}
+
+/** True when the control-edge subgraph has a cycle (data edges do not route). */
+function hasControlCycle(plan: TaskPlan): boolean {
+  const outgoing = new Map<string, string[]>()
+  for (const edge of plan.edges) {
     if (edge.kind !== 'control') continue
-    if (edge.when !== undefined && edge.when.op !== 'always') continue
-    unconditionalOut.set(edge.from, (unconditionalOut.get(edge.from) ?? 0) + 1)
+    const targets = outgoing.get(edge.from)
+    if (targets === undefined) outgoing.set(edge.from, [edge.to])
+    else targets.push(edge.to)
   }
-  for (const count of unconditionalOut.values()) {
-    if (count > 1) return false
+  const visiting = new Set<string>()
+  const visited = new Set<string>()
+  const walk = (id: string): boolean => {
+    if (visiting.has(id)) return true
+    if (visited.has(id)) return false
+    visiting.add(id)
+    for (const target of outgoing.get(id) ?? []) if (walk(target)) return true
+    visiting.delete(id)
+    visited.add(id)
+    return false
   }
-  return true
+  for (const node of plan.nodes) if (walk(node.id)) return true
+  return false
+}
+
+/**
+ * Ready-set route for the widened fan-out class.
+ *
+ * `completed` is the journal plus the node that just ran (the journal entry for
+ * it is appended after routing). A node is entered when a completed node has a
+ * control edge to it, and ready when every control predecessor is completed; the
+ * first ready node in declared control-edge order wins, which makes the branch
+ * interleaving deterministic and identical on both kernel engines.
+ *
+ * Non-terminal nodes are preferred over the terminal: a terminal ends the run,
+ * so taking it while another entered branch is still ready would drop that
+ * branch. With one declared terminal the preference also keeps the two engines
+ * from disagreeing about `state.next` at the terminal boundary.
+ */
+function routeReadySet(plan: TaskPlan, nodeId: string, state: GraphState): string | typeof END {
+  const completed = new Set<string>()
+  for (const entry of state.journal) completed.add(entry.nodeId)
+  completed.add(nodeId)
+  const entered = new Set<string>()
+  for (const edge of plan.edges) {
+    if (edge.kind === 'control' && completed.has(edge.from)) entered.add(edge.to)
+  }
+  const predecessors = new Map<string, string[]>()
+  for (const edge of plan.edges) {
+    if (edge.kind !== 'control') continue
+    const sources = predecessors.get(edge.to)
+    if (sources === undefined) predecessors.set(edge.to, [edge.from])
+    else sources.push(edge.from)
+  }
+  let terminal: string | undefined
+  const seen = new Set<string>()
+  for (const edge of plan.edges) {
+    if (edge.kind !== 'control') continue
+    const target = edge.to
+    // First declared edge wins, so a node reached by several edges is ordered
+    // by its earliest predecessor declaration.
+    if (seen.has(target)) continue
+    seen.add(target)
+    if (completed.has(target) || !entered.has(target)) continue
+    const sources = predecessors.get(target) ?? []
+    if (!sources.every(source => completed.has(source))) continue
+    if (plan.terminals.includes(target)) {
+      if (terminal === undefined) terminal = target
+      continue
+    }
+    return target
+  }
+  return terminal ?? END
 }
 
 /**

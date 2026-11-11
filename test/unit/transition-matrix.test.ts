@@ -4,9 +4,10 @@
  *
  *   1. the same plan and outcome stream through `FrontierTopology`, the minimal
  *      kernel and the default LangGraph kernel, compared node by node;
- *   2. fan-in joins: a shallow diamond, a **depth-2 diamond**, a depth-2 diamond
- *      inside a cycle, and a research subagent batch each run the join once (and
- *      once per iteration when the join is on a cycle);
+ *   2. fan-in joins: a shallow diamond and a **depth-2 diamond** run through all
+ *      three engines (the acyclic all-unconditional class is kernel-owned), a
+ *      depth-2 diamond inside a cycle and a research subagent batch stay on the
+ *      frontier and each run the join once (once per iteration on a cycle);
  *   3. a composed verify stage that fails twice by shell exit code (not a tool
  *      error) and then succeeds, through the live turn driver on all three
  *      engines; a non-verify stage whose shell command exits 1 is not sent to
@@ -372,10 +373,10 @@ test('all available engines route the same plan/outcome stream identically', asy
 })
 
 // ---------------------------------------------------------------------------
-// 1b. Fan-in joins execute once (frontier fallback; the kernel rejects fan-out)
+// 1b. Fan-in joins execute once (the widened kernel class owns the acyclic split)
 // ---------------------------------------------------------------------------
 
-test('a diamond fan-in join executes the join node once', async () => {
+test('a diamond fan-out/join runs through the kernel on all three engines', async () => {
   const diamond = planOf(
     [
       { from: 'a', to: 'b', kind: 'control' },
@@ -385,15 +386,42 @@ test('a diamond fan-in join executes the join node once', async () => {
     ],
     { terminals: ['d'] },
   )
-  // Two unconditional edges out of `a` are a frontier shape; the kernel adapter
-  // refuses fan-out, so this is the fallback engine's join.
-  assert.equal(canKernelDrive(diamond), false)
-  const route = await walk('frontier', diamond, [{ ok: true }])
-  assert.deepEqual(route.nodes, ['a', 'b', 'c', 'd'], 'the join must not run twice after both branches')
-  assert.equal(route.status, 'done')
+  // An acyclic all-unconditional split is the widened class. Asserting the gate
+  // first keeps the drill from passing on the frontier fallback: `adopt` below
+  // picks the engine with `canKernelDrive`, so a false here means the frontier
+  // ran the diamond and the kernel claims below would not be exercised.
+  assert.equal(canKernelDrive(diamond), true, 'the all-unconditional diamond must be kernel-driven')
+  const graph = graphOf({ tools: CORE_TOOLS })
+  for (const engine of ENGINES) {
+    const driver = createGraphTurnDriver({
+      mode: 'dynamic',
+      composition: false,
+      kernel: kernelOption(engine),
+      graphProvider: () => graph,
+    })
+    await driver.beginTurn({ text: 'run the diamond plan' })
+    driver.adopt(diamond)
+    assert.equal(driver.current()?.id, 'a', `${engine} must start at the entry`)
+    for (let step = 0; step < 6 && !driver.done(); step += 1) await driver.advance({ ok: true })
+    const snapshot = driver.snapshot()
+    assert.deepEqual(snapshot.visited, ['a', 'b', 'c', 'd'], `${engine} diverged on the diamond`)
+    assert.equal(snapshot.visited.filter(id => id === 'd').length, 1, `${engine} must run the join once`)
+    assert.equal(snapshot.status, 'done', `${engine} must settle at the terminal`)
+    const state = driver.stateSnapshot?.()
+    if (engine === 'frontier') {
+      assert.equal(state, undefined, 'the frontier exposes no kernel state')
+    } else {
+      // Kernel-driven, not a frontier fallback: the folded state exists and its
+      // journal is the visit order.
+      assert.ok(state !== undefined, `${engine} must expose the folded kernel state`)
+      assert.deepEqual(state.journal.map(entry => entry.nodeId), ['a', 'b', 'c', 'd'],
+        `${engine} journal must match the visit order`)
+    }
+    driver.endTurn()
+  }
 })
 
-test('a depth-2 diamond join waits for the deep branch (P1-1)', async () => {
+test('a depth-2 diamond join waits for the deep branch on all three engines (P1-1)', async () => {
   const deep = planOf(
     [
       { from: 'a', to: 'b', kind: 'control' },
@@ -405,11 +433,13 @@ test('a depth-2 diamond join waits for the deep branch (P1-1)', async () => {
     { terminals: ['d'], nodes: ['a', 'b', 'c', 'c2', 'd'], maxSteps: 8 },
   )
   assert.equal(validateTaskPlan(graphOf({ tools: [] }), deep).ok, true, 'the deep diamond is a legal plan')
-  assert.equal(canKernelDrive(deep), false, 'fan-out stays on the frontier')
-  const route = await walk('frontier', deep, [{ ok: true }])
-  assert.deepEqual(route.nodes, ['a', 'b', 'c', 'c2', 'd'],
-    'the join must wait for c2; running on b and dropping the c2 -> d edge is the P1-1 bug')
-  assert.equal(route.status, 'done')
+  assert.equal(canKernelDrive(deep), true, 'the acyclic all-unconditional split is kernel-driven')
+  for (const engine of ENGINES) {
+    const route = await walk(engine, deep, [{ ok: true }])
+    assert.deepEqual(route.nodes, ['a', 'b', 'c', 'c2', 'd'],
+      `${engine}: the join must wait for c2; running on b and dropping the c2 -> d edge is the P1-1 bug`)
+    assert.equal(route.status, 'done')
+  }
 })
 
 test('a depth-3 branch still holds the join (P1-1)', async () => {

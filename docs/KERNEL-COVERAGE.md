@@ -16,15 +16,41 @@ The live driver chooses the engine per plan: `KernelTopology` when
 | Linear chain | LangGraph | `packages/loop/src/kernel/topology.ts` (`routeKernelPlan`) | `test/unit/kernel-topology.test.ts` |
 | Any control-edge condition: `artifact`, `noArtifact`, `fact`, `callFailed`, `budget` (step axis), `always` | LangGraph, through the shared evaluator | `packages/core/src/condition.ts`; `packages/loop/src/kernel/topology.ts` | `test/unit/kernel-topology.test.ts`, `test/unit/transition-matrix.test.ts` (frontier + minimal + langgraph) |
 | Composed plans (per-stage success, no-progress, repair and budget exits) | LangGraph | `packages/core/src/compose.ts` | `test/unit/transition-matrix.test.ts`, `test/unit/stage-routing-regression.test.ts`, `test/unit/scheduler.test.ts` |
-| Parallel fan-out / join | `FrontierTopology` | `packages/core/src/topology.ts` (join barrier) | `test/unit/transition-matrix.test.ts`, `test/unit/topology.test.ts` |
+| Acyclic all-unconditional fan-out / join (one declared terminal, plan ≤ `maxJournal` nodes) | LangGraph (Minimal accepts the same class) | `packages/loop/src/kernel/topology.ts` (`routeReadySet`; entered set derived from `state.journal`) | `test/unit/kernel-topology.test.ts`, `test/unit/transition-matrix.test.ts` (driver drill on frontier + minimal + langgraph) |
+| Fan-out with a guarded arm, a cycle, more than one terminal, an unreachable predecessor, or more nodes than the journal | `FrontierTopology` | `packages/core/src/topology.ts` (join barrier) | `test/unit/transition-matrix.test.ts`, `test/unit/topology.test.ts`, `test/unit/kernel-topology.test.ts` |
 | Subagent batches | `FrontierTopology` | `packages/loop/src/scheduler.ts`; `packages/core/src/topology.ts` | `test/unit/scheduler.test.ts`, `test/unit/transition-matrix.test.ts` |
 | Condition on a data edge | Neither engine routes it; `validateTaskPlan` rejects the plan (`P023`) | `packages/core/src/graph-schema.ts` | `test/unit/transition-matrix.test.ts` |
 | Reserved or nonconforming node ids | `FrontierTopology` | `packages/loop/src/kernel/topology.ts` (`canKernelDrive`) | `test/unit/kernel-topology.test.ts` |
 | `budget` on the token or wall axis | Rejected by validation (`P022`); only the step axis has a producer | `packages/core/src/graph-schema.ts`, `packages/core/src/condition.ts` | `test/unit/transition-matrix.test.ts` |
 
 `canKernelDrive` rejects a plan with a `subagent` node executor, a node id outside
-`[A-Za-z0-9_-]+`, a kernel-reserved id, a condition on a data edge, or more than one unconditional
-out-edge per node (`packages/loop/src/kernel/topology.ts`).
+`[A-Za-z0-9_-]+`, a kernel-reserved id, a condition on a data edge, or a fan-out outside the
+ready-set class below (`packages/loop/src/kernel/topology.ts`).
+
+## Fan-out / join on the kernel
+
+A step-executor fan-out needs no parallel steps: a DSH step is sequential, so the kernel pauses
+before every node and routes one node at a time. The route is therefore a **ready-set decision**, not
+a single-edge pick. The journal is the only completed-node record the kernel owns, so:
+
+- **completed** = the node ids in `state.journal` plus the node that just ran;
+- **entered** = a control-edge target of a completed node — the frontier's `entered` set, rebuilt
+  from the journal because folded `GraphState` does not carry it;
+- **ready** = entered, not completed, and every control predecessor completed;
+- the first ready node in declared control-edge order runs next; the join is held until its last
+  entered predecessor completed, and a branch that already ran is never run twice.
+
+`canKernelDrive` accepts this route only for the class where the journal is sufficient:
+every control edge unconditional, acyclic, one declared terminal, at most `GRAPH_STATE_LIMITS.maxJournal`
+nodes, and every control predecessor reachable from the entry. Each bound is a correctness condition — a
+guarded arm cannot be reconstructed from the journal, a cycle would make a completed node pending
+again, a trimmed journal would release a join on stale data, a second terminal branch cannot run on a
+cursor that ends at a declared terminal, and an unreachable predecessor could never complete. Plans
+outside the class keep `FrontierTopology`.
+
+The kernel may interleave the branches of a wider DAG differently from the frontier (declared
+control-edge order versus queue order), but it visits every entered node once and the join once. The
+three-engine drill for the diamond and the depth-2 diamond is in `test/unit/transition-matrix.test.ts`.
 
 ## Composed routing contract
 

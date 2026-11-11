@@ -9,7 +9,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import type { Condition, TaskPlan } from '../../packages/core/src/graph-schema.ts'
+import type { Condition, GraphState, TaskPlan } from '../../packages/core/src/graph-schema.ts'
+import { END } from '../../packages/core/src/kernel.ts'
 import { KernelError, available } from '../../packages/loop/src/kernel/index.ts'
 import { LANGGRAPH_RESERVED_NODE_IDS, LANGGRAPH_STATE_CHANNELS } from '../../packages/loop/src/kernel/langgraph.ts'
 import { KernelTopology, canKernelDrive, routeKernelPlan } from '../../packages/loop/src/kernel/topology.ts'
@@ -69,6 +70,35 @@ function branchPlan(): TaskPlan {
     ],
     edges: [
       { from: 'a', to: 'b', kind: 'control', when: { op: 'callFailed', tool: 'bash' } },
+      { from: 'a', to: 'c', kind: 'control' },
+      { from: 'b', to: 'd', kind: 'control' },
+      { from: 'c', to: 'd', kind: 'control' },
+    ],
+    budget: { ...base.budget, maxNodes: 4 },
+  }
+}
+
+/**
+ * A step-executor fan-out/join: `a` splits unconditionally to `b` and `c`, and
+ * both branches join the terminal `d`. Every control edge is unconditional and
+ * acyclic, so this is the class the kernel route owns (the frontier used to be
+ * the only engine that could run it).
+ */
+function diamondPlan(): TaskPlan {
+  const base = plan()
+  return {
+    ...base,
+    id: 'kernel-diamond-test',
+    entry: 'a',
+    terminals: ['d'],
+    nodes: [
+      { id: 'a', kind: 'agent-step', executor: 'step', instruction: 'split' },
+      { id: 'b', kind: 'agent-step', executor: 'step', instruction: 'left' },
+      { id: 'c', kind: 'agent-step', executor: 'step', instruction: 'right' },
+      { id: 'd', kind: 'terminal', executor: 'step', instruction: 'join', toolAllow: [] },
+    ],
+    edges: [
+      { from: 'a', to: 'b', kind: 'control' },
       { from: 'a', to: 'c', kind: 'control' },
       { from: 'b', to: 'd', kind: 'control' },
       { from: 'c', to: 'd', kind: 'control' },
@@ -174,26 +204,12 @@ test('canKernelDrive rejects kernel channels and engine-reserved ids (H1)', () =
   assert.equal(canKernelDrive(planWithNodeId('__END__')), true)
 })
 
-test('canKernelDrive rejects a branching (diamond) plan and keeps linear plans (H2)', () => {
+test('canKernelDrive owns an acyclic all-unconditional diamond and keeps the unsafe fan-out shapes on the frontier (H2)', () => {
   const base = plan()
-  const diamond: TaskPlan = {
-    ...base,
-    entry: 'a',
-    terminals: ['d'],
-    nodes: [
-      { id: 'a', kind: 'agent-step', executor: 'step', instruction: 'start' },
-      { id: 'b', kind: 'agent-step', executor: 'step', instruction: 'left' },
-      { id: 'c', kind: 'agent-step', executor: 'step', instruction: 'right' },
-      { id: 'd', kind: 'terminal', executor: 'step', instruction: 'join', toolAllow: [] },
-    ],
-    edges: [
-      { from: 'a', to: 'b', kind: 'control' },
-      { from: 'a', to: 'c', kind: 'control' },
-      { from: 'b', to: 'd', kind: 'control' },
-      { from: 'c', to: 'd', kind: 'control' },
-    ],
-  }
-  assert.equal(canKernelDrive(diamond), false)
+  const diamond = diamondPlan()
+  // The widened class: one declared terminal, every control edge unconditional,
+  // acyclic, and small enough that the journal holds every completed node.
+  assert.equal(canKernelDrive(diamond), true, 'the all-unconditional diamond must be kernel-driven')
   // The single control out-edge per node keeps the linear plan kernel-driven.
   assert.equal(canKernelDrive(base), true)
   // A terminal-only plan has no out-edges at all and stays drivable.
@@ -204,7 +220,128 @@ test('canKernelDrive rejects a branching (diamond) plan and keeps linear plans (
     edges: [],
   }
   assert.equal(canKernelDrive(terminalOnly), true)
+
+  // A guard alongside a split cannot be reconstructed from the journal: a
+  // branch that did not fire must not look entered, so the plan keeps the
+  // frontier. (A guard that replaces one split arm is not a split — the old
+  // single-unconditional-edge rule already accepts that conditional branch.)
+  const guardedElsewhere: TaskPlan = {
+    ...diamond,
+    nodes: [...diamond.nodes, { id: 'e', kind: 'agent-step', executor: 'step', instruction: 'recover' }],
+    edges: [...diamond.edges, { from: 'b', to: 'e', kind: 'control', when: { op: 'callFailed', tool: 'bash' } }],
+  }
+  assert.equal(canKernelDrive(guardedElsewhere), false, 'a guarded arm alongside a fan-out stays frontier-owned')
+
+  // A cycle would make a completed node pending again; one `next` cannot say that.
+  const cyclic: TaskPlan = {
+    ...diamond,
+    edges: [...diamond.edges, { from: 'd', to: 'a', kind: 'control' }],
+  }
+  assert.equal(canKernelDrive(cyclic), false, 'a cyclic fan-out stays frontier-owned')
+
+  // Two terminal branches: both engines end a run at a declared terminal, so a
+  // second reachable terminal cannot run on the cursor engine.
+  const twoTerminals: TaskPlan = {
+    ...diamond,
+    terminals: ['c', 'd'],
+    edges: diamond.edges.filter(edge => !(edge.from === 'c' && edge.to === 'd')),
+  }
+  assert.equal(canKernelDrive(twoTerminals), false, 'multiple terminals keep the frontier')
+
+  // A control predecessor the entry cannot reach never runs, so its join could
+  // never become ready; the frontier treats a never-entered input as
+  // non-blocking, which the journal cannot distinguish from "not yet entered".
+  const unreachableInput: TaskPlan = {
+    ...diamond,
+    nodes: [...diamond.nodes, { id: 'x', kind: 'agent-step', executor: 'step', instruction: 'orphan' }],
+    edges: [...diamond.edges, { from: 'x', to: 'd', kind: 'control' }],
+  }
+  assert.equal(canKernelDrive(unreachableInput), false, 'an unreachable join input keeps the frontier')
+
+  // A plan larger than the journal can lose a completed predecessor when the
+  // journal is trimmed, so the join would be released on stale data.
+  const wide = 65
+  const oversized: TaskPlan = {
+    ...base,
+    entry: 'n0',
+    terminals: [`n${wide - 1}`],
+    nodes: Array.from({ length: wide }, (_, index) => ({
+      id: `n${index}`,
+      kind: index === wide - 1 ? 'terminal' as const : 'agent-step' as const,
+      executor: 'step' as const,
+      instruction: `node ${index}`,
+      ...(index === wide - 1 ? { toolAllow: [] } : {}),
+    })),
+    edges: [
+      { from: 'n0', to: 'n1', kind: 'control' },
+      { from: 'n0', to: 'n2', kind: 'control' },
+      { from: 'n1', to: `n${wide - 1}`, kind: 'control' },
+      { from: 'n2', to: `n${wide - 1}`, kind: 'control' },
+    ],
+  }
+  assert.equal(canKernelDrive(oversized), false, 'a fan-out larger than the journal keeps the frontier')
 })
+
+test('kernel route picks the next ready node from the journal and holds the join (fan-out class)', () => {
+  const diamond = diamondPlan()
+  const stateAfter = (nodeIds: readonly string[]): GraphState => ({
+    ...planInitialState(diamond),
+    facts: { lastOk: true },
+    journal: nodeIds.map((nodeId, index) => ({ nodeId, superstep: index + 1, outcome: 'ok' as const, atSeq: index + 1 })),
+  })
+  // `a` split: both branches are entered; declared control-edge order picks `b`.
+  assert.equal(routeKernelPlan({ plan: diamond, nodeId: 'a', state: stateAfter(['a']) }), 'b')
+  // `b` completed: its successor `d` is a join whose other input `c` is entered
+  // but incomplete, so the only ready node is the sibling `c`.
+  assert.equal(routeKernelPlan({ plan: diamond, nodeId: 'b', state: stateAfter(['a', 'b']) }), 'c')
+  assert.equal(routeKernelPlan({ plan: diamond, nodeId: 'c', state: stateAfter(['a', 'b', 'c']) }), 'd')
+  assert.equal(routeKernelPlan({ plan: diamond, nodeId: 'd', state: stateAfter(['a', 'b', 'c', 'd']) }), END)
+
+  // A deeper branch: the join's direct predecessor is below the split, so the
+  // journal must hold `d` until `c2` arrives (the P1-1 defect).
+  const deep: TaskPlan = {
+    ...diamond,
+    nodes: [...diamond.nodes.slice(0, 3), { id: 'c2', kind: 'agent-step', executor: 'step', instruction: 'deep' }, diamond.nodes[3]!],
+    edges: [
+      { from: 'a', to: 'b', kind: 'control' },
+      { from: 'a', to: 'c', kind: 'control' },
+      { from: 'b', to: 'c2', kind: 'control' },
+      { from: 'c', to: 'd', kind: 'control' },
+      { from: 'c2', to: 'd', kind: 'control' },
+    ],
+  }
+  assert.equal(routeKernelPlan({ plan: deep, nodeId: 'a', state: stateAfter(['a']) }), 'b')
+  assert.equal(routeKernelPlan({ plan: deep, nodeId: 'b', state: stateAfter(['a', 'b']) }), 'c',
+    'the deep branch must be picked before its join')
+  assert.equal(routeKernelPlan({ plan: deep, nodeId: 'c', state: stateAfter(['a', 'b', 'c']) }), 'c2')
+  assert.equal(routeKernelPlan({ plan: deep, nodeId: 'c2', state: stateAfter(['a', 'b', 'c', 'c2']) }), 'd')
+})
+
+for (const kind of ['langgraph', 'minimal'] as const) {
+  test(`kernel topology runs an all-unconditional diamond once per node on one cursor (${kind})`, async (t) => {
+    if (kind === 'langgraph' && !lgAvailable) {
+      t.skip('@langchain/langgraph is not installed; skipping the LangGraph diamond test')
+      return
+    }
+    const diamond = diamondPlan()
+    assert.equal(canKernelDrive(diamond), true)
+    const topology = new KernelTopology(diamond, { kind, taskHash: 'diamond' })
+    try {
+      const visited: string[] = []
+      let node = topology.current()
+      while (node !== undefined && visited.length < 8) {
+        visited.push(node.id)
+        node = await topology.advance({ ok: true })
+      }
+      assert.deepEqual(visited, ['a', 'b', 'c', 'd'], 'one branch per step; the join last and once')
+      assert.equal(visited.filter(id => id === 'd').length, 1, 'the join must not run twice')
+      assert.equal(topology.status(), 'done')
+      assert.deepEqual(topology.stateSnapshot().journal.map(entry => entry.nodeId), ['a', 'b', 'c', 'd'])
+    } finally {
+      await topology.dispose()
+    }
+  })
+}
 
 for (const kind of ['langgraph', 'minimal'] as const) {
   test(`kernel topology takes the callFailed branch on a failed step (${kind})`, async (t) => {
