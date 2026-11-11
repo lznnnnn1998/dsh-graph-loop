@@ -36,6 +36,7 @@ import type {
 } from './graph-schema.ts'
 import { validateTaskPlan } from './graph-schema.ts'
 import type { CapabilityEnvelope } from './envelope.ts'
+import { LOCATOR_PARAMETER_NAMES } from './condition.ts'
 import { hash16, type TaskFingerprint } from './matching.ts'
 
 // ---------------------------------------------------------------------------
@@ -153,6 +154,28 @@ function firstProducing(tools: readonly RegistryNode[], type: ArtifactType): Reg
   // that can write; otherwise a successful read satisfies `produced.<type>` and
   // the run reports a deliverable it never made.
   return cheapest(tools.filter(tool => tool.tool?.permission !== 'read-only' && produces(tool, type)))
+}
+
+/**
+ * The structural verifier for a verify stage: a read-only capability whose
+ * declared parameters include a typed locator field (see
+ * `LOCATOR_PARAMETER_NAMES`). The runtime attributes such a verifier to a prior
+ * artifact only when the locator's value is exactly an observed ref, so a shell
+ * -- whose only target lives in free-text `command` -- cannot certify. Preference
+ * order is over declared data only: a verifier that produces the artifact type
+ * under verification, then one that accepts a path locator, then any locator
+ * reader; the shell fallback keeps the stage present when the envelope has no
+ * structural verifier (it will take the repair/answer exit, never pass).
+ */
+function firstLocatorVerifier(tools: readonly RegistryNode[], types: readonly ArtifactType[]): RegistryNode | undefined {
+  const locatorReaders = tools.filter(tool =>
+    tool.tool?.permission === 'read-only'
+    && tool.tool.parameterNames.some(name => LOCATOR_PARAMETER_NAMES.includes(name)))
+  const typed = locatorReaders.filter(tool => types.some(type => produces(tool, type)))
+  return cheapest(typed)
+    ?? cheapest(locatorReaders.filter(tool => accepts(tool, 'path.locator')))
+    ?? cheapest(locatorReaders)
+    ?? firstWithTag(tools, ['verification'])
 }
 
 function firstReadTool(tools: readonly RegistryNode[]): RegistryNode | undefined {
@@ -304,7 +327,14 @@ function planStages(input: ComposeInput): { stages: StagePlan[]; issues: Compose
   }
 
   if (wantsMutation || input.fingerprint.intent === 'test-failure' || input.fingerprint.intent === 'bug-fix') {
-    add('verify', firstWithTag(tools, ['verification']), 'tag:verification')
+    // Verify must be structural: a capability that can address an earlier
+    // artifact through a typed locator field, not a shell whose target is text.
+    const verifiedTypes: ArtifactType[] = []
+    for (const stage of stages) {
+      for (const spec of stage.evidence?.expects ?? []) verifiedTypes.push(spec.type)
+      if (stage.artifact !== undefined) verifiedTypes.push(stage.artifact)
+    }
+    add('verify', firstLocatorVerifier(tools, verifiedTypes), 'locator-observation verifier')
   }
 
   if (stages.length === 0) {

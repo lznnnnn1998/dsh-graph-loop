@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import type { Condition, Json, TaskPlan } from '../../packages/core/src/graph-schema.ts'
 import { FrontierTopology } from '../../packages/core/src/topology.ts'
 import { createGraphTurnDriver } from '../../packages/loop/src/scheduler.ts'
-import { deriveStepArtifacts, deriveStepFacts } from '../../packages/loop/src/step-facts.ts'
+import { deriveStepArtifactCandidates, deriveEvidenceCalls, deriveStepFacts } from '../../packages/loop/src/step-facts.ts'
 
 function plan(edges: TaskPlan['edges'], maxSteps = 6): TaskPlan {
   return {
@@ -103,21 +103,52 @@ test('step facts and artifacts are derived from observed tool calls', () => {
   assert.equal(facts['tool.write.ok'], true)
   assert.equal(facts['tool.bash.failed'], true)
 
-  const artifacts = deriveStepArtifacts(tools)
-  assert.deepEqual(artifacts.map(artifact => [artifact.type, artifact.ref]), [
+  // Candidates only: the scheduler measures each path in the world before it
+  // becomes evidence, so a path argument is not an artifact by itself.
+  const candidates = deriveStepArtifactCandidates(tools)
+  assert.deepEqual(candidates.map(candidate => [candidate.type, candidate.ref]), [
     ['file.text', '/app/src/x.ts'],
     ['file.patch', '/app/change.patch'],
     ['file.image', '/app/pic.png'],
   ])
 })
 
-test('a registered third-party author produces its declared artifact', () => {
-  const artifacts = deriveStepArtifacts(
-    [{ name: 'acme_render', isError: false }],
-    ['file.image'],
-    'tool:acme_render',
+test('a declared artifact type with no observable path is not evidence', () => {
+  // A third-party author returning its artifact (rather than a path) leaves
+  // nothing the runtime can measure, so it yields no candidate and cannot
+  // certify a step (audit 20261111-1600 F2).
+  const author = {
+    id: 'tool:acme_render',
+    kind: 'tool',
+    label: 'acme_render',
+    description: 'render an image',
+    source: { registry: 'tools', dynamic: false },
+    tool: { name: 'acme_render', packageName: 'acme', executor: 'native', permission: 'mutating', idempotent: false, parameterNames: ['prompt'], accepts: [], produces: [{ type: 'file.image', required: true }], conditional: false, dynamic: false, schemaTokens: 40 },
+    accepts: [],
+    produces: [{ type: 'file.image', required: true }],
+    cost: { risk: 0.5 },
+    tags: ['mutation'],
+    annotationVersion: 'test',
+  } as const
+  const candidates = deriveStepArtifactCandidates([{ name: 'acme_render', isError: false }], author as never)
+  assert.deepEqual(candidates, [])
+})
+
+test('evidence calls carry declared locator values, never free text', () => {
+  const calls = deriveEvidenceCalls(
+    [{ name: 'read', isError: false, arguments: JSON.stringify({ file_path: '/app/out.ts', offset: 0 }) }],
+    undefined,
+    ['file_path', 'offset'],
   )
-  assert.deepEqual(artifacts, [{ type: 'file.image', ref: 'tool:acme_render:file.image' }])
+  assert.deepEqual(calls[0]?.locators, ['/app/out.ts'])
+  // Free text (arguments that are not a declared locator) is not projected.
+  const bashCalls = deriveEvidenceCalls(
+    [{ name: 'bash', isError: false, arguments: JSON.stringify({ command: 'echo /app/out.ts' }), output: '/app/out.ts\n[exit code: 0]' }],
+    undefined,
+    ['file_path', 'path'],
+  )
+  assert.equal(bashCalls[0]?.locators, undefined)
+  assert.equal('text' in (bashCalls[0] ?? {}), false)
 })
 
 test('a non-zero shell exit is a verification failure, not a step failure', () => {

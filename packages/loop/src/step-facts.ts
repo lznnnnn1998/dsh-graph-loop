@@ -8,7 +8,7 @@
  * @module dsh-graph-loop/step-facts
  */
 
-import type { EvidenceCall, RoutingArtifact } from 'dsh-graph-loop-core/condition'
+import { LOCATOR_PARAMETER_NAMES, type EvidenceCall } from 'dsh-graph-loop-core/condition'
 import type { ArtifactType, Json, RegistryNode } from 'dsh-graph-loop-core/graph-schema'
 import { DEFAULT_SHELL_TOOLS, mutationObserved, readObserved } from './loop/step-tools.ts'
 
@@ -45,6 +45,21 @@ function pathFromArguments(args: Record<string, unknown> | undefined): string | 
     if (typeof value === 'string' && value.length > 0) return value
   }
   return undefined
+}
+
+/** Declared locator-parameter values carried by one call's arguments. */
+function locatorValues(
+  args: Record<string, unknown> | undefined,
+  declared: readonly string[],
+): string[] {
+  if (args === undefined) return []
+  const values: string[] = []
+  for (const name of declared) {
+    if (!LOCATOR_PARAMETER_NAMES.includes(name)) continue
+    const value = args[name]
+    if (typeof value === 'string' && value.length > 0) values.push(value)
+  }
+  return values
 }
 
 function artifactTypeFor(path: string): ArtifactType {
@@ -147,18 +162,18 @@ export function deriveStepFacts(
   return facts
 }
 
-/** Bound on the text one call contributes to evidence attribution. */
-const EVIDENCE_TEXT_LIMIT = 4_000
-
 /**
  * Project one step's calls into the evidence view a node's declared contract is
- * evaluated against. Only what the call itself reported is represented: its
- * success, its own process exit status (when the tool reports one) and a bounded
- * argument+output text used to attribute a verifier to an earlier artifact.
+ * evaluated against. Only runtime-owned facts are represented: the call's
+ * success, its own process exit status (when the tool reports one) and the
+ * values of the node capability's *declared locator parameters*. The call's
+ * free text is never projected -- a command that merely names an artifact path
+ * is not evidence about it.
  */
 export function deriveEvidenceCalls(
   tools: readonly ObservedTool[],
   shellTools: ReadonlySet<string> = new Set(DEFAULT_SHELL_TOOLS),
+  locatorParameters: readonly string[] = [],
 ): EvidenceCall[] {
   return tools.map(tool => {
     // An exit status belongs to a process. A `read`/`grep`/`web_fetch` result is
@@ -174,13 +189,13 @@ export function deriveEvidenceCalls(
         if (code !== 0) break
       }
     }
-    const text = `${tool.arguments ?? ''}\n${tool.output ?? ''}`.slice(0, EVIDENCE_TEXT_LIMIT)
+    const locators = locatorValues(parseArguments(tool.arguments), locatorParameters)
     return {
       tool: tool.name,
       ok: !tool.isError,
       ...(reportsExit ? { reportsExit } : {}),
       ...(exitCode === undefined ? {} : { exitCode }),
-      ...(text.trim() === '' ? {} : { text }),
+      ...(locators.length === 0 ? {} : { locators }),
     }
   })
 }
@@ -215,46 +230,58 @@ export function deriveCapabilityFacts(
   return facts
 }
 
+/** A typed ref one step may have produced; the scheduler measures it in the world. */
+export interface ArtifactCandidate {
+  readonly type: ArtifactType
+  readonly ref: string
+}
+
 /**
- * Artifact refs produced by this step; never file bodies.
+ * Typed refs this step may have produced; never file bodies.
  *
- * Path extraction is a best-effort enrichment for the DSH filesystem tools. The
- * authoritative source is the plan node's registered capability: a tool that
- * declares `produces` (including third-party/MCP author tools) yields that
- * artifact type when the planned tool itself ran successfully. Without this
- * second source, a generic `artifact(...)` success guard can never fire for a
- * craft/MCP author; without the planned-tool check, any unrelated successful
- * call in the step would fake the artifact.
+ * Two structural sources, both data-driven:
+ *
+ *   1. A successful filesystem mutation tool names the path it wrote (an
+ *      equivalent tool may fill a stage, so the tool name is not gated).
+ *   2. A read-only observation capability observes each typed locator argument
+ *      it was called with (an inspect/read stage's output is the observed file).
+ *
+ * A declared artifact type with no path (a craft/MCP author returning its
+ * output) yields no candidate: the runtime cannot measure it, so it cannot
+ * certify the step. Nothing here trusts a tool's success as a world change --
+ * the scheduler stats every candidate and keeps only refs that exist with
+ * content.
  */
-export function deriveStepArtifacts(
+export function deriveStepArtifactCandidates(
   tools: readonly ObservedTool[],
-  declaredTypes: readonly ArtifactType[] = [],
-  refPrefix = 'step',
-  realizedBy?: string,
-): RoutingArtifact[] {
+  capability?: RegistryNode,
+): ArtifactCandidate[] {
   const seen = new Set<string>()
-  const artifacts: RoutingArtifact[] = []
+  const candidates: ArtifactCandidate[] = []
   const add = (type: ArtifactType, ref: string): void => {
     const key = `${type}:${ref}`
     if (seen.has(key)) return
     seen.add(key)
-    artifacts.push({ type, ref })
+    candidates.push({ type, ref })
   }
   for (const tool of tools) {
     if (tool.isError || !MUTATION_TOOLS.has(tool.name)) continue
-    // A path artifact is a real mutation outcome even when an equivalent tool
-    // produced it: the stage contract is the artifact type, not a literal tool
-    // name (a composed repair may use `write` where the plan named a craft
-    // renderer). The failure case is a *wrong type* (edit a .txt for an author
-    // contracted to file.image), which the type guard already rejects.
     const path = pathFromArguments(parseArguments(tool.arguments))
     if (path !== undefined) add(artifactTypeFor(path), path)
   }
-  // The declared contract belongs to the planned capability's tool. A step that
-  // only called something else (a read, a probe) did not produce that artifact.
-  const realized = tools.some(tool => !tool.isError && (realizedBy === undefined || tool.name === realizedBy))
-  if (realized) {
-    for (const type of declaredTypes) add(type, `${refPrefix}:${type}`)
+  // A read-only capability observes, it does not author: the file it read is
+  // the artifact it leaves behind only when the runtime can measure it.
+  const declaredTool = capability?.tool
+  if (declaredTool !== undefined && declaredTool.permission === 'read-only') {
+    const locatorParameters = declaredTool.parameterNames.filter(name => LOCATOR_PARAMETER_NAMES.includes(name))
+    if (locatorParameters.length > 0) {
+      for (const tool of tools) {
+        if (tool.isError || tool.name !== declaredTool.name) continue
+        for (const ref of locatorValues(parseArguments(tool.arguments), locatorParameters)) {
+          add(artifactTypeFor(ref), ref)
+        }
+      }
+    }
   }
-  return artifacts
+  return candidates
 }

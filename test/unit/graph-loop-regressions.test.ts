@@ -4,6 +4,9 @@
  * parent commit.
  */
 import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { synthesizeComposition } from '../../packages/core/src/compose.ts'
@@ -231,7 +234,10 @@ test('maxSteps bounds the turn across a replan, including a verify repair chain'
 })
 
 test('a composed plan runs all stages when maxSteps equals stages plus one', async () => {
-  const graph = graphOf({ tools: CORE_TOOLS })
+  // Evidence is measured on disk: this row leaves a real file at each stage.
+  const dir = mkdtempSync(join(tmpdir(), 'graph-loop-regressions-'))
+  try {
+    const graph = graphOf({ tools: CORE_TOOLS })
   const envelope = buildEnvelope({
     roles: ['workspace-read', 'workspace-search', 'workspace-write', 'shell', 'verification', 'delivery']
       .map(name => defaultRole(name)!)
@@ -243,16 +249,24 @@ test('a composed plan runs all stages when maxSteps equals stages plus one', asy
     envelope: envelope.envelope,
     budget: { maxSteps: 4 },
   })
-  assert.deepEqual(composed.stages.map(stage => stage.stage), ['inspect', 'mutate', 'verify'])
-  const driver = createGraphTurnDriver({ kernel: 'off', maxSteps: 4, graphProvider: () => graph })
-  driver.adopt(composed.plan)
-  await driver.advance({ ok: true, tools: [{ name: 'read', isError: false }] })
-  await driver.advance({ ok: true, tools: [{ name: 'write', isError: false, arguments: '{"file_path":"out.txt"}' }] })
-  assert.equal(driver.current()?.id, 'n_verify', 'the reserve must not skip the last stage')
-  await driver.advance({ ok: true, tools: [{ name: 'bash', isError: false, output: '[exit code: 0]' }] })
-  assert.equal(driver.current()?.id, 'n_answer')
-  await driver.advance({ ok: true, tools: [] })
-  assert.equal(driver.planState(), 'terminal')
+    assert.deepEqual(composed.stages.map(stage => stage.stage), ['inspect', 'mutate', 'verify'])
+    const driver = createGraphTurnDriver({ kernel: 'off', maxSteps: 4, graphProvider: () => graph })
+    driver.adopt(composed.plan)
+    const input = join(dir, 'input.txt')
+    writeFileSync(input, 'observed input\n', 'utf8')
+    const out = join(dir, 'out.txt')
+    writeFileSync(out, 'observed output\n', 'utf8')
+    await driver.advance({ ok: true, tools: [{ name: 'read', isError: false, arguments: JSON.stringify({ file_path: input }) }] })
+    await driver.advance({ ok: true, tools: [{ name: 'write', isError: false, arguments: JSON.stringify({ file_path: out }) }] })
+    assert.equal(driver.current()?.id, 'n_verify', 'the reserve must not skip the last stage')
+    // The declared verifier is a typed-locator reader: it addresses the artifact.
+    await driver.advance({ ok: true, tools: [{ name: 'read', isError: false, arguments: JSON.stringify({ file_path: out }) }] })
+    assert.equal(driver.current()?.id, 'n_answer')
+    await driver.advance({ ok: true, tools: [] })
+    assert.equal(driver.planState(), 'terminal')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 // ---------------------------------------------------------------------------

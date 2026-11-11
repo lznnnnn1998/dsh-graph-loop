@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import { buildRegistrySnapshot, type ToolSource } from '../../packages/core/src/registry.ts'
 import { TEMPLATE_LIBRARY } from '../../packages/core/src/templates.ts'
@@ -154,13 +157,23 @@ test('a failed verify node follows the composed repair exit without a replan', a
   await driver.beginTurn({ text: 'fix the failing test in the loader' })
   // Each stage's own success fact is load-bearing: inspect must actually read
   // and mutate must actually write, or the stage repairs instead of advancing.
-  const stageOutcomes = [
-    { id: 'n_inspect', tools: [{ name: 'read', isError: false }] },
-    { id: 'n_mutate', tools: [{ name: 'edit', isError: false }] },
-  ]
-  for (const stage of stageOutcomes) {
-    assert.equal(driver.current()?.id, stage.id)
-    await driver.advance({ ok: true, tools: stage.tools })
+  // Evidence is measured on disk: each stage leaves a real file behind.
+  const dir = mkdtempSync(join(tmpdir(), 'scheduler-verify-'))
+  const input = join(dir, 'input.txt')
+  const edited = join(dir, 'edited.txt')
+  writeFileSync(input, 'observed input\n', 'utf8')
+  writeFileSync(edited, 'observed edit\n', 'utf8')
+  try {
+    const stageOutcomes = [
+      { id: 'n_inspect', tools: [{ name: 'read', isError: false, arguments: JSON.stringify({ path: input }) }] },
+      { id: 'n_mutate', tools: [{ name: 'edit', isError: false, arguments: JSON.stringify({ path: edited }) }] },
+    ]
+    for (const stage of stageOutcomes) {
+      assert.equal(driver.current()?.id, stage.id)
+      await driver.advance({ ok: true, tools: stage.tools })
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
   }
   assert.equal(driver.current()?.id, 'n_verify')
   await driver.advance({ ok: false, failedTool: 'bash' })

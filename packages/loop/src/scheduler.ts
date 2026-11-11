@@ -10,6 +10,8 @@
  * In every mode the driver exposes `current()/instruction()/advance()/planState()`.
  * A model-authored proposal may replace the live topology between steps.
  */
+import { statSync } from 'node:fs'
+
 import type { GraphState, PlanNode, PlanRunState, PlanStatus, RegistryGraph, TaskPlan } from 'dsh-graph-loop-core/graph-schema'
 import {
   DEFAULT_WEIGHTS,
@@ -26,7 +28,7 @@ import { FrontierTopology, bootstrapTopology, recoveryTopology, repairTopology, 
 import { synthesizeComposition } from 'dsh-graph-loop-core/compose'
 import { selectEnvelopeForTask, type EnvelopeIssue } from 'dsh-graph-loop-core/envelope'
 import { KernelTopology, canKernelDrive } from './kernel/topology.ts'
-import { deriveCapabilityFacts, deriveEvidenceCalls, deriveStepArtifacts, deriveStepFacts } from './step-facts.ts'
+import { deriveCapabilityFacts, deriveEvidenceCalls, deriveStepArtifactCandidates, deriveStepFacts, type ArtifactCandidate } from './step-facts.ts'
 import { DEFAULT_SHELL_TOOLS } from './loop/step-tools.ts'
 import { satisfiesNodeEvidence, type RoutingArtifact } from 'dsh-graph-loop-core/condition'
 import type { ArtifactType, Json } from 'dsh-graph-loop-core/graph-schema'
@@ -263,6 +265,22 @@ function canResumePlan({ plan, state }: GraphResumeState): boolean {
  * the session log remains the source of truth for history; the topology only
  * decides which step runs next.
  */
+/**
+ * Measure one candidate ref in the world at the step boundary. An artifact is
+ * a path the runtime can stat as a non-empty file; everything else (a path the
+ * tool never created, an empty file, a directory, a declared type with no path)
+ * is not an observed artifact and cannot certify a node.
+ */
+function measureArtifact(candidate: ArtifactCandidate): RoutingArtifact | undefined {
+  try {
+    const stat = statSync(candidate.ref)
+    if (!stat.isFile() || stat.size <= 0) return undefined
+    return { type: candidate.type, ref: candidate.ref, bytes: stat.size }
+  } catch {
+    return undefined
+  }
+}
+
 export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): GraphTurnDriver {
   const mode: TopologyMode = options.mode ?? 'template'
   const adoptPolicy: AdoptPolicy = options.adoptPolicy ?? 'start-only'
@@ -517,15 +535,13 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     const declaredTypes = capability?.tool?.permission === 'read-only'
       ? []
       : capability?.produces.map(spec => spec.type) ?? []
-    // Credit the capability's declared artifacts only when that capability's
-    // tool actually ran; an unrelated successful call does not fulfill the
-    // node's artifact contract.
-    const artifacts = deriveStepArtifacts(
-      observed,
-      declaredTypes,
-      record?.capabilityId ?? record?.id ?? 'step',
-      capability?.tool?.name,
-    )
+    // Every candidate ref is measured in the world at the step boundary: only a
+    // path that exists with content is an artifact. A tool's success, a path
+    // argument the tool never created, and a declared type with no path are not
+    // evidence of a change.
+    const artifacts = deriveStepArtifactCandidates(observed, capability)
+      .map(measureArtifact)
+      .filter((artifact): artifact is RoutingArtifact => artifact !== undefined)
     // A planned third-party/MCP capability supplies the same read/write signal
     // the tool-name heuristics in `deriveStepFacts` give the core tools, so a
     // composed inspect/mutate stage is classifiable whatever fills it.
@@ -560,27 +576,18 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     // composed success edge (`evidence.ok == true`) and its failure exit
     // (`evidence.ok == false`) are both decidable; an undeclared node is false,
     // because a node that declared no evidence cannot certify success.
-    // Node-scoped evidence refs differ from the cumulative `artifact` set: a
-    // capability that authored its declared output may not be attributed a
-    // filesystem path (a craft/MCP renderer returns its artifact, not a path),
-    // and a read-only observation's output is the observation itself. Credit a
-    // contract type only when (a) the node declared that type and (b) the node's
-    // own capability tool ran successfully — never a type the node did not
-    // declare, and never from an unrelated tool call.
-    const evidenceProduced: RoutingArtifact[] = [...artifacts]
-    const declaredEvidence = record?.evidence?.expects ?? []
+    // Node-scoped evidence is measured, not declared: `produced` is exactly the
+    // refs this step left in the world, and `prior` is re-measured *after* this
+    // step's call so a verifier that deleted the artifact (a shell `rm`) cannot
+    // pass. A declared type with no observable ref certifies nothing.
     const declaredTool = capability?.tool?.name
-    const realized = declaredTool !== undefined && observed.some(tool => tool.name === declaredTool && !tool.isError)
-    if (realized) {
-      for (const spec of declaredEvidence) {
-        if (evidenceProduced.some(artifact => artifact.type === spec.type)) continue
-        evidenceProduced.push({ type: spec.type, ref: `${record?.capabilityId ?? record?.id ?? 'step'}:${spec.type}` })
-      }
-    }
+    const priorObserved = producedRefs
+      .map(artifact => measureArtifact(artifact))
+      .filter((artifact): artifact is RoutingArtifact => artifact !== undefined)
     facts['evidence.ok'] = satisfiesNodeEvidence(record?.evidence, {
-      produced: evidenceProduced,
-      prior: producedRefs,
-      calls: deriveEvidenceCalls(observed, shellTools),
+      produced: artifacts,
+      prior: priorObserved,
+      calls: deriveEvidenceCalls(observed, shellTools, capability?.tool?.parameterNames ?? []),
       ...(declaredTool === undefined ? {} : { capabilityTool: declaredTool }),
     })
     // Older steps' refs become `prior` for the next step; the current step's own

@@ -27,9 +27,10 @@
  */
 
 import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { after, test, type TestContext } from 'node:test'
 
 import { synthesizeComposition } from '../../packages/core/src/compose.ts'
 import { buildEnvelope, defaultRole, type CapabilityRoleSpec } from '../../packages/core/src/envelope.ts'
@@ -73,7 +74,7 @@ const LANGGRAPH_SKIP = langgraphAvailable
   ? undefined
   : '@langchain/langgraph is not installed (or no longer satisfies the kernel surface); language-graph rows skipped'
 
-function engineTest(name: string, engine: Engine, fn: () => Promise<void>): void {
+function engineTest(name: string, engine: Engine, fn: (t: TestContext) => Promise<void>): void {
   test(name, { skip: engine === 'langgraph' && !langgraphAvailable ? LANGGRAPH_SKIP : undefined }, fn)
 }
 
@@ -95,6 +96,24 @@ interface StepOutcome {
   readonly ok: boolean
   readonly failedTool?: string
   readonly tools?: readonly { readonly name: string; readonly isError: boolean; readonly arguments?: string; readonly output?: string }[]
+}
+
+/**
+ * Scratch dir for rows that need a real artifact. Evidence is measured on
+ * disk, so a positive row must leave a file behind and a negative row must not.
+ */
+const SCRATCH = mkdtempSync(join(tmpdir(), 'transition-matrix-'))
+after(() => rmSync(SCRATCH, { recursive: true, force: true }))
+
+function scratch(name: string, body = 'observed content\n'): string {
+  const path = join(SCRATCH, name)
+  writeFileSync(path, body, 'utf8')
+  return path
+}
+
+/** The declared reader's own call on a real file. */
+function readOf(filePath: string): StepOutcome {
+  return { ok: true, tools: [{ name: 'read', isError: false, arguments: JSON.stringify({ file_path: filePath }) }] }
 }
 
 /** The slice of the two topology engines this matrix drives. */
@@ -278,7 +297,7 @@ function thirdPartyComposition(
 ): { graph: RegistryGraph; plan: TaskPlan } {
   const annotated = applyAnnotations(
     [
-      { name: 'acme_read', packageName: '@acme/widgets' },
+      { name: 'acme_read', packageName: '@acme/widgets', parameterNames: ['file_path'] },
       { name: 'acme_render', packageName: '@acme/widgets' },
     ],
     [
@@ -554,7 +573,8 @@ for (const engine of ENGINES) {
     assert.equal(canKernelDrive(plan), true, 'the composed plan must be kernel-drivable')
     // The verifier must observe an artifact this run produced (audit
     // 20261111-1200 F4), so the mutation and the verification name the file.
-    const edited = join(tmpdir(), 'loader.ts')
+    const edited = scratch('loader.ts')
+    const input = scratch('input.txt')
     const verifyFailure = (code: number): StepOutcome => ({
       // DSH reports a non-zero shell exit as a normal result: ok is true and the
       // rendered text carries `[exit code: N]`. The step's own evidence, not
@@ -577,7 +597,7 @@ for (const engine of ENGINES) {
       }],
     })
     const stream: StepOutcome[] = [
-      { ok: true, tools: [{ name: 'read', isError: false }] },     // inspect (declared reader ran)
+      readOf(input),                                               // inspect (declared reader ran)
       { ok: true, tools: [{ name: 'edit', isError: false, arguments: JSON.stringify({ file_path: edited }) }] }, // mutate (attributed artifact)
       verifyFailure(1),                                            // verify -> repair
       verifyPass(),                                                // repair does the work -> answer
@@ -601,9 +621,10 @@ for (const engine of ENGINES) {
   engineTest(`a no-op repair of a failed verify answers instead of returning to verify [${engine}]`, engine, async () => {
     const { graph, plan } = coreComposition()
     assert.equal(canKernelDrive(plan), true, 'the composed plan must be kernel-drivable')
-    const edited = join(tmpdir(), 'loader.ts')
+    const edited = scratch('loader.ts')
+    const input = scratch('input.txt')
     const stream: StepOutcome[] = [
-      { ok: true, tools: [{ name: 'read', isError: false }] },     // inspect
+      readOf(input),                                               // inspect
       { ok: true, tools: [{ name: 'edit', isError: false, arguments: JSON.stringify({ file_path: edited }) }] }, // mutate
       { ok: true, tools: [{ name: 'bash', isError: false, arguments: JSON.stringify({ command: `npm test ${edited}` }), output: 'FAIL\n[exit code: 1]' }] }, // verify -> repair
       { ok: true },                                                // repair: no tool, no progress -> answer
@@ -627,7 +648,7 @@ test('a non-verify stage whose shell command exits 1 is not sent to repair', asy
     const driver = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
     driver.adopt(plan)
     assert.equal(driver.current()?.id, 'n_inspect')
-    await driver.advance({ ok: true, tools: [{ name: 'read', isError: false }] })
+    await driver.advance(readOf(scratch('input.txt')))
     assert.equal(driver.current()?.id, 'n_mutate')
     // A successful mutate step that happened to run a probe command: DSH reports
     // a normal result carrying `[exit code: 1]`. That is not a tool-invocation
@@ -635,7 +656,7 @@ test('a non-verify stage whose shell command exits 1 is not sent to repair', asy
     // stage's own attributed artifact; without it the stage repairs for a
     // different reason (no mutation happened), which this test is not about.
     await driver.advance({ ok: true, tools: [
-      { name: 'edit', isError: false, arguments: JSON.stringify({ file_path: join(tmpdir(), 'probe.ts') }) },
+      { name: 'edit', isError: false, arguments: JSON.stringify({ file_path: scratch('probe.ts') }) },
       { name: 'bash', isError: false, output: 'no match\n[exit code: 1]' },
     ] })
     assert.equal(driver.current()?.id, 'n_verify', `engine=${engine}: mutate must advance, not repair`)
@@ -652,7 +673,7 @@ for (const engine of ENGINES) {
     const { graph, plan } = coreComposition()
     const driver = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
     driver.adopt(plan)
-    await driver.advance({ ok: true, tools: [{ name: 'read', isError: false }] })
+    await driver.advance(readOf(scratch('input.txt')))
     assert.equal(driver.current()?.id, 'n_mutate')
     // No tool call at all: the stage made no progress. The old success edge and
     // the unconditional fallback both pointed at `n_verify`, so this advanced
@@ -697,9 +718,9 @@ for (const engine of ENGINES) {
     const { graph, plan } = coreComposition()
     const driver = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
     driver.adopt(plan)
-    await driver.advance({ ok: true, tools: [{ name: 'read', isError: false }] })
+    await driver.advance(readOf(scratch('input.txt')))
     await driver.advance({ ok: true, tools: [
-      { name: 'edit', isError: false, arguments: JSON.stringify({ file_path: join(tmpdir(), 'loader.ts') }) },
+      { name: 'edit', isError: false, arguments: JSON.stringify({ file_path: scratch('loader.ts') }) },
     ] })
     assert.equal(driver.current()?.id, 'n_verify')
     // The verify success exit requires the node's declared verifier evidence; a
@@ -730,7 +751,7 @@ for (const engine of ENGINES) {
     const driver = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
     driver.adopt(plan)
     await driver.advance({ ok: true, tools: [
-      { name: 'write', isError: false, arguments: JSON.stringify({ file_path: join(tmpdir(), 'render.png') }) },
+      { name: 'write', isError: false, arguments: JSON.stringify({ file_path: scratch('render.png') }) },
     ] })
     assert.equal(driver.current()?.id, 'n_answer')
   })
@@ -753,8 +774,8 @@ for (const engine of ENGINES) {
     })
     const driver = createGraphTurnDriver({ kernel: kernelOption(engine), maxSteps: 5, graphProvider: () => graph })
     driver.adopt(composed.plan)
-    const edited = join(tmpdir(), 'loader.ts')
-    await driver.advance({ ok: true, tools: [{ name: 'read', isError: false }] })
+    const edited = scratch('loader.ts')
+    await driver.advance(readOf(scratch('input.txt')))
     await driver.advance({ ok: true, tools: [{ name: 'edit', isError: false, arguments: JSON.stringify({ file_path: edited }) }] })
     await driver.advance({ ok: true, tools: [
       { name: 'bash', isError: false, arguments: JSON.stringify({ command: `npm test ${edited}` }), output: 'FAIL\n[exit code: 1]' },
@@ -814,7 +835,12 @@ for (const engine of ENGINES) {
     const driver = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
     driver.adopt(plan)
     assert.equal(driver.current()?.id, 'n_author_0')
-    await driver.advance({ ok: true, tools: [{ name: 'acme_render', isError: false }] })
+    // The author's declared file.image is credited only when the step leaves an
+    // observable artifact of that type; the tool's own success is not a world change.
+    await driver.advance({ ok: true, tools: [
+      { name: 'acme_render', isError: false },
+      { name: 'write', isError: false, arguments: JSON.stringify({ file_path: scratch('render.png') }) },
+    ] })
     assert.equal(driver.current()?.id, 'n_answer')
     await driver.advance({ ok: true })
     assert.equal(driver.status?.(), 'done')
@@ -871,7 +897,7 @@ for (const engine of ENGINES) {
     const driver = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
     driver.adopt(plan)
     assert.equal(driver.current()?.id, 'n_inspect')
-    await driver.advance({ ok: true, tools: [{ name: 'acme_read', isError: false }] })
+    await driver.advance({ ok: true, tools: [{ name: 'acme_read', isError: false, arguments: JSON.stringify({ file_path: scratch('doc.txt') }) }] })
     assert.equal(driver.current()?.id, 'n_author_0')
     await driver.advance({ ok: true })
     assert.equal(driver.current()?.id, 'n_author_0_repair', 'the earlier stage file.text must not satisfy the author')
@@ -961,19 +987,18 @@ test('a model-authored proposal with a token/wall budget guard is rejected', () 
 })
 
 for (const engine of ENGINES) {
-  engineTest(`a composed verify step that ran only read repairs instead of answering [${engine}]`, engine, async () => {
+  engineTest(`a composed verify step that observes an unrelated file repairs instead of answering [${engine}]`, engine, async () => {
     const { graph, plan } = coreComposition()
     const driver = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
     driver.adopt(plan)
-    await driver.advance({ ok: true, tools: [{ name: 'read', isError: false }] })
+    await driver.advance(readOf(scratch('input.txt')))
     await driver.advance({ ok: true, tools: [
-      { name: 'edit', isError: false, arguments: JSON.stringify({ file_path: join(tmpdir(), 'loader.ts') }) },
+      { name: 'edit', isError: false, arguments: JSON.stringify({ file_path: scratch('loader.ts') }) },
     ] })
     assert.equal(driver.current()?.id, 'n_verify')
-    // "A tool ran" is not "the verification ran": the declared verifier is
-    // `bash` with a clean exit over a produced artifact, so a read-only step
-    // must repair rather than pass.
-    await driver.advance({ ok: true, tools: [{ name: 'read', isError: false }] })
+    // The declared verifier ran cleanly, but it addressed a file this run did
+    // not produce: activity, not verification (audit 20261111-1600 F4).
+    await driver.advance(readOf(scratch('unrelated.txt')))
     assert.equal(driver.current()?.id, 'n_verify_repair')
   })
 }

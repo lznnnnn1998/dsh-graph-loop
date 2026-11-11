@@ -18,9 +18,10 @@
  */
 
 import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { test, type TestContext } from 'node:test'
 
 import { synthesizeComposition } from '../../packages/core/src/compose.ts'
 import { buildEnvelope, defaultRole, type CapabilityRoleSpec } from '../../packages/core/src/envelope.ts'
@@ -39,7 +40,7 @@ const LANGGRAPH_SKIP = langgraphAvailable
   ? undefined
   : '@langchain/langgraph is not installed (or no longer satisfies the kernel surface); language-graph rows skipped'
 
-function engineTest(name: string, engine: Engine, fn: () => Promise<void>): void {
+function engineTest(name: string, engine: Engine, fn: (t: TestContext) => Promise<void>): void {
   test(name, { skip: engine === 'langgraph' && !langgraphAvailable ? LANGGRAPH_SKIP : undefined }, fn)
 }
 
@@ -119,7 +120,23 @@ function driverFor(engine: Engine, graph: RegistryGraph, plan: ReturnType<typeof
   return driver
 }
 
-const read: StepOutcome = { ok: true, tools: [{ name: 'read', isError: false }] }
+/** A scratch directory per row, removed when the row ends. */
+function workdir(t: TestContext): string {
+  const dir = mkdtempSync(join(tmpdir(), 'stage-routing-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  return dir
+}
+
+function makeFile(dir: string, name: string): string {
+  const path = join(dir, name)
+  writeFileSync(path, 'observed content\n', 'utf8')
+  return path
+}
+
+/** The declared reader's own call on a real file: the inspect stage's evidence. */
+function read(filePath: string): StepOutcome {
+  return { ok: true, tools: [{ name: 'read', isError: false, arguments: JSON.stringify({ file_path: filePath }) }] }
+}
 
 function bash(command: string): StepOutcome {
   return { ok: true, tools: [{ name: 'bash', isError: false, arguments: JSON.stringify({ command }) }] }
@@ -134,7 +151,8 @@ function write(filePath: string): StepOutcome {
 // ---------------------------------------------------------------------------
 
 for (const engine of ENGINES) {
-  engineTest(`repair work advances the stage instead of restarting it [${engine}]`, engine, async () => {
+  engineTest(`repair work advances the stage instead of restarting it [${engine}]`, engine, async (t) => {
+    const input = makeFile(workdir(t), 'input.txt')
     const { graph, plan } = coreComposition()
     const driver = driverFor(engine, graph, plan)
 
@@ -143,9 +161,9 @@ for (const engine of ENGINES) {
     await driver.advance({ ok: false })
     assert.equal(driver.current()?.id, 'n_inspect_repair', `engine=${engine}`)
 
-    // The repair step does the stage's work (a successful read). It must
+    // The repair step does the stage's work (a measured read). It must
     // advance to n_mutate; returning to n_inspect is the audit's dead end.
-    await driver.advance(read)
+    await driver.advance(read(input))
     assert.equal(driver.current()?.id, 'n_mutate',
       `engine=${engine}: a successful repair read must advance, not restart inspect`)
 
@@ -158,11 +176,13 @@ for (const engine of ENGINES) {
 // ---------------------------------------------------------------------------
 
 for (const engine of ENGINES) {
-  engineTest(`a shell mutation still has to be attributed to a task artifact [${engine}]`, engine, async () => {
+  engineTest(`a shell mutation still has to be attributed to a task artifact [${engine}]`, engine, async (t) => {
+    const dir = workdir(t)
+    const input = makeFile(dir, 'input.txt')
     const { graph, plan } = coreComposition()
     const driver = driverFor(engine, graph, plan)
 
-    await driver.advance(read)
+    await driver.advance(read(input))
     assert.equal(driver.current()?.id, 'n_mutate', `engine=${engine}`)
 
     // `printf x > out.txt` is a real file write, but the stage cannot attribute
@@ -172,8 +192,9 @@ for (const engine of ENGINES) {
     assert.equal(driver.current()?.id, 'n_mutate_repair',
       `engine=${engine}: an unattributed shell write must not advance mutate`)
 
-    // The writer's path artifact is the stage's evidence.
-    await driver.advance(write('out.txt'))
+    // The writer's path artifact is the stage's evidence when it exists.
+    const out = makeFile(dir, 'out.txt')
+    await driver.advance(write(out))
     assert.equal(driver.current()?.id, 'n_verify',
       `engine=${engine}: an attributed write advances mutate`)
 
@@ -186,11 +207,13 @@ for (const engine of ENGINES) {
 // ---------------------------------------------------------------------------
 
 for (const engine of ENGINES) {
-  engineTest(`a Python -> is not a mutation, and a real write repairs [${engine}]`, engine, async () => {
+  engineTest(`a Python -> is not a mutation, and a real write repairs [${engine}]`, engine, async (t) => {
+    const dir = workdir(t)
+    const input = makeFile(dir, 'input.txt')
     const { graph, plan } = coreComposition()
     const driver = driverFor(engine, graph, plan)
 
-    await driver.advance(read)
+    await driver.advance(read(input))
     assert.equal(driver.current()?.id, 'n_mutate', `engine=${engine}`)
 
     // `->` is not a shell redirect. The stage made no write, so it repairs.
@@ -199,7 +222,8 @@ for (const engine of ENGINES) {
       `engine=${engine}: an arrow inside an argument is not a redirect`)
 
     // The repair step performs the actual mutation; it advances to verify.
-    await driver.advance(write(join(tmpdir(), 'out.ts')))
+    const out = makeFile(dir, 'out.ts')
+    await driver.advance(write(out))
     assert.equal(driver.current()?.id, 'n_verify',
       `engine=${engine}: a successful repair write must advance, not restart mutate`)
 
@@ -244,11 +268,12 @@ for (const engine of ENGINES) {
 // ---------------------------------------------------------------------------
 
 for (const engine of ENGINES) {
-  engineTest(`read_image in mutate repairs, and a no-op repair answers [${engine}]`, engine, async () => {
+  engineTest(`read_image in mutate repairs, and a no-op repair answers [${engine}]`, engine, async (t) => {
+    const input = makeFile(workdir(t), 'input.txt')
     const { graph, plan } = coreComposition()
     const driver = driverFor(engine, graph, plan)
 
-    await driver.advance(read)
+    await driver.advance(read(input))
     assert.equal(driver.current()?.id, 'n_mutate', `engine=${engine}`)
 
     // read_image is a read tool: it satisfies inspect, never mutate.

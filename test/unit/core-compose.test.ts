@@ -81,9 +81,13 @@ test('a code change composes inspect → mutate → verify', () => {
   assert.deepEqual(result.stages.map(stage => stage.stage), ['inspect', 'mutate', 'verify'])
   const capabilityIds = new Set(result.stages.map(stage => stage.capabilityId))
   assert.ok(capabilityIds.has('tool:write') || capabilityIds.has('tool:edit'), 'mutate must use a mutation tool')
-  for (const capability of ['tool:read', 'tool:bash']) {
-    assert.ok(capabilityIds.has(capability), `expected ${capability} in ${[...capabilityIds].join(',')}`)
-  }
+  assert.ok(capabilityIds.has('tool:read'), `expected tool:read in ${[...capabilityIds].join(',')}`)
+  // Verify binds a typed-locator capability, not a shell whose target is free
+  // text: attribution must be structural (audit 20261111-1600 F4).
+  const verify = result.plan.nodes.find(node => node.id === 'n_verify')
+  const verifyCapability = graph.nodes.find(node => node.id === verify?.capabilityId)
+  assert.ok((verifyCapability?.tool?.parameterNames ?? []).includes('file_path'),
+    `verify must bind a typed-locator capability, got ${String(verifyCapability?.tool?.name)}`)
   assert.equal(validateTaskPlan(graph, result.plan).ok, true)
 })
 

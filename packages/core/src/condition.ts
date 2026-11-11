@@ -15,13 +15,27 @@
 
 import type { ArtifactType, Condition, Json, NodeEvidenceContract } from './graph-schema.ts'
 
-/** One artifact reference as the router sees it (never a file body). */
+/**
+ * One artifact reference as the router sees it (never a file body).
+ *
+ * `bytes` is a runtime measurement: the loop observed this ref in the world
+ * (statted the path at the step boundary). A ref without `bytes` was never
+ * observed, so it cannot certify anything.
+ */
 export interface RoutingArtifact {
   readonly type: ArtifactType
   readonly ref: string
   readonly hash?: string
   readonly bytes?: number
 }
+
+/**
+ * Parameter names that are typed locators: a capability declaring one of these
+ * takes a path/artifact target in a named field. The runtime resolves the
+ * field's value to an observed artifact; nothing else about a call's arguments
+ * is ever read as evidence.
+ */
+export const LOCATOR_PARAMETER_NAMES: readonly string[] = ['file_path', 'filePath', 'path', 'target']
 
 /**
  * Remaining capacity the `budget` condition compares against.
@@ -86,8 +100,13 @@ export interface EvidenceCall {
   readonly reportsExit?: boolean
   /** Last exit status the tool reported; absent when it reported none. */
   readonly exitCode?: number
-  /** Bounded argument+output text a verifier's command is attributed by. */
-  readonly text?: string
+  /**
+   * Values of this call's *declared locator parameters* (see
+   * `LOCATOR_PARAMETER_NAMES`). A verifier is attributed to an artifact only
+   * when one of these values is exactly an observed prior artifact ref; the
+   * arguments' free text is never inspected.
+   */
+  readonly locators?: readonly string[]
 }
 
 /**
@@ -112,13 +131,16 @@ export interface NodeEvidenceView {
  * to that node's own step. No contract means no satisfiable evidence, so an
  * undeclared node cannot certify success.
  *
- * - `expects`: every spec with `required: true` needs one produced ref of that
- *   type; with no required spec, at least one declared type must appear. This is
- *   any-of on purpose: an `edit` mutates a `file.text` and produces a
- *   `file.patch`, and either is a real mutation outcome.
- * - `verifier`: the node's declared capability must have run this step against a
- *   ref an *earlier* step produced, with a clean status. A tool call that
- *   touches nothing the run made is activity, not verification.
+ * - `expects`: every spec with `required: true` needs one *observed* produced
+ *   ref of that type; with no required spec, at least one declared type must
+ *   appear. This is any-of on purpose: an `edit` mutates a `file.text` and
+ *   produces a `file.patch`, and either is a real mutation outcome. A ref the
+ *   runtime never measured in the world is not an outcome.
+ * - `verifier`: the node's declared capability must have run this step with a
+ *   clean status and addressed a ref an *earlier* step produced through one of
+ *   its declared locator parameters, by exact value. A tool call that does not
+ *   name the run's artifact in a typed field is activity, not verification --
+ *   even when the artifact's path appears in its free text.
  */
 export function satisfiesNodeEvidence(
   contract: NodeEvidenceContract | undefined,
@@ -127,7 +149,9 @@ export function satisfiesNodeEvidence(
   if (contract === undefined) return false
   const expects = contract.expects ?? []
   if (expects.length > 0) {
-    const producedTypes = new Set(view.produced.map(artifact => artifact.type))
+    const producedTypes = new Set(view.produced
+      .filter(artifact => artifact.bytes !== undefined)
+      .map(artifact => artifact.type))
     const required = expects.filter(spec => spec.required)
     const satisfied = required.length > 0
       ? required.every(spec => producedTypes.has(spec.type))
@@ -138,16 +162,21 @@ export function satisfiesNodeEvidence(
     if (view.prior.length === 0) return false
     const verified = view.calls.some(call => {
       if (!call.ok) return false
+      // The node's declared capability is the only verifier whose run can
+      // certify the node; an unrelated clean call is activity, not proof.
       if (view.capabilityTool !== undefined && call.tool !== view.capabilityTool) return false
       // A tool that reports an exit status must report zero; a tool without
       // exit status (MCP/craft verifier) has only its own result as status.
       if (call.reportsExit === true && call.exitCode !== 0) return false
-      const text = call.text ?? ''
-      if (text === '') return false
-      // Attribution: the verifier's own command/observation must name an
-      // artifact an earlier step produced. A run-cumulative artifact set or the
-      // verifier's own arguments are not evidence about the task.
-      return view.prior.some(artifact => artifact.ref.length > 0 && text.includes(artifact.ref))
+      // Attribution is typed and exact: a declared locator argument must name
+      // an artifact the run observed. A shell whose target lives in free-text
+      // `command` has no locator, so it can never be attributed.
+      const locators = call.locators ?? []
+      if (locators.length === 0) return false
+      return view.prior.some(artifact =>
+        artifact.bytes !== undefined
+        && artifact.ref.length > 0
+        && locators.some(locator => locator === artifact.ref))
     })
     return verified
   }
