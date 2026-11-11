@@ -20,9 +20,10 @@ not recorded here.
   one repair node for failure/no-progress, then its success exit; the repair node has no back-edge
   to its stage. Success guards are step-scoped (`toolSucceeded`, `wroteFile`, `produced.<type>`,
   `verificationRan`/`verificationFailed`).
-- `FrontierTopology` fallback for parallel fan-out/join, subagent batches and reserved/nonconforming
-  node ids. A forward join waits for every entered predecessor (depth-2+ branches included), a join
-  on a cycle runs once per iteration, and explicit repair back-edges still re-enter.
+- `FrontierTopology` fallback for fan-out outside the acyclic all-unconditional class, subagent
+  batches and reserved/nonconforming node ids. A forward join waits for every entered predecessor
+  (depth-2+ branches included), a join on a cycle runs once per iteration, and explicit repair
+  back-edges still re-enter.
 - Bounded failure recovery and repair graphs; failed turns are reported as `GRAPH_FAILED`.
 - Graph tab (`conversation.view`) with live topology and a node → tool-call inspector, plus the
   `/graph-chat` page/API.

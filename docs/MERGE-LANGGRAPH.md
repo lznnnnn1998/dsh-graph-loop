@@ -21,7 +21,7 @@ The fork is tracked as debt; do not hide it behind the graph narrative.
 |---|---|---|
 | Session log, turn/step, prompt, tools, approvals, compaction | DSH | Kept by the fork |
 | Graph execution | LangGraph for every control-edge condition (`artifact`, `noArtifact`, `fact`, `callFailed`, `budget` step axis) and composed plans | Done |
-| Parallel fan-out / subagent batches / reserved ids | `FrontierTopology` | Fallback; documented |
+| Fan-out outside the acyclic all-unconditional class / subagent batches / reserved ids | `FrontierTopology` | Fallback; documented |
 | Typed channels/reducers | Plugin `GraphState` | One JSON `state` channel; not LangGraph channels |
 | Checkpoints | Kernel `MemoryCheckpointer` + `plugin:graph-loop/checkpoint` session-log record (`packages/loop/src/graph-state-log.ts`) | Kernel saver is a per-run cache; the session-log boundary record is folded at turn start and resumes the plan at `state.next` (`test/unit/driver-resume.test.ts`). No `storageDomain` saver |
 | Send / Command / subgraphs | — | The adapter exposes `Send` fan-out; the live driver does not use it |

@@ -17,9 +17,10 @@ surface is pinned and diff-enforced by `scripts/diff-upstream.sh`.
 The exact table (plan shape → engine → test, with source files) lives in
 [`docs/KERNEL-COVERAGE.md`](docs/KERNEL-COVERAGE.md). Short version: the default kernel evaluates
 every control-edge condition (`artifact`, `noArtifact`, `fact`, `callFailed`, `budget` on its step
-axis) and drives composed plans. Parallel fan-out/join, subagent batches and reserved/nonconforming
-node ids run on **`FrontierTopology`**; a condition on a data edge is rejected by plan validation
-because neither engine routes it. No claim is made that LangGraph executes arbitrary graphs.
+axis) and drives composed plans. Fan-out outside the acyclic all-unconditional class, subagent
+batches and reserved/nonconforming node ids run on **`FrontierTopology`**; a condition on a data
+edge is rejected by plan validation because neither engine routes it. No claim is made that LangGraph
+executes arbitrary graphs.
 
 ## What 0.2 builds
 
@@ -54,9 +55,10 @@ because neither engine routes it. No claim is made that LangGraph executes arbit
 - The fork is maintenance debt. `scripts/diff-upstream.sh --check` pins the upstream commit and
   patch budgets; `scripts/ci-local.sh` and `scripts/verify-all.sh` run it when a DSH checkout is
   available.
-- Kernel coverage is partial by plan shape, not by condition: parallel fan-out/join, subagent batches
-  and reserved/nonconforming node ids use `FrontierTopology`, and a condition on a data edge is
-  rejected by `validateTaskPlan` because neither engine routes it.
+- Kernel coverage is partial by plan shape, not by condition: fan-out outside the acyclic
+  all-unconditional class, subagent batches and reserved/nonconforming node ids use
+  `FrontierTopology`, and a condition on a data edge is rejected by `validateTaskPlan` because
+  neither engine routes it.
 - Graph runtime state (run records, live snapshots, turn traces) is process-local, so the Graph tab
   keeps no graph history across a host restart; session history is unaffected.
 - This README makes no accuracy, parity, token or cost claim. Product evidence is tracked outside
