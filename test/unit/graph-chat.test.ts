@@ -40,7 +40,7 @@ async function harness(options: HarnessOptions = {}): Promise<Harness> {
     },
   })
   ctx.provide('sessions', options.sessions ?? { list: () => [], get: () => undefined })
-  ctx.provide('agents', options.agents ?? { get: () => undefined, roots: () => [], create: async () => ({}) })
+  ctx.provide('agents', options.agents ?? { get: () => undefined, list: () => [], create: async () => ({}) })
   if (options.presets !== undefined) ctx.provide('agentPresets', options.presets)
   if (options.runtime !== undefined) ctx.provide('graphRuntime', options.runtime)
   if (options.connection !== undefined) ctx.provide('connection', options.connection)
@@ -172,7 +172,7 @@ test('the trust fence rejects before any handler side effect', async () => {
     connection: { requestRejection: () => 403 },
     agents: {
       get: () => undefined,
-      roots: () => [],
+      list: () => [],
       create: async () => { created += 1; return {} },
     },
   })
@@ -192,7 +192,7 @@ test('send enqueues the message and answers 202', async () => {
         status: 'running',
         followup: (message: { content: { text?: string }[] }) => { seen.push({ text: message.content[0]?.text ?? '' }) },
       }),
-      roots: () => [],
+      list: () => [],
       create: async () => ({}),
     },
   })
@@ -210,7 +210,7 @@ test('new chat inherits the deployment default preset and records cwd', async ()
   const { routes } = await harness({
     agents: {
       get: () => undefined,
-      roots: () => [{ model: { current: () => ({ provider: 'p', model: 'm' }) } }],
+      list: () => [{ session: { meta: {} }, model: { current: () => ({ provider: 'p', model: 'm' }) } }],
       create: async (options: unknown) => { created.push(options); return { agent: {} } },
     },
     presets: {
@@ -228,6 +228,48 @@ test('new chat inherits the deployment default preset and records cwd', async ()
   // No hardcoded `standard`: the registry default is inherited and mounted.
   assert.equal(options.meta.agentPreset, 'explore')
   assert.deepEqual(selected, ['explore'])
+})
+
+test('new chat inherits a live root route through AgentRegistry.list(), not roots()', async () => {
+  const created: unknown[] = []
+  // A subagent (its session records a parent) sorts before the root; the new
+  // top-level chat must inherit the root's route, and `list()` is the only
+  // enumeration the current registry exposes — a `roots()` call throws here.
+  const { routes } = await harness({
+    agents: {
+      get: () => undefined,
+      list: () => [
+        { session: { meta: { parentSession: 'parent-1' } }, model: { current: () => ({ provider: 'child-provider', model: 'child-model' }) } },
+        { session: { meta: {} }, model: { current: () => ({ provider: 'root-provider', model: 'root-model' }) } },
+      ],
+      create: async (options: unknown) => { created.push(options); return {} },
+    },
+  })
+  const route = routes.get('/graph-chat/api/new')
+  assert.ok(route !== undefined)
+  const res = response()
+  await call(route, request('POST', '/graph-chat/api/new', '{}'), res)
+  assert.equal(res.statusCode, 200)
+  const options = created[0] as { agentOptions: { provider: string; model: string } }
+  assert.deepEqual(options.agentOptions, { provider: 'root-provider', model: 'root-model' })
+})
+
+test('new chat answers 409 when no live agent carries a model route', async () => {
+  let created = 0
+  const { routes } = await harness({
+    agents: {
+      get: () => undefined,
+      list: () => [{ session: { meta: {} } }],
+      create: async () => { created += 1; return {} },
+    },
+  })
+  const route = routes.get('/graph-chat/api/new')
+  assert.ok(route !== undefined)
+  const res = response()
+  await call(route, request('POST', '/graph-chat/api/new', '{}'), res)
+  assert.equal(res.statusCode, 409)
+  assert.match(res.body, /no live agent route to inherit/u)
+  assert.equal(created, 0, 'no session is created without a route')
 })
 
 test('the page is served as HTML', async () => {

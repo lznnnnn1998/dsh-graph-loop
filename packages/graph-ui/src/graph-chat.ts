@@ -70,9 +70,16 @@ interface RuntimeLike {
   last(sessionId: string): unknown
   subscribe(sessionId: string, listener: (payload: { snapshot: unknown; turns: readonly unknown[] }) => void): () => void
 }
+/** The route-bearing face of a live agent; `session` is read only to prefer roots. */
+interface LiveAgentLike {
+  model?: { current(): { provider: string; model: string } | undefined }
+  /** Live session header. A subagent's header records its creator; a root has none. */
+  session?: { meta?: { parentSession?: unknown } }
+}
 interface AgentsLike {
   get(id: SessionId): { status?: string; model?: { current(): { provider: string; model: string } | undefined }; followup(message: UserMessage): void } | undefined
-  roots(): { model?: { current(): { provider: string; model: string } | undefined } }[]
+  /** `AgentRegistry.list()` is the only enumeration DSH exposes; there is no `roots()`. */
+  list(): LiveAgentLike[]
   create(options: {
     sessionId: SessionId
     agentOptions: { provider: string; model: string }
@@ -285,6 +292,21 @@ export class GraphChat extends Service {
     json(res, 500, { error: 'internal error' })
   }
 
+  /**
+   * Model route to inherit for a new session, read from the live registry.
+   *
+   * Root agents are preferred: a subagent's session header records its creator
+   * (`parentSession`), so it is a poor default for a new top-level chat. When no
+   * root carries a route, any live route still beats falling back to config.
+   */
+  private inheritedRoute(agents: AgentsLike): { provider: string; model: string } | undefined {
+    const live = agents.list()
+    const roots = live.filter(agent => agent.session?.meta?.parentSession === undefined)
+    const firstRoute = (candidates: readonly LiveAgentLike[]) =>
+      candidates.map(agent => agent.model?.current()).find(selection => selection !== undefined)
+    return firstRoute(roots) ?? firstRoute(live)
+  }
+
   private sessions(): SessionsLike | undefined {
     return service<SessionsLike>(this.ctx, 'sessions')
   }
@@ -408,7 +430,7 @@ export class GraphChat extends Service {
     }
     const route = boundedString(body.value.provider, MAX_ID_CHARS) !== '' && boundedString(body.value.model, MAX_ID_CHARS) !== ''
       ? { provider: body.value.provider as string, model: body.value.model as string }
-      : agents.roots().map(root => root.model?.current()).find(selection => selection !== undefined) ?? this.fallback
+      : this.inheritedRoute(agents) ?? this.fallback
     if (route === undefined || route.provider === '' || route.model === '') {
       json(res, 409, { error: 'no live agent route to inherit; open a normal chat once, then retry' })
       return

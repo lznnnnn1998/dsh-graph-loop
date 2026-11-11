@@ -77,18 +77,19 @@ interface PlanNodeLike {
   readonly toolAllow?: readonly string[]
 }
 
-/** Minimal structural view of `ctx.subagents` used by parallel graph nodes. */
+/**
+ * Minimal structural view of `ctx.subagents` used by parallel graph nodes.
+ * The spec mirrors `SubagentActivationSpec` (`@deepseek-ai/dsh-subagent`): the
+ * request fields are flat on the spec — there is no nested `request` object.
+ */
 interface SubagentsLike {
   startActivation(spec: {
     readonly provider: string
     readonly label: string
-    readonly request: {
-      readonly parent: Agent
-      readonly prompt: readonly { readonly type: 'text'; readonly text: string }[]
-      readonly signal: AbortSignal
-    }
-    readonly delivery: 'caller'
+    readonly parent: Agent
+    readonly prompt: readonly { readonly type: 'text'; readonly text: string }[]
     readonly signal: AbortSignal
+    readonly delivery: 'caller'
   }): Promise<{
     readonly childId: string
     readonly result: Promise<{
@@ -255,13 +256,10 @@ export class ReactLoopAgent implements Agent {
         activation = await subagents.startActivation({
           provider: 'spawn',
           label: node.id,
-          request: {
-            parent: this,
-            prompt: [{ type: 'text', text: node.instruction ?? `Complete graph node ${node.id}.` }],
-            signal,
-          },
-          delivery: 'caller',
+          parent: this,
+          prompt: [{ type: 'text', text: node.instruction ?? `Complete graph node ${node.id}.` }],
           signal,
+          delivery: 'caller',
         })
         const result = await activation.result
         // A cancelled turn cleared its inbox on purpose; a child that resolves
