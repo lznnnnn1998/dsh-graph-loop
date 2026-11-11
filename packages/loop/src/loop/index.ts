@@ -667,6 +667,9 @@ export class AgentLoop extends Service implements AgentFactory {
               step: number
               planId: string
               rationale: readonly string[]
+              path?: import('../scheduler.ts').PlanPath
+              envelopeId?: string
+              envelopeIssues?: readonly import('dsh-graph-loop-core/envelope').EnvelopeIssue[]
             }): void
             recordTurn(sessionId: string, snapshot: unknown): void
             recordSnapshot(sessionId: string, snapshot: unknown): void
@@ -711,6 +714,9 @@ export class AgentLoop extends Service implements AgentFactory {
               step: snapshot.step,
               planId: snapshot.planId,
               rationale: snapshot.rationale,
+              path: snapshot.path,
+              ...(snapshot.envelopeId === undefined ? {} : { envelopeId: snapshot.envelopeId }),
+              envelopeIssues: snapshot.envelopeIssues,
             })
             graphRuntime?.recordSnapshot(id, snapshot)
           },

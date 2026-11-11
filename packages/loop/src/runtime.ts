@@ -9,7 +9,9 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Service, type Context } from '@deepseek-ai/cordis'
 import type { TaskPlan } from 'dsh-graph-loop-core/graph-schema'
+import type { EnvelopeIssue } from 'dsh-graph-loop-core/envelope'
 import type { TopologyMode } from 'dsh-graph-loop-core/topology'
+import type { PlanPath } from './scheduler.ts'
 
 export interface GraphRunRecord {
   readonly mode: TopologyMode | 'unknown'
@@ -17,6 +19,12 @@ export interface GraphRunRecord {
   readonly step: number
   readonly planId: string
   readonly rationale: readonly string[]
+  /** Provenance of the installed plan: the branch that decided it. */
+  readonly path?: PlanPath
+  /** Envelope chosen by the composition path, when it ran. */
+  readonly envelopeId?: string
+  /** Envelope issues that explain a degrade (baseline admission, rejection, ...). */
+  readonly envelopeIssues?: readonly EnvelopeIssue[]
 }
 
 export interface Config {

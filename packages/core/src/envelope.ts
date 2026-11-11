@@ -11,6 +11,10 @@
  *   - the envelope owns TOOLS and the prompt/skill/memory policy, not the plan;
  *   - conditional / dynamic tools are unstable by default and are dropped unless
  *     the caller opts in, because a vanishing schema invalidates the prefix;
+ *   - capacity is a selection budget, not a profile-size test: `maxTools` bounds
+ *     the tools the router *chooses*; unannotated preset tools ride along as a
+ *     separate baseline that is still enumerated in the hard allowlist, so the
+ *     size of a third-party catalogue can never decide whether composition runs;
  *   - failures are explicit: an unresolved required role or a missing explicit
  *     tool sets `fallbackToStock`, and the caller runs the stock single step.
  *
@@ -104,6 +108,7 @@ export type EnvelopeIssueCode =
   | 'tool-denied'
   | 'tool-unstable-excluded'
   | 'max-tools-exceeded'
+  | 'baseline-admitted'
   | 'skill-not-found'
   | 'section-not-found'
   | 'envelope-empty'
@@ -134,6 +139,14 @@ export interface EnvelopeRequest {
   readonly roles: readonly CapabilityRoleSpec[]
   /** Tools that are always included, on top of the roles (template pins). */
   readonly extraTools?: readonly string[]
+  /**
+   * Ambient baseline: registered tools the registry cannot classify (an
+   * unannotated MCP/third-party tool). They are admitted pass-through into the
+   * hard allowlist but are not role-selected, so they never count against
+   * `maxTools`. Listing a name that is not registered is an error, like
+   * `extraTools`.
+   */
+  readonly baselineTools?: readonly string[]
   /** Tools removed after resolution (hard deny). */
   readonly denyTools?: readonly string[]
   /** Catalog skill names to make available. */
@@ -159,8 +172,12 @@ export interface CapabilityEnvelope {
   readonly tools: {
     /** Concrete tool names, sorted; this is `TaskPlan.toolUniverse`. */
     readonly universe: readonly string[]
+    /** Role-selected or template-pinned tools; this is what `maxTools` bounds. */
+    readonly selected: readonly string[]
+    /** Unannotated preset tools admitted as ambient reachability (uncapped). */
+    readonly baseline: readonly string[]
     readonly deny: readonly string[]
-    /** Sum of measured/estimated schema tokens for the selected tools. */
+    /** Sum of measured/estimated schema tokens for every admitted tool. */
     readonly schemaTokens: number
     /** Selected tools that are conditional or dynamic (empty by default). */
     readonly unstable: readonly string[]
@@ -472,21 +489,45 @@ export function buildEnvelope(request: EnvelopeRequest, graph: RegistryGraph): E
     selectedIds.add(byName.get(name)!.id)
   }
 
-  const deny = new Set(request.denyTools ?? [])
-  for (const name of [...selectedTools]) {
-    if (deny.has(name)) {
-      selectedTools.delete(name)
-      issues.push({ code: 'tool-denied', severity: 'warning', detail: `tool ${name} is denied by the envelope` })
+  // The baseline is the ambient half of the universe: registered tools the
+  // curated table cannot classify. Admit them pass-through so the hard
+  // allowlist stays complete, but keep them out of the capacity decision —
+  // otherwise the size of an MCP-heavy profile silently disables composition.
+  const baselineTools = new Set<string>()
+  for (const name of request.baselineTools ?? []) {
+    if (!byName.has(name)) {
+      issues.push({ code: 'tool-not-found', severity: 'error', detail: `baseline tool ${name} is not registered` })
+      continue
     }
+    baselineTools.add(name)
+    selectedIds.add(byName.get(name)!.id)
   }
 
-  const universe = [...selectedTools].sort()
+  const deny = new Set(request.denyTools ?? [])
+  for (const name of [...selectedTools, ...baselineTools]) {
+    if (!deny.has(name)) continue
+    selectedTools.delete(name)
+    baselineTools.delete(name)
+    issues.push({ code: 'tool-denied', severity: 'warning', detail: `tool ${name} is denied by the envelope` })
+  }
+
+  const universe = [...new Set([...selectedTools, ...baselineTools])].sort()
   const maxTools = request.maxTools ?? 64
-  if (universe.length > maxTools) {
+  // Capacity bounds the router's choices (role-resolved and template-pinned
+  // tools), never the registered profile. An overflowing selection is still an
+  // explicit error; an unannotated baseline is not a selection.
+  if (selectedTools.size > maxTools) {
     issues.push({
       code: 'max-tools-exceeded',
       severity: 'error',
-      detail: `envelope selected ${universe.length} tools, over the ${maxTools} cap`,
+      detail: `envelope selected ${selectedTools.size} tools, over the ${maxTools} cap`,
+    })
+  }
+  if (baselineTools.size > 0) {
+    issues.push({
+      code: 'baseline-admitted',
+      severity: 'warning',
+      detail: `${baselineTools.size} unannotated tool(s) kept as the envelope baseline, not counted against the ${maxTools} cap`,
     })
   }
   if (universe.length === 0) {
@@ -522,7 +563,14 @@ export function buildEnvelope(request: EnvelopeRequest, graph: RegistryGraph): E
       role: resolution.role,
       nodeIds: resolution.selected.map(candidate => candidate.nodeId),
     })),
-    tools: { universe, deny: [...deny].sort(), schemaTokens, unstable: unstableTools },
+    tools: {
+      universe,
+      selected: [...selectedTools].sort(),
+      baseline: [...baselineTools].sort(),
+      deny: [...deny].sort(),
+      schemaTokens,
+      unstable: unstableTools,
+    },
     skills,
     promptSections,
     memory,
@@ -616,6 +664,7 @@ export function selectEnvelopeForTask(input: SelectEnvelopeInput): EnvelopeDecis
 
   const toolNames = new Set(input.graph.nodes.filter(node => node.kind === 'tool').map(node => node.tool?.name))
   const extraTools = new Set<string>()
+  const baselineTools = new Set<string>()
   for (const hint of input.fingerprint.hints) {
     if (toolNames.has(hint)) extraTools.add(hint)
   }
@@ -628,7 +677,9 @@ export function selectEnvelopeForTask(input: SelectEnvelopeInput): EnvelopeDecis
     // `tags`/`produces` annotations) matches no role and would be silently
     // dropped. The composer promises that an unannotated tool stays usable, and
     // a non-empty `toolUniverse` is a hard allowlist — so keep unclassified
-    // preset tools as a baseline. Curated tools still narrow by role.
+    // preset tools as the ambient baseline. Curated tools still narrow by role,
+    // and the baseline never counts against `maxTools`: profile size must not
+    // decide whether composition runs.
     const unclassified = new Set(
       input.graph.nodes
         .filter(node => node.kind === 'tool' && node.tool !== undefined
@@ -636,7 +687,7 @@ export function selectEnvelopeForTask(input: SelectEnvelopeInput): EnvelopeDecis
         .map(node => node.tool!.name),
     )
     for (const name of input.presetTools ?? []) {
-      if (toolNames.has(name) && unclassified.has(name)) extraTools.add(name)
+      if (toolNames.has(name) && unclassified.has(name)) baselineTools.add(name)
     }
   }
 
@@ -644,6 +695,7 @@ export function selectEnvelopeForTask(input: SelectEnvelopeInput): EnvelopeDecis
     {
       roles,
       ...(extraTools.size === 0 ? {} : { extraTools: [...extraTools].sort() }),
+      ...(baselineTools.size === 0 ? {} : { baselineTools: [...baselineTools].sort() }),
       allowUnstable: input.allowUnstable === true,
       ...(input.maxTools === undefined ? {} : { maxTools: input.maxTools }),
       ...(input.budget === undefined ? {} : { budget: input.budget }),

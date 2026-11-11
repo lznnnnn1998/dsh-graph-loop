@@ -24,7 +24,7 @@ import {
 } from 'dsh-graph-loop-core/matching'
 import { FrontierTopology, bootstrapTopology, recoveryTopology, repairTopology, synthesizeTopology, type TopologyMode } from 'dsh-graph-loop-core/topology'
 import { synthesizeComposition } from 'dsh-graph-loop-core/compose'
-import { selectEnvelopeForTask } from 'dsh-graph-loop-core/envelope'
+import { selectEnvelopeForTask, type EnvelopeIssue } from 'dsh-graph-loop-core/envelope'
 import { KernelTopology, canKernelDrive } from './kernel/topology.ts'
 import { deriveCapabilityFacts, deriveStepArtifacts, deriveStepFacts } from './step-facts.ts'
 import { DEFAULT_SHELL_TOOLS } from './loop/step-tools.ts'
@@ -34,6 +34,23 @@ import { fallbackPlan } from 'dsh-graph-loop-core/fallback'
 import type { GraphResumeState } from './graph-state-log.ts'
 
 export type { TopologyMode }
+
+/**
+ * Provenance of the plan a turn installed: the `beginTurn` branch that fired.
+ * A `dynamic`-mode turn can end on any of several routes, and a live session
+ * could previously not tell a composed plan (`compose`) from the legacy
+ * synthesizer (`synthesized`) or a stock fallback. The label is decided by
+ * which branch installed the plan, never inferred from the plan afterwards.
+ */
+export type PlanPath =
+  | 'child-fallback'
+  | 'resume'
+  | 'propose'
+  | 'triage'
+  | 'compose'
+  | 'synthesized'
+  | 'template'
+  | 'fallback'
 
 export interface TurnTask {
   readonly text: string
@@ -71,6 +88,15 @@ export interface GraphTurnSnapshot {
   readonly replans?: number
   /** Envelope chosen by the live composition path, when it ran. */
   readonly envelopeId?: string
+  /**
+   * Issues the envelope selector reported for this turn. Empty when the turn
+   * never reached the composition branch (triage, resume, propose, template);
+   * otherwise every rejection/warning is visible instead of being swallowed by
+   * the degrade to the legacy synthesizer.
+   */
+  readonly envelopeIssues: readonly EnvelopeIssue[]
+  /** Provenance of `planId`: which `beginTurn` branch installed the plan. */
+  readonly path: PlanPath
 }
 
 export interface GraphTurnDriver {
@@ -251,6 +277,17 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
   let lastNode: string | undefined
   let rationale: readonly string[] = []
   let envelopeId: string | undefined
+  /** Envelope issues from the composition attempt; empty until one runs. */
+  let envelopeIssues: readonly EnvelopeIssue[] = []
+  /** Which branch installed the current plan (provenance of `planId`). */
+  let planPath: PlanPath = 'fallback'
+  /**
+   * Reasons earlier planning branches declined this turn, in order. They are
+   * prepended to the rationale of the branch that does install the plan, so a
+   * degrade (capacity, throw, empty envelope) is observable in the snapshot and
+   * in the per-session run record instead of vanishing into a `catch {}`.
+   */
+  let pathReasons: string[] = []
   /**
    * Artifact types this run has ever produced, used to reset the step-scoped
    * `produced.<type>` facts on every step. Without the reset a guard such as the
@@ -289,7 +326,14 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       replans,
       depth: options.depth ?? 0,
       ...(envelopeId === undefined ? {} : { envelopeId }),
+      envelopeIssues,
+      path: planPath,
     }
+  }
+
+  /** Rationale for the installed plan, with any earlier branch decline in front. */
+  function rationaleWith(lines: readonly string[]): string[] {
+    return [...pathReasons, ...lines]
   }
 
   function emit(): GraphTurnSnapshot {
@@ -514,6 +558,9 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       lastNode = undefined
       rationale = []
       envelopeId = undefined
+      envelopeIssues = []
+      planPath = 'fallback'
+      pathReasons = []
       trail = []
       producedTypes = new Set<ArtifactType>()
       visited = []
@@ -538,6 +585,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       // mode: children must not fork their own topology or nested fan-out.
       if (options.forceFallback === true) {
         install(fallbackPlan({ id: fingerprint.hash, instruction: options.fallbackInstruction, maxSteps }))
+        planPath = 'child-fallback'
         rationale = ['child agent: single-node fallback']
         return emit()
       }
@@ -550,12 +598,14 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       // falls through and starts a new plan.
       if (resume !== undefined && (options.kernel ?? 'langgraph') !== 'off' && canResumePlan(resume)) {
         install(resume.plan, resume.state)
+        planPath = 'resume'
         rationale = [`resume ${resume.plan.id} at ${String(resume.state.next)}`]
         return emit()
       }
 
       if (mode === 'propose') {
         install(bootstrapTopology(fingerprint.hash, { maxSteps }))
+        planPath = 'propose'
         rationale = ['bootstrap frame: the model authors the topology']
         return emit()
       }
@@ -569,6 +619,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
         && fingerprint.artifactsOut.length === 0
       if (mode !== 'template' && trivial) {
         install(fallbackPlan({ id: fingerprint.hash, instruction: options.fallbackInstruction, maxSteps }))
+        planPath = 'triage'
         rationale = ['triage: trivial task, single-node plan']
         return emit()
       }
@@ -581,6 +632,10 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
             presetTools: presetToolsOf(graph, task),
             includePresetTools: false,
           })
+          // The envelope issues are the observable record of this decision: the
+          // baseline admission and any rejection are kept even when the branch
+          // degrades, so a `dyn:*` plan can explain itself afterwards.
+          envelopeIssues = selected.issues
           if (!selected.fallbackToStock) {
             const composed = synthesizeComposition({
               fingerprint,
@@ -590,14 +645,17 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
             })
             install(composed.plan)
             envelopeId = selected.envelope.id
+            planPath = 'compose'
             rationale = [
               `envelope ${selected.envelope.id}`,
               ...composed.rationale,
             ]
             return emit()
           }
-        } catch {
-          // fall through to legacy dynamic synthesis
+          const rejection = selected.issues.find(issue => issue.severity === 'error')
+          pathReasons.push(`envelope rejected: ${rejection?.code ?? 'envelope-not-usable'}`)
+        } catch (error: unknown) {
+          pathReasons.push(`envelope failed: ${error instanceof Error ? error.message : String(error)}`)
         }
       }
 
@@ -612,10 +670,11 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
             budget: { maxSteps },
           })
           install(synthesized.plan)
-          rationale = synthesized.rationale
+          planPath = 'synthesized'
+          rationale = rationaleWith(synthesized.rationale)
           return emit()
-        } catch {
-          // fall through to the template/fallback path
+        } catch (error: unknown) {
+          pathReasons.push(`dynamic synthesis failed: ${error instanceof Error ? error.message : String(error)}`)
         }
       }
 
@@ -634,14 +693,17 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
           plan = result.plan
           decision = result.decision
           install(result.plan)
-          rationale = [result.decision.fallback ? 'template fallback' : `template ${result.decision.templateId}`]
+          planPath = 'template'
+          rationale = rationaleWith([result.decision.fallback ? 'template fallback' : `template ${result.decision.templateId}`])
           return emit()
-        } catch {
+        } catch (error: unknown) {
           plan = undefined
+          pathReasons.push(`template match failed: ${error instanceof Error ? error.message : String(error)}`)
         }
       }
       install(fallbackPlan({ id: fingerprint.hash, instruction: options.fallbackInstruction, maxSteps }))
-      rationale = ['single-node fallback']
+      planPath = 'fallback'
+      rationale = rationaleWith(['single-node fallback'])
       return emit()
     },
     current(): PlanNode | undefined {
