@@ -24,7 +24,9 @@
  */
 
 import type {
+  ArtifactSpec,
   ArtifactType,
+  NodeEvidenceContract,
   PlanEdge,
   PlanNode,
   RegistryGraph,
@@ -161,6 +163,44 @@ function firstReadTool(tools: readonly RegistryNode[]): RegistryNode | undefined
   )
 }
 
+/**
+ * The artifact types a capability can leave behind as its node's own outcome.
+ *
+ * `produces` is the tool's declared output. `accepts` is included for mutating
+ * capabilities because an `edit` mutates its accepted `file.text` while
+ * declaring `produces: file.patch` — either is a real mutation outcome, so the
+ * contract is any-of rather than "produces[0]". No tool name or artifact type is
+ * special-cased: the vocabulary comes from the registry declaration.
+ */
+function outcomeSpecs(tool: RegistryNode): ArtifactSpec[] {
+  const types: ArtifactType[] = []
+  for (const spec of tool.produces) types.push(spec.type)
+  for (const spec of tool.accepts) {
+    if (spec.type.startsWith('file.')) types.push(spec.type)
+  }
+  return [...new Set(types)].map(type => ({ type, required: false }))
+}
+
+/**
+ * Derive a stage's evidence contract from the capability that fills it, never
+ * from a literal tool name, a task-kind branch or `produces[0]`.
+ *
+ *   discover/inspect  an observation capability must leave its declared output
+ *                     (a read leaves `file.text`, a grep `search.hits`).
+ *   mutate/author     the step must leave a file artifact the capability can
+ *                     touch (an author names its one required artifact type).
+ *   verify            the declared verifier must run against an artifact an
+ *                     earlier step produced, with a clean status.
+ */
+function evidenceFor(stage: ComposeStage, tool: RegistryNode, artifact?: ArtifactType): NodeEvidenceContract | undefined {
+  if (stage === 'verify') return { verifier: true }
+  if (stage === 'author') {
+    return artifact === undefined ? undefined : { expects: [{ type: artifact, required: true }] }
+  }
+  const expects = outcomeSpecs(tool)
+  return expects.length === 0 ? undefined : { expects }
+}
+
 // ---------------------------------------------------------------------------
 // Stage planning
 // ---------------------------------------------------------------------------
@@ -171,6 +211,13 @@ interface StagePlan {
   readonly reason: string
   /** Author nodes declare the artifact they produce; it becomes their success guard. */
   readonly artifact?: ArtifactType
+  /**
+   * The stage's declared evidence contract, derived from capability data only.
+   * It becomes the node's `evidence` and therefore its success guard. A stage
+   * whose capability declares no outcome type has no contract and emits no
+   * success exit at all.
+   */
+  readonly evidence?: NodeEvidenceContract
 }
 
 /**
@@ -197,7 +244,13 @@ function planStages(input: ComposeInput): { stages: StagePlan[]; issues: Compose
   const add = (stage: ComposeStage, tool: RegistryNode | undefined, reason: string, unique = true, artifact?: ArtifactType): void => {
     if (tool === undefined) return
     if (unique && stages.some(existing => existing.stage === stage)) return
-    stages.push({ stage, tool, reason, ...(artifact === undefined ? {} : { artifact }) })
+    stages.push({
+      stage,
+      tool,
+      reason,
+      ...(artifact === undefined ? {} : { artifact }),
+      ...(evidenceFor(stage, tool, artifact) === undefined ? {} : { evidence: evidenceFor(stage, tool, artifact) }),
+    })
     rationale.push(`${stage}: ${tool.id} (${reason})`)
   }
 
@@ -348,6 +401,7 @@ export function synthesizeComposition(input: ComposeInput): ComposeResult {
     readonly id: string
     readonly toolName: string
     readonly artifact?: ArtifactType
+    readonly evidence?: NodeEvidenceContract
     readonly repairId: string
   }[] = []
   for (const planned of stages) {
@@ -360,6 +414,7 @@ export function synthesizeComposition(input: ComposeInput): ComposeResult {
       executor: 'step',
       capabilityId: planned.tool.id,
       instruction: instructionFor(planned.stage, planned.tool),
+      ...(planned.evidence === undefined ? {} : { evidence: planned.evidence }),
       budget: { maxSteps: 1 },
     })
     nodes.push({
@@ -367,6 +422,9 @@ export function synthesizeComposition(input: ComposeInput): ComposeResult {
       kind: 'agent-step',
       executor: 'step',
       capabilityId: planned.tool.id,
+      // The repair attempt carries the same declared contract: an equivalent
+      // tool may satisfy it, but only by producing the stage's evidence.
+      ...(planned.evidence === undefined ? {} : { evidence: planned.evidence }),
       // One repair attempt only. It may use an equivalent tool: the stage
       // contract is the outcome, not a literal tool name. If it still cannot
       // complete, the tool-enabled answer node finishes the abandoned work.
@@ -378,6 +436,7 @@ export function synthesizeComposition(input: ComposeInput): ComposeResult {
       id: nodeId,
       toolName,
       ...(planned.artifact === undefined ? {} : { artifact: planned.artifact }),
+      ...(planned.evidence === undefined ? {} : { evidence: planned.evidence }),
       repairId,
     })
     records.push({
@@ -418,63 +477,27 @@ export function synthesizeComposition(input: ComposeInput): ComposeResult {
   // appears here. The repair node never returns to its stage: exactly one
   // attempt per stage, then the tool-enabled answer node continues any
   // unfinished work. Escalation is the answer, not a livelock.
-  const successGuard = (node: (typeof stageNodes)[number]): PlanEdge['when'] => {
-    switch (node.stage) {
-      case 'discover':
-        // Discovery's contract is "some tool call succeeded", not a literal
-        // search/read tool name: a shell `grep`, an MCP lookup or a craft tool
-        // is real discovery too. `toolSucceeded` is the generic work classifier
-        // written by the runtime on every step.
-        return { op: 'fact', key: 'toolSucceeded', equals: true }
-      case 'inspect':
-        // Same generic contract: any successful non-error tool call inspected
-        // something. The old `readFile` name set missed shell reads and
-        // third-party readers, so a stage could loop after doing real work.
-        return { op: 'fact', key: 'toolSucceeded', equals: true }
-      case 'mutate':
-        return { op: 'fact', key: 'wroteFile', equals: true }
-      case 'author':
-        // Step- AND type-scoped: a run-cumulative `artifact` (or a boolean for
-        // any artifact type) would let an earlier stage's file — or a different
-        // tool's output — satisfy this author's contract. The runtime writes
-        // `produced.<type>` for the node's declared types on every step.
-        return node.artifact === undefined
-          ? { op: 'fact', key: 'producedArtifact', equals: true }
-          : { op: 'fact', key: `produced.${node.artifact}`, equals: true }
-      case 'verify':
-        // A non-zero shell exit is a normal tool result, so `lastOk` cannot be
-        // the verification signal, and "no tool ran" must not read as a pass:
-        // `verificationRan` requires the step to have invoked something and
-        // `verificationFailed` carries the `[exit code: N]` result.
-        return { op: 'fact', key: 'verificationRan', equals: true }
-    }
-  }
+  // The success guard is uniform and does not branch on stage kind: the node's
+  // own declared evidence contract must be satisfied by its own step. The
+  // runtime evaluates the contract against that step's attributed artifact refs
+  // and verifier calls and writes the single node-scoped fact `evidence.ok`.
+  // No stage-activity aggregate (`toolSucceeded`, `wroteFile`, `verificationRan`,
+  // `produced.<type>`) can satisfy a stage, and a stage with no declared
+  // contract emits no success exit at all.
+  const successGuard = (node: (typeof stageNodes)[number]): PlanEdge['when'] | undefined =>
+    node.evidence === undefined ? undefined : { op: 'fact', key: 'evidence.ok', equals: true }
   /**
-   * The stage's own negative classifier(s), in evaluation order. These are the
-   * no-progress exits that make the success guard exclusive: every fact below is
-   * written by the runtime on every step, so a false success cannot fall through
-   * to the next stage through an unconditional edge.
+   * The stage's own negative classifier(s), in evaluation order. The evidence
+   * fact is written on every step of a composed node, so a step that did not
+   * satisfy its contract cannot fall through to the next stage.
    */
   const failureGuards = (node: (typeof stageNodes)[number]): PlanEdge['when'][] => {
-    switch (node.stage) {
-      case 'discover':
-        return [{ op: 'fact', key: 'toolSucceeded', equals: false }]
-      case 'inspect':
-        return [{ op: 'fact', key: 'toolSucceeded', equals: false }]
-      case 'mutate':
-        return [{ op: 'fact', key: 'wroteFile', equals: false }]
-      case 'author':
-        return [node.artifact === undefined
-          ? { op: 'fact', key: 'producedArtifact', equals: false }
-          : { op: 'fact', key: `produced.${node.artifact}`, equals: false }]
-      case 'verify':
-        return [
-          { op: 'fact', key: 'verificationFailed', equals: true },
-          // Completion is not verification: a verify step that called no tool
-          // has not verified anything and must repair.
-          { op: 'fact', key: 'verificationRan', equals: false },
-        ]
-    }
+    const guards: PlanEdge['when'][] = []
+    if (node.evidence !== undefined) guards.push({ op: 'fact', key: 'evidence.ok', equals: false })
+    // A verifier that ran and failed must repair even though its evidence was
+    // not satisfied either: the failure exit is the same attempt.
+    if (node.stage === 'verify') guards.push({ op: 'fact', key: 'verificationFailed', equals: true })
+    return guards
   }
   for (const [index, node] of stageNodes.entries()) {
     const next = stageNodes[index + 1]?.id ?? answerId

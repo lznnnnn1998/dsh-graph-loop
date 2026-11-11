@@ -230,11 +230,11 @@ test('the composed plan ends at a tool-enabled answer node and gives verify a re
     && edge.when?.op === 'fact' && edge.when.key === 'verificationFailed' && edge.when.equals === true),
   'an exit-code failure must repair the verify stage')
   assert.ok(verifyOut.some(edge => edge.to === 'n_verify_repair'
-    && edge.when?.op === 'fact' && edge.when.key === 'verificationRan' && edge.when.equals === false),
-  'a verify step that ran no tool must repair, not answer')
+    && edge.when?.op === 'fact' && edge.when.key === 'evidence.ok' && edge.when.equals === false),
+  'a verify step that did not satisfy the node evidence contract must repair, not answer')
   assert.ok(verifyOut.some(edge => edge.to === 'n_answer'
-    && edge.when?.op === 'fact' && edge.when.key === 'verificationRan' && edge.when.equals === true),
-  'the verify success exit requires that verification actually ran')
+    && edge.when?.op === 'fact' && edge.when.key === 'evidence.ok' && edge.when.equals === true),
+  'the verify success exit requires the node evidence contract to be satisfied')
   assert.ok(result.plan.nodes.some(node => node.id === 'n_verify_repair'))
   assert.equal(validateTaskPlan(graph, result.plan).ok, true)
 })
@@ -300,10 +300,12 @@ test('every composed stage classifies its own progress; the budget exit precedes
     graph,
     envelope: envelope.envelope,
   })
+  // Every composed stage's success guard is the node's own declared evidence
+  // contract (`evidence.ok`), never a step aggregate (audit 20261111-1200 F1).
   const stages = {
-    n_inspect: { key: 'toolSucceeded', next: 'n_mutate' },
-    n_mutate: { key: 'wroteFile', next: 'n_verify' },
-    n_verify: { key: 'verificationRan', next: 'n_answer' },
+    n_inspect: { key: 'evidence.ok', next: 'n_mutate' },
+    n_mutate: { key: 'evidence.ok', next: 'n_verify' },
+    n_verify: { key: 'evidence.ok', next: 'n_answer' },
   }
   for (const [stage, expected] of Object.entries(stages)) {
     const out = result.plan.edges.filter(edge => edge.from === stage)
@@ -337,7 +339,7 @@ test('every composed stage classifies its own progress; the budget exit precedes
   assert.equal(validateTaskPlan(graph, result.plan).ok, true)
 })
 
-test('discover success uses the generic toolSucceeded classifier', () => {
+test('discover success is gated on the discover node evidence contract', () => {
   const graph = graphOf({ tools: CORE_TOOLS })
   const envelope = buildEnvelope({ roles: [role('workspace-read'), role('workspace-search')] }, graph)
   const result = synthesizeComposition({
@@ -348,7 +350,13 @@ test('discover success uses the generic toolSucceeded classifier', () => {
   assert.deepEqual(result.stages.map(stage => stage.stage), ['discover', 'inspect'])
   const out = result.plan.edges.filter(edge => edge.from === 'n_discover')
   assert.ok(out.some(edge => edge.to === 'n_inspect' && edge.when?.op === 'fact'
-    && edge.when.key === 'toolSucceeded' && edge.when.equals === true))
-  assert.ok(!out.some(edge => edge.when?.op === 'fact' && edge.when.key === 'readFile'))
+    && edge.when.key === 'evidence.ok' && edge.when.equals === true))
+  // No stage-activity aggregate may stand in for the declared contract.
+  for (const aggregate of ['toolSucceeded', 'wroteFile', 'verificationRan', 'readFile']) {
+    assert.ok(!out.some(edge => edge.when?.op === 'fact' && edge.when.key === aggregate),
+      `discover must not be gated on ${aggregate}`)
+  }
+  const discover = result.plan.nodes.find(node => node.id === 'n_discover')
+  assert.ok(discover?.evidence !== undefined, 'the discover node declares its evidence contract')
   assert.equal(validateTaskPlan(graph, result.plan).ok, true)
 })

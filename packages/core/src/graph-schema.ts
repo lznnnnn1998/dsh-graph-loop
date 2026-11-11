@@ -338,6 +338,30 @@ export type Condition =
    */
   | { readonly op: 'budget'; readonly axis: 'steps'; readonly remainingAtMost: number }
 
+/**
+ * Declared evidence contract for one plan node (audit 20261111-1200 F1-F4).
+ *
+ * A control edge out of a node may claim success only when this node's own step
+ * satisfies the node's declared contract. The contract is data: it names the
+ * artifact types the step must leave behind and/or that the node's declared
+ * capability must verify an earlier artifact. It is not a tool-name, task-kind or
+ * aggregate-step signal; an absent contract declares no evidence requirement, so
+ * a node without one cannot emit an evidence-gated success exit.
+ */
+export interface NodeEvidenceContract {
+  /**
+   * Artifact types this node's step must leave behind. `required: true` specs
+   * must all appear among the step's produced refs; with no required spec, at
+   * least one declared type must appear (any-of).
+   */
+  readonly expects?: readonly ArtifactSpec[]
+  /**
+   * Verify clause: the node's declared capability must run against a ref an
+   * earlier step produced and report a clean status.
+   */
+  readonly verifier?: boolean
+}
+
 export interface PlanNode {
   readonly id: NodeId
   readonly kind: PlanNodeKind
@@ -363,6 +387,8 @@ export interface PlanNode {
   readonly budget?: NodeBudget
   /** Post-condition validator id (host-side, deterministic). */
   readonly validate?: string
+  /** Declared evidence this node's own step must produce before a success exit. */
+  readonly evidence?: NodeEvidenceContract
   /** Mutating nodes must say how a retry is made safe. */
   readonly idempotency?: 'idempotent' | 'verify-before-retry' | 'manual'
   readonly retry?: { readonly maxAttempts: number; readonly backoffMs?: number }
@@ -779,6 +805,20 @@ export function validateTaskPlan(graph: RegistryGraph, plan: TaskPlan): Validati
         }
       }
     }
+    if (node.evidence !== undefined) {
+      // A declared evidence contract must be able to certify something. An
+      // empty declaration would let a success edge look evidence-gated while it
+      // accepted anything, so it is rejected rather than treated as absent.
+      const expects = node.evidence.expects ?? []
+      if (expects.length === 0 && node.evidence.verifier !== true) {
+        errors.push({ code: 'P027', path: `${path}.evidence`, message: 'node evidence contract declares neither expects nor verifier' })
+      }
+      for (const spec of expects) {
+        if (!(ARTIFACT_TYPES as readonly string[]).includes(spec.type)) {
+          errors.push({ code: 'P028', path: `${path}.evidence.expects`, message: `unknown artifact type "${String(spec.type)}"` })
+        }
+      }
+    }
     if (node.validate === undefined && node.kind === 'tool-call') {
       const capability = node.capabilityId ? graph.nodes.find((candidate) => candidate.id === node.capabilityId) : undefined
       if (capability?.tool?.permission === 'mutating') {
@@ -1152,6 +1192,14 @@ export const TASK_PLAN_JSON_SCHEMA = {
           optional: { type: 'boolean' },
           hardGate: { type: 'boolean' },
           validate: { type: 'string' },
+          evidence: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              expects: { type: 'array', items: { $ref: '#/$defs/artifactSpec' } },
+              verifier: { type: 'boolean' },
+            },
+          },
           idempotency: { enum: ['idempotent', 'verify-before-retry', 'manual'] },
           loop: {
             type: 'object',
@@ -1215,6 +1263,16 @@ export const TASK_PLAN_JSON_SCHEMA = {
     },
   },
   $defs: {
+    artifactSpec: {
+      type: 'object',
+      required: ['type', 'required'],
+      additionalProperties: false,
+      properties: {
+        type: { enum: [...ARTIFACT_TYPES] },
+        required: { type: 'boolean' },
+        contract: { type: 'string' },
+      },
+    },
     handoffField: {
       type: 'object',
       required: ['name', 'type'],

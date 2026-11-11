@@ -26,9 +26,9 @@ import { FrontierTopology, bootstrapTopology, recoveryTopology, repairTopology, 
 import { synthesizeComposition } from 'dsh-graph-loop-core/compose'
 import { selectEnvelopeForTask, type EnvelopeIssue } from 'dsh-graph-loop-core/envelope'
 import { KernelTopology, canKernelDrive } from './kernel/topology.ts'
-import { deriveCapabilityFacts, deriveStepArtifacts, deriveStepFacts } from './step-facts.ts'
+import { deriveCapabilityFacts, deriveEvidenceCalls, deriveStepArtifacts, deriveStepFacts } from './step-facts.ts'
 import { DEFAULT_SHELL_TOOLS } from './loop/step-tools.ts'
-import type { RoutingArtifact } from 'dsh-graph-loop-core/condition'
+import { satisfiesNodeEvidence, type RoutingArtifact } from 'dsh-graph-loop-core/condition'
 import type { ArtifactType, Json } from 'dsh-graph-loop-core/graph-schema'
 import { fallbackPlan } from 'dsh-graph-loop-core/fallback'
 import type { GraphResumeState } from './graph-state-log.ts'
@@ -310,6 +310,12 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
    * from an earlier stage.
    */
   let producedTypes = new Set<ArtifactType>()
+  /**
+   * Artifact refs earlier steps of this turn produced. A verifier's evidence is
+   * the artifact it observed, so the refs must belong to an earlier step, not to
+   * the verifying step's own call.
+   */
+  let producedRefs: RoutingArtifact[] = []
   /** Executed node ids in run order; the snapshot's `visited` must describe the run, not the plan. */
   let visited: string[] = []
   /** Tool names this turn has seen, so a later step can reset their step-scoped facts. */
@@ -476,7 +482,12 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
    * settles its boundary, without inventing a trail row.
    */
   async function advanceNode(
-    record: { readonly id: string; readonly executor?: string; readonly capabilityId?: string } | undefined,
+    record: {
+      readonly id: string
+      readonly executor?: string
+      readonly capabilityId?: string
+      readonly evidence?: PlanNode['evidence']
+    } | undefined,
     lastNodeId: string | undefined,
     outcome: NodeOutcome,
     adoptProposal: boolean,
@@ -544,6 +555,37 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       facts[`produced.${artifact.type}`] = true
       producedTypes.add(artifact.type)
     }
+    // The node's own declared evidence contract, evaluated against this step's
+    // attributed artifacts and calls (F1-F4). It is written on every step so a
+    // composed success edge (`evidence.ok == true`) and its failure exit
+    // (`evidence.ok == false`) are both decidable; an undeclared node is false,
+    // because a node that declared no evidence cannot certify success.
+    // Node-scoped evidence refs differ from the cumulative `artifact` set: a
+    // capability that authored its declared output may not be attributed a
+    // filesystem path (a craft/MCP renderer returns its artifact, not a path),
+    // and a read-only observation's output is the observation itself. Credit a
+    // contract type only when (a) the node declared that type and (b) the node's
+    // own capability tool ran successfully — never a type the node did not
+    // declare, and never from an unrelated tool call.
+    const evidenceProduced: RoutingArtifact[] = [...artifacts]
+    const declaredEvidence = record?.evidence?.expects ?? []
+    const declaredTool = capability?.tool?.name
+    const realized = declaredTool !== undefined && observed.some(tool => tool.name === declaredTool && !tool.isError)
+    if (realized) {
+      for (const spec of declaredEvidence) {
+        if (evidenceProduced.some(artifact => artifact.type === spec.type)) continue
+        evidenceProduced.push({ type: spec.type, ref: `${record?.capabilityId ?? record?.id ?? 'step'}:${spec.type}` })
+      }
+    }
+    facts['evidence.ok'] = satisfiesNodeEvidence(record?.evidence, {
+      produced: evidenceProduced,
+      prior: producedRefs,
+      calls: deriveEvidenceCalls(observed, shellTools),
+      ...(declaredTool === undefined ? {} : { capabilityTool: declaredTool }),
+    })
+    // Older steps' refs become `prior` for the next step; the current step's own
+    // refs must not certify its own verification.
+    producedRefs = [...producedRefs, ...artifacts]
     await Promise.resolve(topology.advance({
       ok: outcome.ok,
       ...(outcome.failedTool === undefined ? {} : { failedTool: outcome.failedTool }),
@@ -573,6 +615,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       pathReasons = []
       trail = []
       producedTypes = new Set<ArtifactType>()
+      producedRefs = []
       visited = []
       knownToolNames.clear()
       // Per-turn state: a new turn gets its own replan allowance and adoption

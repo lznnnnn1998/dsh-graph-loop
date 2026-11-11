@@ -94,7 +94,7 @@ interface Outcome {
 interface StepOutcome {
   readonly ok: boolean
   readonly failedTool?: string
-  readonly tools?: readonly { readonly name: string; readonly isError: boolean; readonly output?: string }[]
+  readonly tools?: readonly { readonly name: string; readonly isError: boolean; readonly arguments?: string; readonly output?: string }[]
 }
 
 /** The slice of the two topology engines this matrix drives. */
@@ -552,20 +552,33 @@ for (const engine of ENGINES) {
   engineTest(`a composed verify failure repairs once, and the repair work answers [${engine}]`, engine, async () => {
     const { graph, plan } = coreComposition()
     assert.equal(canKernelDrive(plan), true, 'the composed plan must be kernel-drivable')
+    // The verifier must observe an artifact this run produced (audit
+    // 20261111-1200 F4), so the mutation and the verification name the file.
+    const edited = join(tmpdir(), 'loader.ts')
     const verifyFailure = (code: number): StepOutcome => ({
       // DSH reports a non-zero shell exit as a normal result: ok is true and the
-      // rendered text carries `[exit code: N]`. The step facts, not `ok`, must
-      // drive the verify -> repair exit.
+      // rendered text carries `[exit code: N]`. The step's own evidence, not
+      // `ok`, must drive the verify -> repair exit.
       ok: true,
-      tools: [{ name: 'bash', isError: false, output: `FAIL tests/loader.test.ts\n[exit code: ${code}]` }],
+      tools: [{
+        name: 'bash',
+        isError: false,
+        arguments: JSON.stringify({ command: `npm test ${edited}` }),
+        output: `FAIL tests/loader.test.ts\n[exit code: ${code}]`,
+      }],
     })
     const verifyPass = (): StepOutcome => ({
       ok: true,
-      tools: [{ name: 'bash', isError: false, output: 'PASS\n[exit code: 0]' }],
+      tools: [{
+        name: 'bash',
+        isError: false,
+        arguments: JSON.stringify({ command: `npm test ${edited}` }),
+        output: 'PASS\n[exit code: 0]',
+      }],
     })
     const stream: StepOutcome[] = [
-      { ok: true, tools: [{ name: 'read', isError: false }] },     // inspect (toolSucceeded)
-      { ok: true, tools: [{ name: 'edit', isError: false }] },     // mutate (wroteFile)
+      { ok: true, tools: [{ name: 'read', isError: false }] },     // inspect (declared reader ran)
+      { ok: true, tools: [{ name: 'edit', isError: false, arguments: JSON.stringify({ file_path: edited }) }] }, // mutate (attributed artifact)
       verifyFailure(1),                                            // verify -> repair
       verifyPass(),                                                // repair does the work -> answer
       { ok: true },                                                // answer
@@ -588,10 +601,11 @@ for (const engine of ENGINES) {
   engineTest(`a no-op repair of a failed verify answers instead of returning to verify [${engine}]`, engine, async () => {
     const { graph, plan } = coreComposition()
     assert.equal(canKernelDrive(plan), true, 'the composed plan must be kernel-drivable')
+    const edited = join(tmpdir(), 'loader.ts')
     const stream: StepOutcome[] = [
       { ok: true, tools: [{ name: 'read', isError: false }] },     // inspect
-      { ok: true, tools: [{ name: 'edit', isError: false }] },     // mutate
-      { ok: true, tools: [{ name: 'bash', isError: false, output: 'FAIL\n[exit code: 1]' }] }, // verify -> repair
+      { ok: true, tools: [{ name: 'edit', isError: false, arguments: JSON.stringify({ file_path: edited }) }] }, // mutate
+      { ok: true, tools: [{ name: 'bash', isError: false, arguments: JSON.stringify({ command: `npm test ${edited}` }), output: 'FAIL\n[exit code: 1]' }] }, // verify -> repair
       { ok: true },                                                // repair: no tool, no progress -> answer
       { ok: true },                                                // answer
     ]
@@ -618,10 +632,10 @@ test('a non-verify stage whose shell command exits 1 is not sent to repair', asy
     // A successful mutate step that happened to run a probe command: DSH reports
     // a normal result carrying `[exit code: 1]`. That is not a tool-invocation
     // failure and must not send a non-verify stage to repair. The edit is the
-    // stage's own progress fact; without it the stage repairs for a different
-    // reason (no mutation happened), which is not what this test is about.
+    // stage's own attributed artifact; without it the stage repairs for a
+    // different reason (no mutation happened), which this test is not about.
     await driver.advance({ ok: true, tools: [
-      { name: 'edit', isError: false },
+      { name: 'edit', isError: false, arguments: JSON.stringify({ file_path: join(tmpdir(), 'probe.ts') }) },
       { name: 'bash', isError: false, output: 'no match\n[exit code: 1]' },
     ] })
     assert.equal(driver.current()?.id, 'n_verify', `engine=${engine}: mutate must advance, not repair`)
@@ -684,10 +698,12 @@ for (const engine of ENGINES) {
     const driver = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
     driver.adopt(plan)
     await driver.advance({ ok: true, tools: [{ name: 'read', isError: false }] })
-    await driver.advance({ ok: true, tools: [{ name: 'edit', isError: false }] })
+    await driver.advance({ ok: true, tools: [
+      { name: 'edit', isError: false, arguments: JSON.stringify({ file_path: join(tmpdir(), 'loader.ts') }) },
+    ] })
     assert.equal(driver.current()?.id, 'n_verify')
-    // `verificationFailed` is false when no verification ran; the verify success
-    // exit must additionally require `verificationRan` (P1-3).
+    // The verify success exit requires the node's declared verifier evidence; a
+    // step that ran no tool satisfies nothing (P1-3, audit 20261111-1200 F4).
     await driver.advance({ ok: true })
     assert.equal(driver.current()?.id, 'n_verify_repair')
   })
@@ -737,9 +753,12 @@ for (const engine of ENGINES) {
     })
     const driver = createGraphTurnDriver({ kernel: kernelOption(engine), maxSteps: 5, graphProvider: () => graph })
     driver.adopt(composed.plan)
+    const edited = join(tmpdir(), 'loader.ts')
     await driver.advance({ ok: true, tools: [{ name: 'read', isError: false }] })
-    await driver.advance({ ok: true, tools: [{ name: 'edit', isError: false }] })
-    await driver.advance({ ok: true, tools: [{ name: 'bash', isError: false, output: 'FAIL\n[exit code: 1]' }] })
+    await driver.advance({ ok: true, tools: [{ name: 'edit', isError: false, arguments: JSON.stringify({ file_path: edited }) }] })
+    await driver.advance({ ok: true, tools: [
+      { name: 'bash', isError: false, arguments: JSON.stringify({ command: `npm test ${edited}` }), output: 'FAIL\n[exit code: 1]' },
+    ] })
     // Two steps remain at the failed verify: one repair, then the answer. The
     // failed verify and its non-zero exit remain observable in the trail even
     // though the turn eventually reports `done` (see docs/KERNEL-COVERAGE.md,
@@ -947,10 +966,13 @@ for (const engine of ENGINES) {
     const driver = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
     driver.adopt(plan)
     await driver.advance({ ok: true, tools: [{ name: 'read', isError: false }] })
-    await driver.advance({ ok: true, tools: [{ name: 'edit', isError: false }] })
+    await driver.advance({ ok: true, tools: [
+      { name: 'edit', isError: false, arguments: JSON.stringify({ file_path: join(tmpdir(), 'loader.ts') }) },
+    ] })
     assert.equal(driver.current()?.id, 'n_verify')
-    // "A tool ran" is not "the verification ran": the planned capability is
-    // `bash`, so a read-only step must repair rather than pass.
+    // "A tool ran" is not "the verification ran": the declared verifier is
+    // `bash` with a clean exit over a produced artifact, so a read-only step
+    // must repair rather than pass.
     await driver.advance({ ok: true, tools: [{ name: 'read', isError: false }] })
     assert.equal(driver.current()?.id, 'n_verify_repair')
   })

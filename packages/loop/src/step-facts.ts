@@ -8,7 +8,7 @@
  * @module dsh-graph-loop/step-facts
  */
 
-import type { RoutingArtifact } from 'dsh-graph-loop-core/condition'
+import type { EvidenceCall, RoutingArtifact } from 'dsh-graph-loop-core/condition'
 import type { ArtifactType, Json, RegistryNode } from 'dsh-graph-loop-core/graph-schema'
 import { DEFAULT_SHELL_TOOLS, mutationObserved, readObserved } from './loop/step-tools.ts'
 
@@ -145,6 +145,44 @@ export function deriveStepFacts(
   // anything at all; unlike `lastOk` it survives an unrelated failing call.
   facts['toolSucceeded'] = tools.some(tool => !tool.isError)
   return facts
+}
+
+/** Bound on the text one call contributes to evidence attribution. */
+const EVIDENCE_TEXT_LIMIT = 4_000
+
+/**
+ * Project one step's calls into the evidence view a node's declared contract is
+ * evaluated against. Only what the call itself reported is represented: its
+ * success, its own process exit status (when the tool reports one) and a bounded
+ * argument+output text used to attribute a verifier to an earlier artifact.
+ */
+export function deriveEvidenceCalls(
+  tools: readonly ObservedTool[],
+  shellTools: ReadonlySet<string> = new Set(DEFAULT_SHELL_TOOLS),
+): EvidenceCall[] {
+  return tools.map(tool => {
+    // An exit status belongs to a process. A `read`/`grep`/`web_fetch` result is
+    // text that may quote a `[exit code: 1]` from a log, so only shell-like
+    // tools are exit-status authorities (same rule as `deriveStepFacts`).
+    const reportsExit = shellTools.has(tool.name) || tool.name === 'run_code'
+    let exitCode: number | undefined
+    if (reportsExit && !tool.isError && tool.output !== undefined) {
+      for (const match of tool.output.matchAll(/\[exit code:\s*(-?\d+)\]/gu)) {
+        const code = Number(match[1])
+        // Any reported status counts; a non-zero one makes the call unclean.
+        if (exitCode === undefined || code !== 0) exitCode = code
+        if (code !== 0) break
+      }
+    }
+    const text = `${tool.arguments ?? ''}\n${tool.output ?? ''}`.slice(0, EVIDENCE_TEXT_LIMIT)
+    return {
+      tool: tool.name,
+      ok: !tool.isError,
+      ...(reportsExit ? { reportsExit } : {}),
+      ...(exitCode === undefined ? {} : { exitCode }),
+      ...(text.trim() === '' ? {} : { text }),
+    }
+  })
 }
 
 /**

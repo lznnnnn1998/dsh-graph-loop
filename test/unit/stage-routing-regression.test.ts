@@ -154,22 +154,28 @@ for (const engine of ENGINES) {
 }
 
 // ---------------------------------------------------------------------------
-// 2. Shell mutations count as wroteFile
+// 2. A mutation advances only with an artifact attributed to the stage
 // ---------------------------------------------------------------------------
 
 for (const engine of ENGINES) {
-  engineTest(`a shell mutation satisfies the mutate stage [${engine}]`, engine, async () => {
+  engineTest(`a shell mutation still has to be attributed to a task artifact [${engine}]`, engine, async () => {
     const { graph, plan } = coreComposition()
     const driver = driverFor(engine, graph, plan)
 
     await driver.advance(read)
     assert.equal(driver.current()?.id, 'n_mutate', `engine=${engine}`)
 
-    // `printf x > out.txt` is a real file write. `deriveStepFacts` must agree
-    // with the benchmark retry's `mutationObserved`, or the stage loops.
+    // `printf x > out.txt` is a real file write, but the stage cannot attribute
+    // it to any artifact of its declared contract, so it is activity, not the
+    // stage's evidence (audit 20261111-1200 F3).
     await driver.advance(bash('printf x > out.txt'))
+    assert.equal(driver.current()?.id, 'n_mutate_repair',
+      `engine=${engine}: an unattributed shell write must not advance mutate`)
+
+    // The writer's path artifact is the stage's evidence.
+    await driver.advance(write('out.txt'))
     assert.equal(driver.current()?.id, 'n_verify',
-      `engine=${engine}: a shell write must set wroteFile and advance`)
+      `engine=${engine}: an attributed write advances mutate`)
 
     driver.endTurn()
   })
