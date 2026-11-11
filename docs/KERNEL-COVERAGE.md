@@ -68,9 +68,11 @@ attempt per stage, then the answer continues abandoned work.
 Success does not follow from step activity: each composed node carries a declared
 `NodeEvidenceContract` (`PlanNode.evidence`) and its success guard is the node-scoped fact
 `evidence.ok`. `synthesizeComposition` fills the contract from capability data only — the artifact
-types the stage's capability declares for discover/inspect/mutate, the author's one required
-artifact type, and for verify a verifier clause (the declared verifier must have run against an
-artifact an earlier step produced, with a clean status). `satisfiesNodeEvidence`
+types the stage's capability declares for discover/inspect/mutate (each ref must be measured in the
+world at the step boundary, so a phantom write certifies nothing), the author's one required
+artifact type, and for verify a verifier clause (the declared verifier must carry, in one of its
+declared locator parameters, the exact ref of an artifact an earlier step produced, with a clean
+status; free text is never read as evidence). `satisfiesNodeEvidence`
 (`packages/core/src/condition.ts`) evaluates it over that node's own step projection
 (`packages/loop/src/step-facts.ts`). A stage with no declared contract emits no success exit;
 `verificationFailed` remains the verify failure exit. A non-zero shell exit
