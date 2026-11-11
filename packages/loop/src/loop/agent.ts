@@ -430,14 +430,14 @@ export class ReactLoopAgent implements Agent {
   }
 
   /**
-   * Fail the turn when the graph ended in `failed` status. The scheduler's
-   * recovery/replan pass runs at the failed node's boundary, so a run that is
-   * still failed here has no recovery left: report it instead of counting the
-   * turn as completed.
+   * Fail the turn on a `failed` plan. Callers have already read the driver's
+   * plan state as `failed`; this always throws, so a failed plan can never fall
+   * through into another step. The scheduler's recovery/replan
+   * pass runs at the failed node's boundary, so a run that is still failed here
+   * has no recovery left. The plan draining is never a failure.
    */
-  private throwGraphFailure(): void {
-    if (this.turnGraph?.status?.() !== 'failed') return
-    const node = this.turnGraph.snapshot().node
+  private failTurn(): never {
+    const node = this.turnGraph?.snapshot().node
     throw new GraphRunFailure(node === undefined
       ? 'graph run ended in "failed" status'
       : `graph run ended in "failed" status at node "${node}"`)
@@ -564,10 +564,12 @@ export class ReactLoopAgent implements Agent {
       }
       while (true) {
         signal.throwIfAborted()
-        if (this.turnGraph?.done() === true) {
-          // A graph that completed before a step still owns the turn end; a
-          // failed one fails it instead of being reported as a completion.
-          this.throwGraphFailure()
+        const planAtBoundary = this.turnGraph?.planState()
+        // A declared terminal reached before a step still ends the turn, and a
+        // failed plan fails it. A `finished` plan does not: the step below is a
+        // stock DSH step with no graph node.
+        if (planAtBoundary === 'failed') this.failTurn()
+        if (planAtBoundary === 'terminal') {
           if (turnEnds === null) turnEnds = { kind: 'completed' }
           break
         }
@@ -582,8 +584,9 @@ export class ReactLoopAgent implements Agent {
           const batch = this.turnGraph?.takeSubagentBatch() ?? []
           if (batch.length > 0) {
             await this.runSubagentBatch(batch)
-            if (this.turnGraph?.done() === true) {
-              this.throwGraphFailure()
+            const batchState = this.turnGraph?.planState()
+            if (batchState === 'failed') this.failTurn()
+            if (batchState === 'terminal') {
               if (turnEnds === null) turnEnds = { kind: 'completed' }
               await this.dispatch.serial('agent/turn-stopping', { turn, signal })
               signal.throwIfAborted()
@@ -734,17 +737,26 @@ export class ReactLoopAgent implements Agent {
           recordGraphBoundary(this.session, this.turnGraph, stepEndSeq)
         }
         if (this.turnGraph !== undefined) {
-          if (this.turnGraph.done()) {
-            // A finished graph owns the turn end. If its terminal node ended on a
-            // tool call rather than free text, the step result is null; the turn
-            // still completed successfully, so do not log a null reason. A run
-            // that ended failed is the one exception: recovery/replan already
-            // had its chance, so the turn ends with a structured error.
-            this.throwGraphFailure()
+          const settled = this.turnGraph.planState()
+          if (settled === 'failed') this.failTurn()
+          if (settled === 'terminal') {
+            // A declared terminal is the turn's answer endpoint: the turn ends
+            // exactly once, with no step after it. If the terminal's step ended
+            // on a tool call rather than free text, the step result is null; the
+            // turn still completed successfully, so do not log a null reason.
             if (turnEnds === null) turnEnds = { kind: 'completed' }
             await this.dispatch.serial('agent/turn-stopping', { turn, signal })
             signal.throwIfAborted()
             break
+          }
+          // Plan `finished` with the turn still open: no node is left, so the
+          // next step is a stock DSH step. The turn ends on the stock stopping
+          // rule — the final step made no tool calls — never on the plan
+          // draining. A `running` plan always has a node for the next step.
+          if (settled === 'finished' && turnEnds && this.inbox.nextStep.length === 0) {
+            await this.dispatch.serial('agent/turn-stopping', { turn, signal })
+            signal.throwIfAborted()
+            if (turnEnds && this.inbox.nextStep.length === 0) break
           }
         } else if (turnEnds && this.inbox.nextStep.length === 0) {
           await this.dispatch.serial('agent/turn-stopping', { turn, signal })

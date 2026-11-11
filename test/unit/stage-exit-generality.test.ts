@@ -111,7 +111,7 @@ async function failStageToTerminal(engine: Engine, plan: TaskPlan, terminal: str
     `[${engine}] the terminal must be reachable within two steps, got ${driver.snapshot().step}`)
 
   await driver.advance({ ok: true })
-  assert.equal(driver.done(), true, `[${engine}] answering the terminal must complete the turn`)
+  assert.equal(driver.planState(), 'terminal', `[${engine}] answering the terminal must complete the turn`)
   assert.equal(driver.status?.(), 'done', `[${engine}] the answered turn is done; trace=${trace(driver)}`)
 }
 

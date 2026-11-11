@@ -7,10 +7,10 @@
  *   propose   — start from a bootstrap frame and let the model author the
  *               topology through `graph_plan`; the harness validates it
  *
- * In every mode the driver exposes `current()/instruction()/advance()/done()`.
+ * In every mode the driver exposes `current()/instruction()/advance()/planState()`.
  * A model-authored proposal may replace the live topology between steps.
  */
-import type { GraphState, PlanNode, PlanStatus, RegistryGraph, TaskPlan } from 'dsh-graph-loop-core/graph-schema'
+import type { GraphState, PlanNode, PlanRunState, PlanStatus, RegistryGraph, TaskPlan } from 'dsh-graph-loop-core/graph-schema'
 import {
   DEFAULT_WEIGHTS,
   extractFingerprint,
@@ -73,6 +73,12 @@ export interface GraphTurnSnapshot {
   readonly plan: TaskPlan
   readonly node: string | undefined
   readonly step: number
+  /**
+   * Where the *plan* stands; orthogonal to the turn. `finished` means the plan
+   * has no enabled node left but the turn is still open — the next step is a
+   * stock DSH step with no graph node. Only `terminal` ends the turn.
+   */
+  readonly planState: PlanRunState
   readonly status: PlanStatus
   readonly visited: readonly string[]
   readonly rationale: readonly string[]
@@ -127,7 +133,16 @@ export interface GraphTurnDriver {
   takeSubagentBatch(): PlanNode[]
   /** Complete one node from a batch, with its outcome. */
   completeNode(id: string, ok: boolean): Promise<void>
-  done(): boolean
+  /**
+   * Where the plan stands. Never a turn-end predicate: `finished` only changes
+   * what the next step is planned from. `terminal` is the plan's endpoint and
+   * the turn boundary ends the turn on it.
+   */
+  planState(): PlanRunState
+  /** True when no enabled node is left (`finished` or `terminal`). */
+  planFinished(): boolean
+  /** True when a declared terminal completed. */
+  terminalReached(): boolean
   /**
    * Current run status. `failed` means the graph ended unsuccessfully after
    * recovery/replan had its chance; the loop turns that into a failed turn.
@@ -210,7 +225,7 @@ interface TurnTopology {
     readonly artifacts?: readonly RoutingArtifact[]
     readonly atSeq?: number
   }): PlanNode | undefined | Promise<PlanNode | undefined>
-  done(): boolean
+  planState(): PlanRunState
   status(): 'running' | 'done' | 'failed'
   steps(): number
   snapshot(): TaskPlan
@@ -319,6 +334,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       plan: topology?.snapshot() ?? currentPlan,
       node: topology?.current()?.id ?? lastNode,
       step: topology?.steps() ?? 0,
+      planState: currentPlanState(),
       status: topology?.status() ?? 'failed',
       visited: [...visited],
       rationale,
@@ -334,6 +350,11 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
   /** Rationale for the installed plan, with any earlier branch decline in front. */
   function rationaleWith(lines: readonly string[]): string[] {
     return [...pathReasons, ...lines]
+  }
+
+  /** Plan state at the current boundary; no plan means no plan work left. */
+  function currentPlanState(): PlanRunState {
+    return topology?.planState() ?? 'finished'
   }
 
   function emit(): GraphTurnSnapshot {
@@ -532,22 +553,11 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     }))
     await recoverAfterFailure(outcome)
     if (adoptProposal) adoptProposalAtBoundary()
-    // The plan is a policy, not a script. If it runs out while the model is
-    // still calling tools, extend it with one neutral continuation node instead
-    // of ending the turn as if the work were finished. The turn still stops when
-    // the model stops calling tools or the per-turn step budget is exhausted.
-    if (outcome.ok
-      && observed.length > 0
-      && topology.done()
-      && trail.length < maxSteps) {
-      const remaining = Math.max(1, maxSteps - trail.length)
-      install(fallbackPlan({
-        id: `${plan?.id ?? 'continue'}:continue:${trail.length}`,
-        instruction: 'The current plan is exhausted but the task is not necessarily finished. Continue with the next concrete step using the available tools; when the work is complete, stop calling tools.',
-        maxSteps: remaining,
-      }))
-      rationale = [...rationale, 'plan exhausted while the model was still acting: continuation step']
-    }
+    // No continuation plan is installed here. A plan that drains while the
+    // model is still acting settles `finished`; the turn boundary keeps the
+    // turn open and runs the next step with no graph node. The turn ends on a
+    // turn-level condition (terminal, a final step with no tool calls, failure,
+    // abort), never because a plan ran out of nodes.
   }
 
   return {
@@ -771,8 +781,14 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       completeQueue = result.then(() => undefined, () => undefined)
       return result
     },
-    done(): boolean {
-      return topology === undefined || topology.done()
+    planState(): PlanRunState {
+      return currentPlanState()
+    },
+    planFinished(): boolean {
+      return currentPlanState() !== 'running'
+    },
+    terminalReached(): boolean {
+      return currentPlanState() === 'terminal'
     },
     status(): PlanStatus {
       return topology?.status() ?? 'failed'

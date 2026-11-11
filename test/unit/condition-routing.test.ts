@@ -165,7 +165,7 @@ test('a bare repair loop burns the budget and settles failed, never done-without
     advances += 1
   }
   assert.equal(advances, 6)
-  assert.equal(topology.done(), true)
+  assert.equal(topology.planState(), 'failed')
   // A cap without a reached terminal is not success (audit 2026-11-09 §4.3).
   assert.equal(topology.status(), 'failed')
 })
@@ -205,15 +205,4 @@ test('step facts classify shell effects, arrows, read_image and toolSucceeded', 
     true,
   )
   assert.equal(mixed['toolSucceeded'], true, 'any non-error tool is a success')
-})
-
-test('an exhausted plan continues while the model is still calling tools', async () => {
-  const driver = createGraphTurnDriver({ mode: 'template', maxSteps: 4 })
-  await driver.beginTurn({ text: 'keep working' })
-  assert.equal(driver.current()?.id, 'node:respond')
-  await driver.advance({ ok: true, tools: [{ name: 'bash', isError: false }] })
-  assert.equal(driver.done(), false)
-  assert.ok(driver.snapshot().rationale.some(line => line.includes('continuation')))
-  await driver.advance({ ok: true })
-  assert.equal(driver.done(), true)
 })

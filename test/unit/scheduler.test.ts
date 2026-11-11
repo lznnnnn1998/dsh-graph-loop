@@ -37,7 +37,7 @@ test('a code question routes to t_investigate and walks its nodes', async () => 
   await driver.advance({ ok: true })
   assert.equal(driver.current()?.id, 'n_done')
   await driver.advance({ ok: true })
-  assert.equal(driver.done(), true)
+  assert.equal(driver.planState(), 'terminal')
   assert.deepEqual(driver.snapshot().visited, ['n_discover', 'n_inspect', 'n_done'])
 })
 
@@ -62,7 +62,7 @@ test('without a registry the driver falls back to a single stock node', async ()
   assert.equal(started.fallback, true)
   assert.equal(driver.current()?.id, 'node:respond')
   await driver.advance({ ok: true })
-  assert.equal(driver.done(), true)
+  assert.equal(driver.planState(), 'terminal')
 })
 
 test('dynamic mode synthesizes a topology from the capability graph', async () => {
@@ -75,7 +75,7 @@ test('dynamic mode synthesizes a topology from the capability graph', async () =
   assert.equal(started.fallback, false)
   assert.ok(started.rationale.some(line => line.includes('envelope')))
   let steps = 0
-  while (!driver.done() && steps < 10) {
+  while (!driver.planFinished() && steps < 10) {
     driver.current()
     await driver.advance({ ok: true })
     steps += 1
@@ -194,13 +194,13 @@ test('driver status reports a failed run as failed and a completed run as done',
   const failed = createGraphTurnDriver({ fallbackInstruction: 'answer' })
   await failed.beginTurn({ text: 'hello' })
   await failed.advance({ ok: false })
-  assert.equal(failed.done(), true)
+  assert.equal(failed.planState(), 'failed')
   assert.equal(failed.status?.(), 'failed')
 
   const completed = createGraphTurnDriver({ fallbackInstruction: 'answer' })
   await completed.beginTurn({ text: 'hello' })
   await completed.advance({ ok: true })
-  assert.equal(completed.done(), true)
+  assert.equal(completed.planState(), 'terminal')
   assert.equal(completed.status?.(), 'done')
 })
 
@@ -262,7 +262,7 @@ test('a failed subagent with no replan budget leaves the run failed', async () =
   await driver.completeNode('s1', false)
   assert.equal(driver.snapshot().replans, 0)
   assert.equal(driver.status?.(), 'failed')
-  assert.equal(driver.done(), true)
+  assert.equal(driver.planState(), 'failed')
 })
 
 test('each turn gets its own replan allowance', async () => {
@@ -320,6 +320,6 @@ test('a budget-guarded wrap-up node is not discarded by the kernel step cap', as
   await driver.advance({ ok: true })
   assert.equal(driver.current()?.id, 'b')
   await driver.advance({ ok: true })
-  assert.equal(driver.done(), true)
+  assert.equal(driver.planState(), 'terminal')
   assert.deepEqual(driver.snapshot().trail.map(row => row.id), ['a', 'b'])
 })

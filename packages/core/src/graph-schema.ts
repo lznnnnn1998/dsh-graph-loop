@@ -457,6 +457,24 @@ export const SUPERSTEP_EVENT_MAP = {
 
 export type PlanStatus = 'pending' | 'running' | 'replanning' | 'done' | 'failed' | 'aborted'
 
+/**
+ * Where the *plan* stands, as a dimension of its own.
+ *
+ * Plan state is not turn state: a plan can be `finished` while the turn is still
+ * working (a stock step with no node), and only a declared `terminal` ends the
+ * turn by plan. `PlanStatus` above is the persistence-facing status; this type
+ * is the routing/turn-boundary view and has no `pending`/`replanning`/`aborted`
+ * values because those are not observable at a step boundary.
+ *
+ *  - `running`  — an enabled node exists and the next step runs it.
+ *  - `finished` — no enabled node is left and no terminal ran; the plan has no
+ *                 internal work left. The turn stays open.
+ *  - `terminal` — a declared terminal completed; the plan reached its endpoint
+ *                 and the turn ends once.
+ *  - `failed`   — no recovery path, or a guard/budget failure; the turn fails.
+ */
+export type PlanRunState = 'running' | 'finished' | 'terminal' | 'failed'
+
 export interface PlanState {
   readonly planId: string
   readonly planVersion: number

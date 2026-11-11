@@ -124,7 +124,7 @@ for (const kernel of ['langgraph', 'minimal'] as const) {
     await resumed.advance({ ok: true, atSeq: doneSeq })
     recordBoundary(log, resumed, doneSeq)
     assert.deepEqual(resumed.snapshot().visited, ['n_done'], 'the resumed segment runs the pending node only')
-    assert.equal(resumed.done(), true)
+    assert.equal(resumed.planState(), 'terminal')
     resumed.endTurn()
 
     // A finished run is the previous turn's result, not a run to continue.
@@ -218,7 +218,7 @@ test('the kernel enters at the folded state next node and journals the session s
   assert.equal(topology.steps(), 2, 'the resumed run keeps the completed supersteps')
 
   await topology.advance({ ok: true, atSeq: 11 })
-  assert.equal(topology.done(), true)
+  assert.equal(topology.planState(), 'terminal')
   assert.deepEqual(saver.loads, [{ sessionId: plan.id, atSeq: 11 }], 'the boundary row is read back from the runtime saver')
   const boundary = topology.stateSnapshot().journal.at(-1)
   assert.equal(boundary?.nodeId, 'n_done')

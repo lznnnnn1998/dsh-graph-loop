@@ -465,13 +465,13 @@ export async function executePlanNode(input: {
   if (deps.validateJson) assertJson(merged, `state after "${nodeId}"`, nodeId)
 
   const destination = routeNext(deps, plan, nodeId, merged)
-  // Reaching END is success only when this node is a declared terminal. A
-  // non-terminal whose guards did not match is a dead end: reporting it as
-  // `done` let the driver finish a turn that never reached its answer. A
-  // reported executor failure at END fails the run instead of folding as ok.
-  const terminal = plan.terminals.includes(nodeId)
+  // Reaching END without a declared terminal is the plan running out of enabled
+  // work, not a failed run: it settles `done` in the folded state and the
+  // adapter classifies it as plan state `finished`, so the turn boundary — not
+  // the plan — decides whether the turn keeps working. Only a reported executor
+  // failure at END fails the run instead of folding as ok.
   const ended = destination === END
-  const runFailed = ended && (failure !== undefined || !terminal)
+  const runFailed = ended && failure !== undefined
   const candidate: GraphState = stripPregelKeys({
     ...merged,
     superstep: merged.superstep + 1,

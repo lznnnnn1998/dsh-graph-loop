@@ -121,7 +121,7 @@ test('kernel topology pauses before each node and advances on the step outcome',
 
     assert.equal(await topology.advance({ ok: true }), undefined)
     assert.equal(topology.status(), 'done')
-    assert.equal(topology.done(), true)
+    assert.equal(topology.planState(), 'terminal')
     assert.equal(topology.steps(), 2)
   } finally {
     await topology.dispose()
@@ -394,7 +394,7 @@ test('kernel topology fails when a failed step has no matching callFailed edge',
     // The recovery edge is guarded on `bash`; a `read` failure takes no branch.
     assert.equal(await topology.advance({ ok: false, failedTool: 'read' }), undefined)
     assert.equal(topology.status(), 'failed')
-    assert.equal(topology.done(), true)
+    assert.equal(topology.planState(), 'failed')
     assert.deepEqual(topology.stateSnapshot().journal.map(entry => entry.nodeId), ['a'])
   } finally {
     await topology.dispose()
@@ -415,7 +415,7 @@ test('kernel topology turns a reserved-id compile failure into a typed KernelErr
       (error: unknown) => error instanceof KernelError && error.code === 'BAD_NODE_ID',
     )
     assert.equal(topology.status(), 'failed')
-    assert.equal(topology.done(), true)
+    assert.equal(topology.planState(), 'failed')
     assert.equal(topology.current(), undefined)
   } finally {
     await topology.dispose()

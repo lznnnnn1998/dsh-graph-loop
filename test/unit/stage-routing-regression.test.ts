@@ -226,7 +226,7 @@ for (const engine of ENGINES) {
 
     // The answer is a normal agent step: completing it ends the turn.
     await driver.advance({ ok: true })
-    assert.equal(driver.done(), true, `engine=${engine}: the answer must complete the turn`)
+    assert.equal(driver.planState(), 'terminal', `engine=${engine}: the answer must complete the turn`)
     assert.equal(driver.status?.(), 'done', `engine=${engine}: the answered turn is done`)
 
     driver.endTurn()

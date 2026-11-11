@@ -21,7 +21,7 @@
  * 2. `FrontierTopology` executes/edits that graph. Unlike a linear cursor it
  *    keeps a frontier: one completed node can enqueue several successors, edges
  *    can be added or removed between steps, and cycles are allowed as long as
- *    the budget lasts. The driver only needs `current()/advance()/done()`.
+ *    the budget lasts. The driver only needs `current()/advance()/planState()`.
  *
  * The registry graph is the substrate (what can be connected); the topology is
  * the created structure (what this task actually connects). The model can
@@ -34,6 +34,7 @@ import type {
   Json,
   PlanEdge,
   PlanNode,
+  PlanRunState,
   TaskPlan,
   RegistryGraph,
 } from './graph-schema.ts'
@@ -460,11 +461,13 @@ export class FrontierTopology {
         // A detached batch node is still running; its completion is the next
         // arrival, so the frontier is waiting rather than done.
         if (this.detached.size > 0) return undefined
-        // An empty frontier is not automatically success: a guarded edge that
-        // did not match (or a plan with no exit) leaves work unfinished. Report
-        // `done` only when a declared terminal actually ran, otherwise `failed`
-        // so the turn is not reported completed without its endpoint.
-        this.state = this.terminalsReached() ? 'done' : 'failed'
+        // An empty frontier means the plan has no enabled work left. That is
+        // not success and not failure: a guarded edge that did not match (or a
+        // plan with no exit) drains the plan, which `planState()` reports as
+        // `finished` or `terminal`. Only a bad outcome or an exhausted budget
+        // settles `failed` (see `advance`), so the turn boundary, not the plan,
+        // decides whether a still-open turn keeps working.
+        this.state = 'done'
         return undefined
       }
       let index = this.pending.findIndex(id => !this.joinBlocked(id))
@@ -694,9 +697,18 @@ export class FrontierTopology {
     return this.current()
   }
 
-  done(): boolean {
-    return this.state !== 'running'
-      || (this.pending.length === 0 && this.currentId === undefined && this.detached.size === 0)
+  /**
+   * Plan state at the current boundary. Deliberately not a turn-end predicate:
+   * `finished` means the plan ran out of enabled work, not that the turn is
+   * over, and only `terminal` ends the turn by plan.
+   */
+  planState(): PlanRunState {
+    if (this.state === 'failed') return 'failed'
+    if (this.state === 'running'
+      && (this.pending.length > 0 || this.currentId !== undefined || this.detached.size > 0)) {
+      return 'running'
+    }
+    return this.terminalsReached() ? 'terminal' : 'finished'
   }
 
   status(): 'running' | 'done' | 'failed' {

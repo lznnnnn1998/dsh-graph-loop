@@ -77,7 +77,7 @@ test('frontier walks the synthesized graph and stops', () => {
     topology.advance({ ok: true })
     steps += 1
   }
-  assert.equal(topology.done(), true)
+  assert.equal(topology.planState(), 'terminal')
   assert.ok(steps >= 2 && steps <= plan.nodes.length)
 })
 
@@ -140,7 +140,7 @@ test('frontier bounds a callFailed self-loop by maxSteps (H3)', () => {
     topology.advance({ ok: false, failedTool: 'bash' })
     advances += 1
   }
-  assert.equal(topology.done(), true)
+  assert.equal(topology.planState(), 'failed')
   assert.equal(topology.status(), 'failed')
   // maxSteps counts the failed attempts: 3 advances, then the recovery edge is
   // not queued again.
@@ -180,7 +180,7 @@ test('frontier cap reports done when one alternative terminal was reached', () =
   assert.equal(topology.current()?.id, 'b')
   topology.advance({ ok: true })             // b at the cap; c is still unreached
   assert.equal(topology.status(), 'done')
-  assert.equal(topology.done(), true)
+  assert.equal(topology.planState(), 'terminal')
 })
 
 test('proposal validation rejects unsafe shapes and keeps a bounded retry loop', () => {

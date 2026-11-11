@@ -94,11 +94,11 @@ test('concurrent subagent completions advance each node once and leave the join 
   await Promise.all(batch.map(node => driver.completeNode(node.id, true)))
   // The two children settle the join; the answer has NOT run yet. The bug
   // completed the terminal with the wrong child's outcome and reported done.
-  assert.equal(driver.done(), false)
+  assert.equal(driver.planState(), 'running')
   assert.equal(driver.current()?.id, 'ans')
   assert.deepEqual(driver.snapshot().trail.map(row => row.id), ['p', 's1', 's2'])
   await driver.advance({ ok: true, tools: [] })
-  assert.equal(driver.done(), true)
+  assert.equal(driver.planState(), 'terminal')
   assert.deepEqual(driver.snapshot().trail.map(row => row.id), ['p', 's1', 's2', 'ans'])
 })
 
@@ -165,7 +165,11 @@ test('two guards on the same from/to edge are both kept', () => {
 // Terminal / dead-end semantics
 // ---------------------------------------------------------------------------
 
-test('a guarded exit that does not match ends the run failed, not done, on every engine', async () => {
+test('a guarded exit that does not match drains the plan to finished, not failed, on every engine', async () => {
+  // A plan that ran out of enabled work is not a failed run: no terminal ran,
+  // so the plan is `finished` and the turn boundary — not the plan — decides
+  // whether the turn keeps working. Only a bad outcome or an exhausted budget
+  // stays `failed`.
   const plan = planOf(
     [{ from: 'b', to: 't', kind: 'control', when: { op: 'fact', key: 'never', equals: true } }],
     { nodes: ['b', 't'], terminals: ['t'] },
@@ -174,8 +178,10 @@ test('a guarded exit that does not match ends the run failed, not done, on every
     const driver = createGraphTurnDriver({ kernel: engine === 'frontier' ? 'off' : engine })
     driver.adopt(plan)
     await driver.advance({ ok: true, tools: [] })
-    assert.equal(driver.status?.(), 'failed', `engine=${engine}`)
-    assert.equal(driver.done(), true, `engine=${engine}`)
+    assert.equal(driver.planState(), 'finished', `engine=${engine}`)
+    assert.notEqual(driver.status?.(), 'failed', `engine=${engine}`)
+    assert.equal(driver.current(), undefined, `engine=${engine}`)
+    assert.equal(driver.snapshot().planId, 'regression', `engine=${engine}: no plan was installed`)
     assert.equal(driver.snapshot().trail.length, 1, `engine=${engine}`)
     driver.endTurn()
   }
@@ -217,7 +223,7 @@ test('maxSteps bounds the turn across a replan, including a verify repair chain'
   const plan: TaskPlan = { ...base, budget: { ...base.budget, maxReplans: 2 } }
   const driver = createGraphTurnDriver({ kernel: 'off', maxSteps: 3 })
   driver.adopt(plan)
-  for (let index = 0; index < 8 && !driver.done(); index += 1) {
+  for (let index = 0; index < 8 && !driver.planFinished(); index += 1) {
     await driver.advance({ ok: false, tools: [] })
   }
   assert.equal(driver.snapshot().trail.length, 3, 'the recovery plan must not reset the turn allowance')
@@ -246,7 +252,7 @@ test('a composed plan runs all stages when maxSteps equals stages plus one', asy
   await driver.advance({ ok: true, tools: [{ name: 'bash', isError: false, output: '[exit code: 0]' }] })
   assert.equal(driver.current()?.id, 'n_answer')
   await driver.advance({ ok: true, tools: [] })
-  assert.equal(driver.done(), true)
+  assert.equal(driver.planState(), 'terminal')
 })
 
 // ---------------------------------------------------------------------------

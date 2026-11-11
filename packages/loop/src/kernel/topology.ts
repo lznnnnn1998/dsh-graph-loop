@@ -27,7 +27,7 @@
 
 import { END, KernelError } from 'dsh-graph-loop-core/kernel'
 import { GRAPH_STATE_LIMITS } from 'dsh-graph-loop-core/graph-schema'
-import type { GraphState, Json, PlanEdge, PlanNode, TaskPlan } from 'dsh-graph-loop-core/graph-schema'
+import type { GraphState, Json, PlanEdge, PlanNode, PlanRunState, TaskPlan } from 'dsh-graph-loop-core/graph-schema'
 import type { RoutingArtifact } from 'dsh-graph-loop-core/condition'
 import { evaluateCondition, routeOrder, type RoutingState } from 'dsh-graph-loop-core/condition'
 import type { KernelResult, KernelRunHandle } from 'dsh-graph-loop-core/runtime'
@@ -84,6 +84,12 @@ export class KernelTopology {
   private state: GraphState
   private currentId: string | undefined
   private stateStatus: 'running' | 'done' | 'failed' = 'running'
+  /**
+   * How a closed run settled. The kernel's own `GraphState.status` only says
+   * `done`, so the adapter classifies the closing node: a declared terminal is
+   * the plan's endpoint, anything else is a drained plan.
+   */
+  private settled: 'terminal' | 'finished' | undefined
   private pending: PlanNodeOutcome | undefined
   private lastResult: KernelResult | undefined
 
@@ -225,8 +231,7 @@ export class KernelTopology {
           || result.state.next === null)) {
         this.lastResult = result
         this.state = result.state
-        this.stateStatus = 'failed'
-        this.currentId = undefined
+        this.close('failed', nodeId)
         return undefined
       }
 
@@ -245,8 +250,7 @@ export class KernelTopology {
         if (result.state.next === null || result.state.status !== 'running') {
           this.lastResult = result
           this.state = boundaryState ?? result.state
-          this.stateStatus = result.state.status === 'failed' ? 'failed' : 'done'
-          this.currentId = undefined
+          this.close(result.state.status === 'failed' ? 'failed' : 'done', nodeId)
           return undefined
         }
         result = await this.handle.next()
@@ -256,30 +260,43 @@ export class KernelTopology {
       this.state = boundaryState ?? result.state
       if (result.kind === 'paused') {
         this.currentId = result.state.next ?? undefined
-        if (this.currentId === undefined) this.stateStatus = 'done'
+        if (this.currentId === undefined) this.close('done', nodeId)
         return this.current()
       }
       if (result.kind === 'done') {
-        this.stateStatus = 'done'
-        this.currentId = undefined
+        this.close('done', nodeId)
         return undefined
       }
       if (result.kind === 'failed') {
-        this.stateStatus = 'failed'
-        this.currentId = undefined
+        this.close('failed', nodeId)
         return undefined
       }
       this.currentId = result.state.next ?? undefined
       return this.current()
     } catch (error) {
-      this.stateStatus = 'failed'
-      this.currentId = undefined
+      this.close('failed', nodeId)
       throw kernelTopologyError(error, nodeId, this.plan)
     }
   }
 
-  done(): boolean {
-    return this.stateStatus !== 'running'
+  /**
+   * Settle the run and classify how it closed. A declared terminal is the
+   * plan's endpoint (`terminal`); any other closing node means the plan ran out
+   * of enabled work (`finished`). `failed` stays failed.
+   */
+  private close(status: 'done' | 'failed', nodeId: string | undefined): void {
+    this.stateStatus = status
+    this.settled = status === 'failed'
+      ? undefined
+      : nodeId !== undefined && this.plan.terminals.includes(nodeId) ? 'terminal' : 'finished'
+    this.currentId = undefined
+  }
+
+  /** Plan state at the current boundary; see `PlanRunState`. Never a turn-end predicate. */
+  planState(): PlanRunState {
+    if (this.stateStatus === 'running') return 'running'
+    if (this.stateStatus === 'failed') return 'failed'
+    return this.settled ?? 'finished'
   }
 
   status(): 'running' | 'done' | 'failed' {
