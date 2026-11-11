@@ -15,7 +15,8 @@ not recorded here.
 - LangGraph kernel default with a `MinimalKernel` fallback.
 - One shared evaluator for every control-edge condition (`artifact`, `noArtifact`, `fact`,
   `callFailed`, `budget` on its step axis); composed plans are kernel-driven.
-- Per-node tool admission; the composed answer node keeps its tools so the turn can continue.
+- Per-node tool admission; the composed answer node keeps its tools so the model can still act at
+  the end of the plan.
 - Composed stage routing: each stage declares a budget exit to the tool-enabled answer first, then
   one repair node for failure/no-progress, then its success exit; the repair node has no back-edge
   to its stage. Success guards are step-scoped (`toolSucceeded`, `wroteFile`, `produced.<type>`,

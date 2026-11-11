@@ -77,8 +77,9 @@ producer tool ran), and `verificationRan`/`verificationFailed` for verify. A non
 answer reserve goes to `n_answer` instead of repairing forever. `n_answer` is a **continuation, not
 a success claim**: the run reports `done`, but the failed verify step and its `[exit code: N]`
 output remain in the node trail and session log. Both engines reserve one extra step for a budget-routed wrap-up node when the `budget` edge targets
-a declared terminal; a non-terminal that runs out of matching exits reports `failed`, not `done`
-(`packages/loop/src/kernel/topology.ts`, `packages/core/src/topology.ts`).
+a declared terminal; a non-terminal that runs out of matching exits settles `finished` (the run
+status stays `done`), not `failed` (`packages/loop/src/kernel/topology.ts`,
+`packages/core/src/topology.ts`).
 
 No claim is made that LangGraph executes arbitrary graphs. The kernel checkpointer is a per-run
 cache (`MemoryCheckpointer` in `packages/loop/src/kernel/plan.ts`); `storageDomain` durability is
