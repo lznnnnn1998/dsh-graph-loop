@@ -1,19 +1,22 @@
 /**
  * A composed stage advances only on its own artifact/verifier evidence.
  *
- * Acceptance drill for audit 20261111-1200 F1-F4 and audit 20261111-1600 F1-F4:
+ * Acceptance drill for audit 20261111-1200 F1-F4, audit 20261111-1600 F1-F4 and
+ * audit 20261111-2000 F1-F4:
  * a stage is satisfied by a *runtime-observed* artifact and, for verify, by the
  * node's declared verifier addressing that artifact through a typed locator
  * argument -- never by command text that merely names the path. The composed
  * plan is the real `synthesizeComposition` output, driven through the real
  * per-turn driver on every engine; the outcome stream is synthetic (no model,
- * no Docker), but every positive file is really created and every negative file
- * is really absent/removed, so the runtime's measurement is exercised.
+ * no Docker), but every positive file is really created -- including through a
+ * real shell -- and every negative file is really absent/removed/unchanged, so
+ * the runtime's world observation is exercised.
  *
  * Run: node --import tsx --test test/unit/compose-stage-progress.test.ts
  */
 
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -154,8 +157,19 @@ function locatorComposition(): { graph: RegistryGraph; plan: ReturnType<typeof s
   return { graph, plan: result.plan }
 }
 
-function driverFor(engine: Engine, graph: RegistryGraph, plan: ReturnType<typeof coreComposition>['plan']): ReturnType<typeof createGraphTurnDriver> {
-  const driver = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
+function driverFor(
+  engine: Engine,
+  graph: RegistryGraph,
+  plan: ReturnType<typeof coreComposition>['plan'],
+  worldRoot?: string,
+): ReturnType<typeof createGraphTurnDriver> {
+  const driver = createGraphTurnDriver({
+    kernel: kernelOption(engine),
+    graphProvider: () => graph,
+    // The session workspace is the row's scratch directory: artifacts are
+    // attributed from what changed there, never from `process.cwd()`.
+    ...(worldRoot === undefined ? {} : { worldRoot }),
+  })
   driver.adopt(plan)
   return driver
 }
@@ -219,7 +233,7 @@ for (const engine of ENGINES) {
     const dir = workdir(t)
     const input = makeFile(dir, 'input.txt')
     const { graph, plan } = coreComposition()
-    const driver = driverFor(engine, graph, plan)
+    const driver = driverFor(engine, graph, plan, dir)
 
     assert.equal(driver.current()?.id, 'n_inspect')
     await driver.advance(bash('ls -la'))
@@ -244,7 +258,7 @@ for (const engine of ENGINES) {
     const dir = workdir(t)
     const input = makeFile(dir, 'input.txt')
     const { graph, plan } = coreComposition()
-    const driver = driverFor(engine, graph, plan)
+    const driver = driverFor(engine, graph, plan, dir)
 
     await driver.advance(read(input))
     assert.equal(driver.current()?.id, 'n_mutate', `engine=${engine}`)
@@ -266,7 +280,7 @@ for (const engine of ENGINES) {
     const dir = workdir(t)
     const input = makeFile(dir, 'input.txt')
     const { graph, plan } = coreComposition()
-    const driver = driverFor(engine, graph, plan)
+    const driver = driverFor(engine, graph, plan, dir)
 
     await driver.advance(read(input))
     assert.equal(driver.current()?.id, 'n_mutate', `engine=${engine}`)
@@ -274,6 +288,49 @@ for (const engine of ENGINES) {
     await driver.advance(bash(`printf x > ${join(dir, 'scratch.txt')}`))
     assert.equal(driver.current()?.id, 'n_mutate_repair',
       `engine=${engine}: a shell write with no attributed artifact must not advance mutate`)
+
+    driver.endTurn()
+  })
+}
+
+for (const engine of ENGINES) {
+  engineTest(`a shell command naming a path it never created cannot satisfy mutate [${engine}]`, engine, async (t) => {
+    const dir = workdir(t)
+    const input = makeFile(dir, 'input.txt')
+    const { graph, plan } = coreComposition()
+    const driver = driverFor(engine, graph, plan, dir)
+
+    await driver.advance(read(input))
+    assert.equal(driver.current()?.id, 'n_mutate', `engine=${engine}`)
+
+    // The command names a path and the call exits cleanly, but the world is
+    // unchanged: naming an artifact is not producing one.
+    const named = join(dir, 'named.txt')
+    await driver.advance(bash(`echo ${named}`, '[exit code: 0]'))
+    assert.equal(existsSync(named), false, 'the drill must not create the named path')
+    assert.equal(driver.current()?.id, 'n_mutate_repair',
+      `engine=${engine}: a shell that only names a path cannot satisfy mutate`)
+
+    driver.endTurn()
+  })
+}
+
+for (const engine of ENGINES) {
+  engineTest(`a shell command naming an existing unchanged file cannot satisfy mutate [${engine}]`, engine, async (t) => {
+    const dir = workdir(t)
+    const input = makeFile(dir, 'input.txt')
+    const { graph, plan } = coreComposition()
+    const driver = driverFor(engine, graph, plan, dir)
+
+    await driver.advance(read(input))
+    assert.equal(driver.current()?.id, 'n_mutate', `engine=${engine}`)
+
+    // `input.txt` already existed at the previous boundary and this step did
+    // not change it. A path-text shortcut would credit the existing file; the
+    // world diff sees no change, so the stage must repair.
+    await driver.advance(bash(`echo ${input}`, '[exit code: 0]'))
+    assert.equal(driver.current()?.id, 'n_mutate_repair',
+      `engine=${engine}: naming an existing but unchanged file cannot satisfy mutate`)
 
     driver.endTurn()
   })
@@ -288,7 +345,7 @@ for (const engine of ENGINES) {
     const dir = workdir(t)
     const input = makeFile(dir, 'input.txt')
     const { graph, plan } = coreComposition()
-    const driver = driverFor(engine, graph, plan)
+    const driver = driverFor(engine, graph, plan, dir)
 
     await driver.advance(read(input))
     assert.equal(driver.current()?.id, 'n_mutate', `engine=${engine}`)
@@ -303,6 +360,31 @@ for (const engine of ENGINES) {
   })
 }
 
+for (const engine of ENGINES) {
+  engineTest(`a real shell write satisfies mutate [${engine}]`, engine, async (t) => {
+    const dir = workdir(t)
+    const input = makeFile(dir, 'input.txt')
+    const { graph, plan } = coreComposition()
+    const driver = driverFor(engine, graph, plan, dir)
+
+    await driver.advance(read(input))
+    assert.equal(driver.current()?.id, 'n_mutate', `engine=${engine}`)
+
+    // The step's only effect is a shell redirect that really runs: the file
+    // exists when the step ends and no typed tool argument ever names it. It is
+    // attributed from the observed world change, so a shell-first agent can
+    // advance the stage without a command-text channel.
+    const scratch = join(dir, 'scratch.txt')
+    execFileSync('bash', ['-c', `printf x > ${JSON.stringify(scratch)}`])
+    assert.equal(existsSync(scratch), true, 'the positive row must perform the real shell write')
+    await driver.advance(bash(`printf x > ${scratch}`))
+    assert.equal(driver.current()?.id, 'n_verify',
+      `engine=${engine}: a real shell write advances mutate from the observed world`)
+
+    driver.endTurn()
+  })
+}
+
 // ---------------------------------------------------------------------------
 // 4. Verify: naming the artifact in command text is not verification
 // ---------------------------------------------------------------------------
@@ -312,7 +394,7 @@ for (const engine of ENGINES) {
     const dir = workdir(t)
     const input = makeFile(dir, 'input.txt')
     const { graph, plan } = coreComposition()
-    const driver = driverFor(engine, graph, plan)
+    const driver = driverFor(engine, graph, plan, dir)
 
     await driver.advance(read(input))
     const out = makeFile(dir, 'out.txt')
@@ -334,7 +416,7 @@ for (const engine of ENGINES) {
     const dir = workdir(t)
     const input = makeFile(dir, 'input.txt')
     const { graph, plan } = coreComposition()
-    const driver = driverFor(engine, graph, plan)
+    const driver = driverFor(engine, graph, plan, dir)
 
     await driver.advance(read(input))
     const out = makeFile(dir, 'out.txt')
@@ -358,7 +440,7 @@ for (const engine of ENGINES) {
     const dir = workdir(t)
     const input = makeFile(dir, 'input.txt')
     const { graph, plan } = coreComposition()
-    const driver = driverFor(engine, graph, plan)
+    const driver = driverFor(engine, graph, plan, dir)
 
     await driver.advance(read(input))
     const out = makeFile(dir, 'out.txt')
@@ -382,7 +464,7 @@ for (const engine of ENGINES) {
     const dir = workdir(t)
     const input = makeFile(dir, 'input.txt')
     const { graph, plan } = coreComposition()
-    const driver = driverFor(engine, graph, plan)
+    const driver = driverFor(engine, graph, plan, dir)
 
     await driver.advance(read(input))
     const out = makeFile(dir, 'out.txt')
@@ -404,7 +486,7 @@ for (const engine of ENGINES) {
     const dir = workdir(t)
     const image = makeFile(dir, 'input.png', 'image bytes that must not be inspected\n')
     const { graph, plan } = locatorComposition()
-    const driver = driverFor(engine, graph, plan)
+    const driver = driverFor(engine, graph, plan, dir)
 
     await driver.advance(readImage(image))
     assert.equal(driver.current()?.id, 'n_mutate', `engine=${engine}`)
@@ -425,9 +507,10 @@ for (const engine of ENGINES) {
 // ---------------------------------------------------------------------------
 
 for (const engine of ENGINES) {
-  engineTest(`a no-tool step repairs [${engine}]`, engine, async () => {
+  engineTest(`a no-tool step repairs [${engine}]`, engine, async (t) => {
+    const dir = workdir(t)
     const { graph, plan } = coreComposition()
-    const driver = driverFor(engine, graph, plan)
+    const driver = driverFor(engine, graph, plan, dir)
 
     await driver.advance({ ok: true })
     assert.equal(driver.current()?.id, 'n_inspect_repair',

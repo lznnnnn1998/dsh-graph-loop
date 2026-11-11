@@ -28,7 +28,8 @@ import { FrontierTopology, bootstrapTopology, recoveryTopology, repairTopology, 
 import { synthesizeComposition } from 'dsh-graph-loop-core/compose'
 import { selectEnvelopeForTask, type EnvelopeIssue } from 'dsh-graph-loop-core/envelope'
 import { KernelTopology, canKernelDrive } from './kernel/topology.ts'
-import { deriveCapabilityFacts, deriveEvidenceCalls, deriveStepArtifactCandidates, deriveStepFacts, type ArtifactCandidate } from './step-facts.ts'
+import { deriveCapabilityFacts, deriveEvidenceCalls, deriveStepArtifactCandidates, deriveStepFacts, artifactTypeFor, type ArtifactCandidate } from './step-facts.ts'
+import { diffWorld, observeWorld, type WorldObservation } from './world.ts'
 import { DEFAULT_SHELL_TOOLS } from './loop/step-tools.ts'
 import { satisfiesNodeEvidence, type RoutingArtifact } from 'dsh-graph-loop-core/condition'
 import type { ArtifactType, Json } from 'dsh-graph-loop-core/graph-schema'
@@ -193,6 +194,14 @@ export interface GraphTurnDriverOptions {
   readonly presetId?: string
   readonly fallbackInstruction?: string
   readonly maxSteps?: number
+  /**
+   * Session workspace root for world-first artifact attribution. At every step
+   * boundary the driver diffs its own bounded observations of this root and
+   * credits files that appeared or changed, whatever tool (a writer tool, a
+   * shell, a craft) produced them. Without a root the driver attributes only
+   * the candidates a tool call names. Relative refs are measured as before.
+   */
+  readonly worldRoot?: string
   /** Shell tool names for effect/exit-code classification (defaults to bash/pwsh). */
   readonly shellTools?: readonly string[]
   /** Text length below which a trivial task gets the single-node plan. */
@@ -281,6 +290,26 @@ function measureArtifact(candidate: ArtifactCandidate): RoutingArtifact | undefi
   }
 }
 
+/**
+ * Union artifact candidate sources, deduped by typed ref. The step's artifact
+ * set is the union of what its tool calls address and what the world actually
+ * changed; one source may miss what the other saw, and a duplicated ref would
+ * only be measured twice.
+ */
+function mergeCandidates(...sources: readonly (readonly ArtifactCandidate[])[]): ArtifactCandidate[] {
+  const seen = new Set<string>()
+  const merged: ArtifactCandidate[] = []
+  for (const source of sources) {
+    for (const candidate of source) {
+      const key = `${candidate.type}:${candidate.ref}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      merged.push(candidate)
+    }
+  }
+  return merged
+}
+
 export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): GraphTurnDriver {
   const mode: TopologyMode = options.mode ?? 'template'
   const adoptPolicy: AdoptPolicy = options.adoptPolicy ?? 'start-only'
@@ -301,6 +330,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
   const maxSteps = options.maxSteps ?? 24
   const shellTools = new Set(options.shellTools ?? DEFAULT_SHELL_TOOLS)
   const trivialChars = options.trivialChars ?? 32
+  const worldRoot = options.worldRoot
   const liveGraph = async (): Promise<RegistryGraph | undefined> => await options.graphProvider?.() ?? currentGraph
   const liveTemplates = (): TemplateLibrary | undefined => options.templatesProvider?.() ?? currentTemplates
 
@@ -334,6 +364,30 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
    * the verifying step's own call.
    */
   let producedRefs: RoutingArtifact[] = []
+  /**
+   * Last bounded observation of the session workspace, taken at the previous
+   * step boundary. The step's world-observed artifacts are the diff against it.
+   * `undefined` until the first plan is installed (or the first boundary, for a
+   * driver that never calls `beginTurn`), and when no world root is configured.
+   */
+  let worldBefore: WorldObservation | undefined
+
+  /**
+   * Artifact candidates the step's *effects* explain: paths that appeared or
+   * changed in the session workspace between the previous boundary's observation
+   * and this one. The first boundary of a driver that never established a
+   * baseline only records it. An incomplete observation (a capped walk) credits
+   * nothing, because it cannot tell "unchanged" from "unobserved".
+   */
+  function worldCandidates(): ArtifactCandidate[] {
+    const after = worldRoot === undefined ? undefined : observeWorld(worldRoot)
+    if (after === undefined) return []
+    const changes = diffWorld(worldBefore, after)
+    worldBefore = after
+    return changes === undefined
+      ? []
+      : changes.map(change => ({ type: artifactTypeFor(change.path), ref: change.path }))
+  }
   /** Executed node ids in run order; the snapshot's `visited` must describe the run, not the plan. */
   let visited: string[] = []
   /** Tool names this turn has seen, so a later step can reset their step-scoped facts. */
@@ -389,6 +443,10 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
 
   function install(next: TaskPlan, resume?: GraphState): void {
     adoptedAtStep = undefined
+    // A caller that installs a plan without `beginTurn` (a harness adopting a
+    // plan directly) still gets a baseline: the first work step is diffed from
+    // the world as it was when the plan was installed, not from an empty world.
+    if (worldBefore === undefined && worldRoot !== undefined) worldBefore = observeWorld(worldRoot)
     // `maxSteps` is a per-turn cap, not a per-plan one. A replan/recovery plan or
     // a model-authored proposal that arrives after N steps must not reset the
     // allowance and run another full budget; clamp the installed plan to the
@@ -511,6 +569,10 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     adoptProposal: boolean,
   ): Promise<void> {
     if (topology === undefined) return
+    // The boundary's world observation is taken first, before any await: it
+    // must describe the workspace the step left behind, not one the harness
+    // touched while resolving the graph.
+    const worldObserved = worldCandidates()
     if (record !== undefined) recordTrail(record.id, record.executor, outcome)
     lastNode = lastNodeId ?? lastNode
     const observed = outcome.tools ?? []
@@ -538,8 +600,14 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     // Every candidate ref is measured in the world at the step boundary: only a
     // path that exists with content is an artifact. A tool's success, a path
     // argument the tool never created, and a declared type with no path are not
-    // evidence of a change.
-    const artifacts = deriveStepArtifactCandidates(observed, capability)
+    // evidence of a change. The candidate set is the union of the refs this
+    // step's tool calls address and the files its *effects* changed in the
+    // session workspace; a shell write names no artifact in any typed field but
+    // still changed the world, which is the only thing that counts here.
+    const artifacts = mergeCandidates(
+      deriveStepArtifactCandidates(observed, capability),
+      worldObserved,
+    )
       .map(measureArtifact)
       .filter((artifact): artifact is RoutingArtifact => artifact !== undefined)
     // A planned third-party/MCP capability supplies the same read/write signal
@@ -611,6 +679,10 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
 
   return {
     async beginTurn(task: TurnTask, resume?: GraphResumeState): Promise<GraphTurnSnapshot> {
+      // The turn's world baseline, taken before any branch returns (child
+      // fallback, resume, propose, triage): the first step of every plan path is
+      // diffed from the workspace as this turn found it.
+      worldBefore = worldRoot === undefined ? undefined : observeWorld(worldRoot)
       plan = undefined
       decision = undefined
       topology = undefined

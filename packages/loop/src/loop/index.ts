@@ -697,6 +697,10 @@ export class AgentLoop extends Service implements AgentFactory {
         created.setTurnGraph(createGraphTurnDriver({
           mode: topologyMode,
           maxSteps: loopConfig.maxSteps,
+          // The session workspace is where a step's effects are observed: the
+          // graph attributes artifacts from what changed under this root, not
+          // from the tool call that claims to have changed it.
+          worldRoot: session.header.cwd ?? process.cwd(),
           shellTools: loopConfig.shellTools,
           trivialChars: loopConfig.trivialChars,
           toolPolicy: loopConfig.toolPolicy,

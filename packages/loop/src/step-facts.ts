@@ -62,7 +62,8 @@ function locatorValues(
   return values
 }
 
-function artifactTypeFor(path: string): ArtifactType {
+/** Artifact type a path's extension declares; the world-diff source uses it too. */
+export function artifactTypeFor(path: string): ArtifactType {
   const lower = path.toLowerCase()
   const dot = lower.lastIndexOf('.')
   const extension = dot === -1 ? '' : lower.slice(dot)
