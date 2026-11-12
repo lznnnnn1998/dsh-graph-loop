@@ -56,7 +56,7 @@ three-engine drill for the diamond and the depth-2 diamond is in `test/unit/tran
 
 Defined in `packages/core/src/compose.ts`. Each stage declares its exits in evaluation order:
 
-1. a **budget exit** to the tool-enabled `n_answer` when `ANSWER_RESERVE_STEPS` (1) step remains;
+1. a **budget exit** to the answer-only `n_answer` when `ANSWER_RESERVE_STEPS` (1) step remains;
 2. its failure exits — `callFailed`, `lastOk = false`, and its own no-progress guard — to **one**
    repair node;
 3. its success guard to the next stage, or to `n_answer`.

@@ -30,9 +30,9 @@ executes arbitrary graphs.
 - **Capability-driven synthesis** — stages (`discover`, `inspect`, `mutate`, `author`, `verify`) and
   artifact contracts, selected from the live registry, not hardcoded tool names.
 - **Per-node tool admission** — an answer-only node (`toolAllow: []`) can run with no tools; the
-  composed answer node keeps its tools so the model can still act at the end of the plan.
+  composed answer node is that answer-only terminal, so the plan's last step is prose.
 - **Composed stage routing** — each stage declares, in evaluation order: a budget exit to the
-  tool-enabled answer first, its failure/no-progress exits to one repair node, then its success
+  answer first, its failure/no-progress exits to one repair node, then its success
   exit. The repair node mirrors those exits to the answer and has no back-edge to its stage, so a
   stage gets one repair attempt and the answer continues abandoned work. Success requires the
   stage's own declared evidence (`PlanNode.evidence`, evaluated per step as the fact `evidence.ok`):

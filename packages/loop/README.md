@@ -30,7 +30,7 @@ The installer also adds the Explore mode and verifies the composed profile.
 | Field | Default | Meaning |
 |---|---|---|
 | `topology` | `dynamic` | `template` (curated library), `dynamic` (synthesized from the capability graph), `propose` (model authors it via `graph_plan`) |
-| `trivialChars` | `32` | Text length below which a trivial task stays a single node |
+| `trivialChars` | `32` | Text length below which a trivial task gets the minimal `orient → answer` skeleton instead of a synthesized graph |
 | `maxSteps` | `24` | Upper bound on graph steps in one turn (also the default plan `budget.maxSteps`) |
 | `toolPolicy` | `plan` | `plan` narrows each step to the plan universe (token win); `preset` keeps the full preset tool set for benchmark harnesses |
 | `composition` | `true` | Use the envelope + capability composer in dynamic mode; `false` keeps the legacy `synthesizeTopology` path |
