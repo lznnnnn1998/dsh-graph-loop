@@ -37,6 +37,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
+import type { StreamChunk, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { TaskPlan } from '../../packages/core/src/graph-schema.ts'
 import { ReactLoopAgent } from '../../packages/loop/src/loop/agent.ts'
 import { createGraphTurnDriver, type GraphTurnDriver } from '../../packages/loop/src/scheduler.ts'
@@ -376,6 +377,279 @@ test('Case 3: one bounded recovery discharges the obligation and the fresh answe
       assert.equal(inspected?.satisfiedBy, 'recover.1.1', `engine=${engine}: the discharging node is recorded`)
       assert.equal(h.driver.snapshot().answer?.text, ANSWER_TEXT, `engine=${engine}`)
       assert.equal(h.driver.snapshot().answer?.evidenceRefs.includes('n_inspect'), true, `engine=${engine}`)
+    } finally {
+      rmSync(workspace, { recursive: true, force: true })
+    }
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Case 6 / 6b: real dispatch at the answer terminal.
+//
+// The step is not stubbed here: the real `ReactLoopAgent.step()` dispatches to
+// a fake executor that mirrors stock tool resolution (a name outside the step's
+// admitted view is an `unknown tool` error). The live shape: the work node runs
+// a read-only shell call that leaves the owed `file.text` unmet, the answer-only
+// terminal calls `bash`, the bounded recovery writes the artifact, and the fresh
+// answer submits the channel (Case 6) or repeats the breach (Case 6b).
+// ---------------------------------------------------------------------------
+
+/** One scripted tool call as the model emits it. */
+interface ScriptedCall {
+  readonly id: string
+  readonly name: string
+  readonly arguments: string
+}
+
+/** What the terminal does on its second answer step. */
+type TerminalRepeat = 'answer' | 'breach-again'
+
+interface DispatchHarness {
+  readonly agent: ReactLoopAgent
+  readonly driver: GraphTurnDriver
+  readonly events: RecordedEvent[]
+  /** Every batch that reached the tools executor: the node it ran on and its names. */
+  readonly executed: { readonly node: string | undefined; readonly names: readonly string[] }[]
+}
+
+/**
+ * The drill plan adopted at the first boundary plus a scripted model keyed by
+ * the driver's current node. `loopCtx.llm` yields streams; `loopCtx.tools`
+ * resolves names exactly like the stock pipeline: outside the step's admitted
+ * view is an unknown-tool error result, a channel/write call succeeds.
+ */
+function dispatchHarness(engine: Engine, workspace: string, repeat: TerminalRepeat): DispatchHarness {
+  const events: RecordedEvent[] = []
+  const listeners: ((session: unknown, event: { type: string; data: Record<string, unknown> }) => void)[] = []
+  const executed: { node: string | undefined; names: readonly string[] }[] = []
+  let proposed: TaskPlan | undefined = drillPlan()
+  const driver = createGraphTurnDriver({
+    mode: 'propose',
+    kernel: engine === 'off' ? 'off' : engine,
+    worldRoot: workspace,
+    proposalSource: () => {
+      const next = proposed
+      proposed = undefined
+      return next
+    },
+  })
+  const outputPath = join(workspace, 'out.txt')
+  let header: unknown
+  let context: unknown
+  const session = {
+    id: 'session:test',
+    surface: { contentGeneration: 0 },
+    requestHeader: () => header,
+    requestContext: () => context,
+    deriveMessages: () => [],
+    toolHistory: () => ({ tools: [], updates: [] }),
+    snapshotEvents: () => [],
+    append(type: string, data: Record<string, unknown>, options?: Record<string, unknown>): { seq: number } {
+      if (type === 'request/header') header = data.header
+      if (type === 'request/context') context = data
+      const seq = events.length + 1
+      const event = { type, data, seq, time: seq, ...options }
+      events.push(event)
+      for (const listener of listeners) listener(session, event)
+      return { seq }
+    },
+  }
+  const definitions = new Map<string, unknown>(['bash', 'write', 'graph_answer', 'read']
+    .map(name => [name, { name, description: name, parameters: { type: 'object' } }]))
+  const resolved = {
+    dispose: () => undefined,
+    view: () => definitions,
+  }
+  const script = (node: string | undefined): readonly ScriptedCall[] => {
+    if (node === 'n_inspect') return [{ id: 'call-inspect', name: 'bash', arguments: JSON.stringify({ command: 'cat out.txt' }) }]
+    if (node === 'n_answer') return [{ id: 'call-breach', name: 'bash', arguments: JSON.stringify({ command: 'cat out.txt' }) }]
+    if (node === 'recover.1.1') return [{ id: 'call-write', name: 'write', arguments: JSON.stringify({ file_path: outputPath }) }]
+    if (node === 'answer.1.2') {
+      return repeat === 'answer'
+        ? [{ id: 'call-answer', name: 'graph_answer', arguments: JSON.stringify({ text: ANSWER_TEXT }) }]
+        : [{ id: 'call-breach-2', name: 'bash', arguments: JSON.stringify({ command: 'cat out.txt' }) }]
+    }
+    return []
+  }
+  function* reply(): Generator<StreamChunk> {
+    const calls = script(driver.current()?.id)
+    const text = calls.length === 0 ? 'Working on the task.' : 'Calling a tool.'
+    yield { type: 'block-start', index: 0, blockType: 'text' }
+    yield { type: 'text-delta', index: 0, text }
+    yield { type: 'block-end', index: 0, block: { type: 'text', text } }
+    let index = 1
+    for (const call of calls) {
+      const id = call.id as ToolCallId
+      yield { type: 'block-start', index, blockType: 'tool-call' }
+      yield { type: 'tool-call-delta', index, id, name: call.name, argumentsDelta: call.arguments }
+      yield { type: 'block-end', index, block: { type: 'tool-call', id, name: call.name, arguments: call.arguments } }
+      index += 1
+    }
+    yield { type: 'finish', reason: { kind: calls.length === 0 ? 'stop' : 'tool-calls' } }
+  }
+  const agent = Object.create(ReactLoopAgent.prototype) as ReactLoopAgent
+  Object.assign(agent, {
+    phase: { kind: 'running', abort: new AbortController(), turn: 0, step: 0, wakeRequested: false },
+    options: {},
+    session,
+    shellTools: new Set(['bash']),
+    turnGraph: driver,
+    requestHeaderLogged: false,
+    requestSurfaceGeneration: 0,
+    frozenMessages: new WeakSet(),
+    assistantAttemptCounter: 0,
+    assistantStreamRevision: 0,
+    systemPrompt: { project: () => [] },
+    runtimeContext: { project: () => undefined },
+    dispatch: {
+      emit: () => undefined,
+      serial: async () => undefined,
+      waterfall: async (_name: string, _payload: unknown, fallback: () => Promise<unknown>) => await fallback(),
+    },
+    inbox: {
+      hasPending: false,
+      nextTurn: [{ content: [{ type: 'text', text: 'Create the file the task needs.' }] }],
+      nextStep: [],
+      claim: () => [],
+      splice: () => undefined,
+      clear: () => undefined,
+    },
+    ctx: {
+      logger: { warn: () => undefined },
+      on: (name: string, listener: (session: unknown, event: { type: string; data: Record<string, unknown> }) => void) => {
+        if (name !== 'session/event') return () => undefined
+        listeners.push(listener)
+        return () => {
+          const at = listeners.indexOf(listener)
+          if (at >= 0) listeners.splice(at, 1)
+        }
+      },
+    },
+    loopCtx: {
+      get: () => undefined,
+      tools: {
+        resolve: async () => resolved,
+        execute: async (input: {
+          calls: readonly { id: string; name: string; arguments: string }[]
+          log: { turn: number; step: number }
+          toolSet?: { view(scope: undefined): ReadonlyMap<string, unknown> }
+        }) => {
+          executed.push({ node: driver.current()?.id, names: input.calls.map(call => call.name) })
+          for (const call of input.calls) {
+            session.append('tool/call', {
+              turn: input.log.turn, step: input.log.step, callId: call.id, name: call.name, arguments: call.arguments,
+            }, { surfaceOp: 'append' })
+            const admitted = input.toolSet?.view(undefined).has(call.name) === true
+            if (!admitted) {
+              session.append('tool/result', {
+                turn: input.log.turn, step: input.log.step,
+                message: {
+                  toolCallId: call.id, source: { callId: call.id }, isError: true,
+                  content: [{ type: 'text', text: `Error: unknown tool "${call.name}"` }],
+                },
+              }, { surfaceOp: 'append' })
+              continue
+            }
+            if (call.name === 'write') writeFileSync(outputPath, 'artifact content')
+            session.append('tool/result', {
+              turn: input.log.turn, step: input.log.step,
+              message: {
+                toolCallId: call.id, source: { callId: call.id }, isError: false,
+                content: [{ type: 'text', text: 'ok' }],
+              },
+            }, { surfaceOp: 'append' })
+          }
+          return { results: [], additionalContexts: [], concluded: false }
+        },
+      },
+      systemPrompt: {
+        assemble: async () => ({ sections: [], contexts: [], variables: {}, tools: [] }),
+        refreshContext: (assembly: unknown) => assembly,
+      },
+      llm: {
+        prepareCall: async (config: unknown) => ({ config, retryPolicy: {}, adapterDefaults: {}, stream: () => reply() }),
+        stream: () => reply(),
+      },
+      agentLoop: { config: { maxParallelToolCalls: { get: () => undefined } } },
+    },
+    model: { current: () => ({ provider: 'test', model: 'test' }), select: () => undefined },
+  })
+  return { agent, driver, events, executed }
+}
+
+/** All tool-result texts the step or the executor committed. */
+function toolResultTexts(events: readonly RecordedEvent[]): string[] {
+  return events
+    .filter(event => event.type === 'tool/result')
+    .flatMap(event => {
+      const message = event.data.message as { content?: readonly { type?: string; text?: string }[] } | undefined
+      return (message?.content ?? []).filter(part => part.type === 'text').map(part => part.text ?? '')
+    })
+}
+
+test('Case 6: a non-channel call at the answer terminal is refused at dispatch and one bounded recovery answers', async () => {
+  for (const engine of ENGINES) {
+    const workspace = mkdtempSync(join(tmpdir(), 'dsh-answer-obligation-'))
+    try {
+      const h = dispatchHarness(engine, workspace, 'answer')
+      assert.equal(await callTurn(h.agent), false, `engine=${engine}`)
+
+      // (i) The refused call never reached tool resolution on the answer node.
+      const atTerminal = h.executed.filter(batch => batch.node === 'n_answer' || batch.node === 'answer.1.2')
+      assert.deepEqual(atTerminal.map(batch => batch.names), [['graph_answer']],
+        `engine=${engine}: only the channel is dispatched at an answer terminal`)
+      assert.equal(h.executed.some(batch => batch.names.includes('bash') && batch.node === 'n_answer'), false,
+        `engine=${engine}: the breach was refused before dispatch`)
+
+      // (ii) No unknown-tool failure: the refusal names the channel instead.
+      const texts = toolResultTexts(h.events)
+      assert.equal(texts.some(text => text.includes('unknown tool') || text.includes('UNKNOWN_TOOL')), false,
+        `engine=${engine}: a refusal is never an unknown-tool error`)
+      assert.equal(texts.filter(text => text.includes('graph_answer') && text.includes('was not executed')).length, 1,
+        `engine=${engine}: the refused call is answered with the channel rule`)
+
+      // Typed refusal on the terminal row, not a failed node.
+      const terminalRow = h.driver.snapshot().trail.find(row => row.id === 'n_answer')
+      assert.equal(terminalRow?.status, 'ok', `engine=${engine}: the terminal step completed`)
+      assert.equal(terminalRow?.refusal?.code, 'channel-refused', `engine=${engine}: the refusal is typed`)
+
+      // (iii) Exactly one bounded answer-gate recovery; no generic r_* replan.
+      const recoverySteps = userTexts(h.events).filter(text => text.includes('The answer step is blocked'))
+      assert.equal(recoverySteps.length, 1, `engine=${engine}: one bounded recovery instruction`)
+      assert.equal(recoverySteps[0]?.includes('channel-refused'), true, `engine=${engine}: the recovery names the refusal`)
+      assert.equal(recoverySteps[0]?.includes('graph_answer'), true, `engine=${engine}: the recovery names the channel`)
+      assert.deepEqual(h.driver.snapshot().visited, ['p_frame', 'n_inspect', 'n_answer', 'recover.1.1', 'answer.1.2'],
+        `engine=${engine}: no generic recovery nodes`)
+
+      // (iv) The turn answered through the channel, with the ledger satisfied.
+      const ends = h.events.filter(event => event.type === 'turn/end')
+      assert.equal(ends.length, 1, `engine=${engine}: exactly one turn end`)
+      assert.deepEqual(ends[0]?.data.reason, { kind: 'completed' }, `engine=${engine}`)
+      assert.equal(h.driver.snapshot().answer?.text, ANSWER_TEXT, `engine=${engine}`)
+      assert.equal(h.driver.snapshot().obligations.find(entry => entry.nodeId === 'n_inspect')?.satisfied, true,
+        `engine=${engine}: the recovery discharged the owed artifact`)
+    } finally {
+      rmSync(workspace, { recursive: true, force: true })
+    }
+  }
+})
+
+test('Case 6b: a second refusal at the fresh answer terminal fails the turn honestly', async () => {
+  for (const engine of ENGINES) {
+    const workspace = mkdtempSync(join(tmpdir(), 'dsh-answer-obligation-'))
+    try {
+      const h = dispatchHarness(engine, workspace, 'breach-again')
+      await assert.rejects(callTurn(h.agent), `engine=${engine}: a second refusal must fail the turn`)
+
+      const ends = h.events.filter(event => event.type === 'turn/end')
+      assert.equal(ends.length, 1, `engine=${engine}: exactly one turn end`)
+      assert.equal((ends[0]?.data.reason as { kind?: string } | undefined)?.kind, 'error', `engine=${engine}`)
+      assert.equal(h.driver.terminalReached(), false, `engine=${engine}: a blocked answer is not a completion`)
+      const texts = toolResultTexts(h.events)
+      assert.equal(texts.some(text => text.includes('unknown tool') || text.includes('UNKNOWN_TOOL')), false,
+        `engine=${engine}: the second breach is still a refusal, not an unknown tool`)
+      assert.equal(texts.filter(text => text.includes('was not executed')).length, 2,
+        `engine=${engine}: both breaches were refused before dispatch`)
     } finally {
       rmSync(workspace, { recursive: true, force: true })
     }

@@ -225,7 +225,11 @@ export function answerRecordProblem(
 
 /** One structural reason the terminal answer was refused. */
 export interface AnswerProblem {
-  readonly code: 'missing-record' | 'empty-text' | 'tool-calls' | 'unmet-obligation' | 'missing-ref'
+  /**
+   * `channel-refused` is a policy verdict, not a record verdict: the terminal
+   * step called a tool its node does not admit, so no record can be admitted.
+   */
+  readonly code: 'missing-record' | 'empty-text' | 'tool-calls' | 'unmet-obligation' | 'missing-ref' | 'channel-refused'
   readonly detail: string
 }
 

@@ -22,6 +22,37 @@ export interface AnswerChannelCall {
 }
 
 /**
+ * One non-channel call a declared answer terminal refused before dispatch.
+ *
+ * The refusal is a name-set decision against the admitted set the terminal
+ * computed before the request: the call is answered with its own result and
+ * never reaches tool resolution, so it cannot become an unknown-tool error, an
+ * `AnswerRecord` or a tool call the step is judged on.
+ */
+export interface ChannelRefusal {
+  /** Why the call was refused; the only refusal outcome a terminal can report. */
+  readonly code: 'channel-refused'
+  /** The tool name the model asked for; the call was never dispatched. */
+  readonly tool: string
+  /** The declared terminal node that owns the admission decision. */
+  readonly nodeId: string
+}
+
+/**
+ * The model-facing result of one refused call.
+ *
+ * Not an error result: the terminal completed and the channel is still open.
+ * The text names the one admitted tool so the model can answer, and states
+ * that the call was not executed. No call argument, output or assistant text
+ * is ever read.
+ * @param tool - the refused tool name, as the model sent it.
+ * @returns the tool-result text answering that call.
+ */
+export function channelRefusalText(tool: string): string {
+  return `Tool "${tool}" was not executed: this answer terminal admits only the \`${ANSWER_TOOL}\` tool. Call \`${ANSWER_TOOL}\` with the answer text; any other call is refused before it runs.`
+}
+
+/**
  * Project one terminal step's observed calls to the answer record.
  *
  * Exactly one successful `graph_answer` call is the answer; any other tool the

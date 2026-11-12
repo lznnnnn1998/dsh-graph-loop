@@ -45,9 +45,9 @@ import { createBenchRetryCorrection } from './bench-retry.ts'
 import { RuntimeContextProjection } from './runtime-context.ts'
 import { AssistantStreamAttempt } from './assistant-stream.ts'
 import { SystemPromptProjection } from './runtime-context.ts'
-import { isMutatingNode, mutationObserved, restrictToolSet, DEFAULT_SHELL_TOOLS, shellFailureTool } from './step-tools.ts'
+import { admitStepCalls, admitStepTools, isMutatingNode, mutationObserved, DEFAULT_SHELL_TOOLS, shellFailureTool } from './step-tools.ts'
 import { foldGraphCheckpoint, recordGraphBoundary } from '../graph-state-log.ts'
-import { ANSWER_TOOL } from '../answer-channel.ts'
+import type { ChannelRefusal } from '../answer-channel.ts'
 
 /** Projected facts consumed by this driver; registration stays with the factory. */
 interface LoopProjections {
@@ -122,6 +122,7 @@ type PreparedStep =
     selection: Readonly<ModelSelection>
     /** Admission shared by the step's declarations and dispatch; the turn disposes it after the step. */
     toolSet: ResolvedToolSet
+    admitted?: ReadonlySet<string>
   }
 
 /** Remove adapter-derived values before plugins propose the next request config. */
@@ -209,6 +210,8 @@ export class ReactLoopAgent implements Agent {
    * `benchGuards: true`.
    */
   private benchGuards = false
+  /** Terminal admission refusal of the step in flight, carried to its advance. */
+  private stepRefusal: ChannelRefusal | undefined
   /**
    * Tools whose lone failed call fails the step's graph node. Configurable
    * because "the shell" is a deployment fact, not a graph semantic; the
@@ -476,27 +479,12 @@ export class ReactLoopAgent implements Agent {
       throw new Error(`agent "${this.id}" has no provider/model: set AgentOptions.provider and AgentOptions.model or record a model selection`)
     }
     const toolSet = await this.loopCtx.tools.resolve({ agent: this, modelSelection: selection, signal })
-    const nodeToolAllow = node?.toolAllow
-    const universe = this.turnGraph?.toolUniverse?.()
-    // A terminal `toolAllow: []` is an answer-only node, admitted exactly the
-    // typed answer channel; every other node uses the plan universe, which
-    // already contains the safe tool floor. An empty intersection stays empty
-    // and is logged rather than widened back to the full preset.
-    const answerOnly = nodeToolAllow !== undefined && nodeToolAllow.length === 0
-    const allowed = answerOnly
-      ? new Set<string>([ANSWER_TOOL])
-      : universe !== undefined && universe.length > 0
-        ? new Set(universe)
-        : undefined
-    const admittedToolSet = allowed !== undefined
-      ? restrictToolSet(toolSet, allowed, answerOnly
-        ? undefined
-        : (visible) => {
-          this.ctx.logger.warn(`agent "${this.id}": node "${node?.id ?? 'unknown'}" admits none of its visible tools (${visible.join(', ')}); starting the step with no tools`)
-        })
-      : toolSet
+    // A terminal with no tools is answer-only; see `admitStepTools`.
+    const admission = admitStepTools(toolSet, node, this.turnGraph?.toolUniverse?.(), (visible) => {
+      this.ctx.logger.warn(`agent "${this.id}": node "${node?.id ?? 'unknown'}" admits none of its visible tools (${visible.join(', ')}); starting the step with no tools`)
+    })
     try {
-      const assembly = await this.loopCtx.systemPrompt.assemble({ ...assembleContextFor(this, signal), modelSelection: selection, toolSet: admittedToolSet })
+      const assembly = await this.loopCtx.systemPrompt.assemble({ ...assembleContextFor(this, signal), modelSelection: selection, toolSet: admission.toolSet })
       signal.throwIfAborted()
       const decision = await this.dispatch.waterfall(
         'agent/pre-step', { messages: admitted, ...position, signal, modelSelection: selection },
@@ -511,12 +499,12 @@ export class ReactLoopAgent implements Agent {
       )
       signal.throwIfAborted()
       if (decision.kind === 'reject') {
-        admittedToolSet.dispose()
+        admission.toolSet.dispose()
         return decision
       }
-      return { ...decision, assembly, selection, toolSet: admittedToolSet }
+      return { ...decision, assembly, selection, ...admission }
     } catch (error: unknown) {
-      admittedToolSet.dispose()
+      admission.toolSet.dispose()
       throw error
     }
   }
@@ -729,6 +717,7 @@ export class ReactLoopAgent implements Agent {
           await this.turnGraph.advance({
             ok,
             ...(stepFailedTool === undefined ? {} : { failedTool: stepFailedTool }),
+            ...(this.stepRefusal === undefined ? {} : { refusal: this.stepRefusal }),
             tools: stepTools,
             ...(stepEndSeq === undefined ? {} : { atSeq: stepEndSeq }),
           })
@@ -810,6 +799,7 @@ export class ReactLoopAgent implements Agent {
     /* v8 ignore next -- private callers establish the running phase before executing a step */
     if (this.phase.kind !== 'running') throw new Error(`agent "${this.id}": step outside running phase`)
     const { turn, step, abort: { signal } } = this.phase
+    this.stepRefusal = undefined
     signal.throwIfAborted()
 
     const { assembly } = decision
@@ -959,10 +949,14 @@ export class ReactLoopAgent implements Agent {
 
         const toolCalls = message.content.filter(block => block.type === 'tool-call')
         if (toolCalls.length === 0) return { kind: 'completed' }
+        // Admission is authoritative at the only dispatch site (see `admitStepCalls`).
+        const admitted = admitStepCalls(this.session, { turn, step }, this.turnGraph?.current(), decision.admitted, toolCalls)
+        this.stepRefusal = admitted.refusal
+        if (admitted.dispatched.length === 0) return { kind: 'completed' }
         const maxParallelToolCalls = this.loopCtx.agentLoop.config.maxParallelToolCalls.get()
         try {
           const result = await this.loopCtx.tools.execute({
-            calls: toolCalls, signal, agent: this, log: { turn, step },
+            calls: admitted.dispatched, signal, agent: this, log: { turn, step },
             maxParallelToolCalls, toolSet: decision.toolSet,
           })
           for (const context of result.additionalContexts) {

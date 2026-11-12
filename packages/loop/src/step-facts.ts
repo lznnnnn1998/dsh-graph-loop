@@ -93,12 +93,17 @@ export function artifactTypeFor(path: string): ArtifactType {
  * `wroteFile` / `readFile` are not name sets: both delegate to `loop/step-tools.ts`
  * so the graph, the composer's stage guards and the benchmark retry agree on what
  * a mutation is, including shell writes and shell reads.
+ *
+ * `channelRefused` is the one fact a terminal admission refusal writes: the step
+ * completed, but a call was rejected before dispatch, so a guard can tell a
+ * refused answer from an admitted one without reading any text.
  */
 export function deriveStepFacts(
   tools: readonly ObservedTool[],
   ok: boolean,
   failedTool?: string,
   shellTools: ReadonlySet<string> = new Set(DEFAULT_SHELL_TOOLS),
+  refused = false,
 ): Record<string, Json> {
   let exitFailure = false
   for (const tool of tools) {
@@ -128,6 +133,9 @@ export function deriveStepFacts(
     // Always written (false = no named failing tool) so a stale `failedTool`
     // from a previous step cannot satisfy a later `callFailed` guard.
     failedTool: failedTool ?? false,
+    // Always written: a refused call is not a tool call, so the step still
+    // completed; the fact lets a plan route on admission without text inspection.
+    channelRefused: refused,
   }
   // Per-tool facts are step-scoped. Write both keys for every tool this step
   // called (false `failed` too), and make `.ok` mean "every call to it

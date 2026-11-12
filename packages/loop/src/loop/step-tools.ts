@@ -1,6 +1,9 @@
 /** Per-step tool admission and node-intent rules shared by the graph loop. */
 
 import type { ResolvedToolSet, ToolDefinition } from '@deepseek-ai/dsh-tools'
+import { createToolResultMessage, type ToolCallBlock } from '@deepseek-ai/dsh-llm'
+import type { Session } from '@deepseek-ai/dsh-session'
+import { ANSWER_TOOL, channelRefusalText, type ChannelRefusal } from '../answer-channel.ts'
 
 /** Tools whose successful call is the mutation the node exists to perform. */
 const MUTATION_TOOLS = new Set(['write', 'edit', 'str_replace_editor', 'apply_patch', 'multi_edit'])
@@ -217,6 +220,107 @@ export function restrictToolSet(
       }
       return filtered
     },
+  }
+}
+
+/**
+ * One step's tool admission: the narrowed view the request sees, and the name
+ * set dispatch enforces itself when the node is an answer-only terminal.
+ */
+export interface StepAdmission {
+  /** The request's and stock resolution's tool view; the admission rule is unchanged. */
+  readonly toolSet: ResolvedToolSet
+  /**
+   * Names dispatch must enforce. Present only at a declared `terminal` whose
+   * `toolAllow` is empty: every other node keeps stock resolution, where an
+   * unknown name is still the tool registry's own error.
+   */
+  readonly admitted?: ReadonlySet<string>
+}
+
+/** An answer-only terminal admits exactly the typed channel. */
+const ANSWER_ONLY_ADMISSION = new Set<string>([ANSWER_TOOL])
+
+/**
+ * Narrow the step's tool set to the active node's tools (see
+ * {@link restrictToolSet}) and report when dispatch must refuse a non-admitted
+ * call. A terminal node with an explicit empty `toolAllow` is answer-only: its
+ * empty admission is the intended result, so no empty-admission warning fires,
+ * while the same set is returned as `admitted` so dispatch can make admission
+ * authoritative before tool resolution.
+ * @param base - the turn's resolved tool admission.
+ * @param node - the active plan node (structural subset).
+ * @param universe - the plan's tool universe, when it declares one.
+ * @param onEmpty - reports the visible set once when a non-terminal intersection is empty.
+ * @returns the narrowed view plus the enforced admission set, if any.
+ */
+export function admitStepTools(
+  base: ResolvedToolSet,
+  node: NodeIntent | undefined,
+  universe: readonly string[] | undefined,
+  onEmpty?: EmptyAdmissionHandler,
+): StepAdmission {
+  const nodeToolAllow = node?.toolAllow
+  const answerOnly = nodeToolAllow !== undefined && nodeToolAllow.length === 0
+  const allowed = answerOnly
+    ? ANSWER_ONLY_ADMISSION
+    : universe !== undefined && universe.length > 0
+      ? new Set(universe)
+      : undefined
+  const toolSet = allowed === undefined
+    ? base
+    : restrictToolSet(base, allowed, answerOnly ? undefined : onEmpty)
+  return { toolSet, ...answerOnly && node?.kind === 'terminal' ? { admitted: ANSWER_ONLY_ADMISSION } : {} }
+}
+
+/** One assistant message's calls split by the step's enforced admission. */
+export interface AdmittedCallBatch {
+  /** Calls the step may dispatch; the whole message unless admission is enforced. */
+  readonly dispatched: readonly ToolCallBlock[]
+  /** The typed refusal when dispatch refused a non-admitted call. */
+  readonly refusal?: ChannelRefusal
+}
+
+/**
+ * Apply the node's admission to one assistant message's calls before dispatch.
+ *
+ * The decision is a name-set test against the set computed before the request:
+ * no argument, output or assistant text is read, and the admitted set is never
+ * widened. A refused call is answered here with one non-error result carrying
+ * its own callId (providers reject a dangling call), so the transcript stays
+ * whole without pretending the tool ran; stock resolution never sees the name.
+ * @param session - the session the synthetic result is committed to.
+ * @param position - the step owning the message.
+ * @param node - the active plan node, for the refusal's typed nodeId.
+ * @param admitted - the enforced admission set, absent when dispatch is not gated.
+ * @param calls - every tool call the assistant message declared.
+ * @returns the calls to dispatch and, when any was refused, the typed refusal.
+ */
+export function admitStepCalls(
+  session: Pick<Session, 'append'>,
+  position: { readonly turn: number; readonly step: number },
+  node: NodeIntent | undefined,
+  admitted: ReadonlySet<string> | undefined,
+  calls: readonly ToolCallBlock[],
+): AdmittedCallBatch {
+  if (admitted === undefined) return { dispatched: calls }
+  const dispatched = calls.filter(call => admitted.has(call.name))
+  const refused = calls.filter(call => !admitted.has(call.name))
+  if (refused.length === 0) return { dispatched }
+  for (const call of refused) {
+    session.append('tool/result', {
+      ...position,
+      message: createToolResultMessage({
+        callId: call.id,
+        content: [{ type: 'text', text: channelRefusalText(call.name) }],
+        isError: false,
+      }),
+    }, { surfaceOp: 'append' })
+  }
+  const [first] = refused
+  return {
+    dispatched,
+    refusal: { code: 'channel-refused', tool: first.name, nodeId: node?.id ?? 'answer' },
   }
 }
 

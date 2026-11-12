@@ -30,11 +30,12 @@ import { selectEnvelopeForTask, type EnvelopeIssue } from 'dsh-graph-loop-core/e
 import { KernelTopology, canKernelDrive } from './kernel/topology.ts'
 import { deriveCapabilityFacts, deriveEvidenceCalls, deriveStepArtifactCandidates, deriveStepFacts, artifactTypeFor, type ArtifactCandidate } from './step-facts.ts'
 import { diffWorld, inDeclaredRoot, observeWorld, type WorldObservation } from './world.ts'
-import { ANSWER_TOOL, answerRecordFrom } from './answer-channel.ts'
+import { ANSWER_TOOL, answerRecordFrom, type ChannelRefusal } from './answer-channel.ts'
 import { DEFAULT_SHELL_TOOLS } from './loop/step-tools.ts'
 import {
   answerRecordProblem,
   satisfiesNodeEvidence,
+  type AnswerProblem,
   type RoutingArtifact,
 } from 'dsh-graph-loop-core/condition'
 import type { AnswerRecord, ArtifactType, Json, NodeEvidenceContract, ObligationRecord } from 'dsh-graph-loop-core/graph-schema'
@@ -98,6 +99,8 @@ export interface GraphTurnSnapshot {
     readonly executor: string
     readonly status: 'ok' | 'failed'
     readonly tools?: readonly { readonly name: string; readonly callId?: string; readonly isError: boolean; readonly arguments?: string; readonly output?: string }[]
+    /** The terminal admission refusal this node's step observed, if any. */
+    readonly refusal?: ChannelRefusal
   }[]
   readonly depth?: number
   readonly replans?: number
@@ -276,6 +279,8 @@ interface TurnTopology {
 interface NodeOutcome {
   readonly ok: boolean
   readonly failedTool?: string
+  /** Terminal admission refusal this step observed before dispatch (answer-only node). */
+  readonly refusal?: ChannelRefusal
   readonly tools?: readonly { readonly name: string; readonly callId?: string; readonly isError: boolean; readonly arguments?: string; readonly output?: string }[]
   /** Session seq of the `step/end` that closed this node's boundary. */
   readonly atSeq?: number
@@ -366,17 +371,23 @@ function answerRecoveryPlan(input: {
   readonly taskHash: string
   readonly unmet: readonly string[]
   readonly problem: string
+  readonly code: AnswerProblem['code']
   readonly toolAllow: readonly string[]
   readonly budget: TaskBudget
 }): TaskPlan {
   const work = input.unmet.length === 0
     ? `Answer the task by calling the \`${ANSWER_TOOL}\` tool with the answer text. Printed tool-call syntax is not an answer.`
     : `Do the required work at ${input.unmet.join(', ')} now using the available tools; a fresh answer step follows. Do not describe work you are not doing.`
+  // A terminal refused a non-channel call: the recovery must name the only
+  // admitted tool and the typed refusal so the next answer stays on the channel.
+  const channel = input.code === 'channel-refused'
+    ? ` Only the \`${ANSWER_TOOL}\` tool is admitted at the answer step; any other call is refused before dispatch.`
+    : ''
   const recover: PlanNode = {
     id: 'recover.1.1',
     kind: 'agent-step',
     executor: 'step',
-    instruction: `The answer step is blocked (${input.problem}). ${work}`,
+    instruction: `The answer step is blocked (${input.problem}). ${work}${channel}`,
   }
   const answer: PlanNode = {
     id: 'answer.1.2',
@@ -630,6 +641,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       executor: executor ?? 'step',
       status: outcome.ok ? 'ok' : 'failed',
       ...(outcome.tools === undefined || outcome.tools.length === 0 ? {} : { tools: outcome.tools }),
+      ...(outcome.refusal === undefined ? {} : { refusal: outcome.refusal }),
     })
   }
 
@@ -728,7 +740,14 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     const answer = typed
       ? answerRecordFrom(outcome.tools, evidenceRefs)
       : { text: '', evidenceRefs, toolCalls: outcome.tools?.length ?? 0 }
-    const problem = answerRecordProblem(answer, recorded, typed)
+    // A refusal is authoritative over any record: the step called a tool its
+    // terminal does not admit, so it cannot complete even if the ledger is met.
+    const problem = outcome.refusal === undefined
+      ? answerRecordProblem(answer, recorded, typed)
+      : {
+        code: 'channel-refused' as const,
+        detail: `channel-refused: the answer terminal refused \`${outcome.refusal.tool}\`; only \`${ANSWER_TOOL}\` is admitted`,
+      }
     if (problem === undefined) {
       acceptedAnswer = answer
       return
@@ -742,6 +761,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
         taskHash: plan.id,
         unmet: unmet.map(entry => entry.nodeId),
         problem: problem.detail,
+        code: problem.code,
         toolAllow: plan.toolUniverse,
         budget: plan.budget,
       })
@@ -780,7 +800,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     if (record !== undefined) recordTrail(record.id, record.executor, outcome)
     lastNode = lastNodeId ?? lastNode
     const observed = outcome.tools ?? []
-    const facts = deriveStepFacts(observed, outcome.ok, outcome.failedTool, shellTools)
+    const facts = deriveStepFacts(observed, outcome.ok, outcome.failedTool, shellTools, outcome.refusal !== undefined)
     // Tool facts are step-scoped: a tool that failed in an earlier step must not
     // leave `tool.<name>.failed=true` (or a stale `.ok`) for a later step that
     // never called it. Reset every name this turn has seen, then let this step's
@@ -1114,6 +1134,8 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     async advance(outcome: {
     readonly ok: boolean
     readonly failedTool?: string
+    /** Terminal admission refusal this step observed before dispatch. */
+    readonly refusal?: ChannelRefusal
     readonly tools?: readonly { readonly name: string; readonly callId?: string; readonly isError: boolean; readonly arguments?: string; readonly output?: string }[]
     /** Session seq of the `step/end` that closed this node's boundary. */
     readonly atSeq?: number
