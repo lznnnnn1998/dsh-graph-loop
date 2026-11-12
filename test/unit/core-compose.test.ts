@@ -170,7 +170,7 @@ test('an MCP tool with only tags and artifacts composes without any core tool', 
   assert.equal(validateTaskPlan(graph, result.plan).ok, true)
 })
 
-test('an empty envelope degrades to a single generic step instead of dropping the task', () => {
+test('an empty envelope degrades to the generic turn skeleton instead of dropping the task', () => {
   const graph = graphOf({ tools: [] })
   const envelope = buildEnvelope({ roles: [] }, graph)
   const result = synthesizeComposition({
@@ -181,8 +181,10 @@ test('an empty envelope degrades to a single generic step instead of dropping th
 
   assert.equal(result.plan.fallback, true)
   assert.equal(result.plan.templateId, 't_generic')
-  assert.equal(result.plan.nodes.length, 1)
-  assert.equal(result.plan.nodes[0]?.id, 'n_answer')
+  assert.equal(result.plan.nodes.length, 2)
+  assert.equal(result.plan.nodes[0]?.id, 'n_orient', 'the generic plan still gets a work node')
+  assert.equal(result.plan.nodes[1]?.id, 'n_answer')
+  assert.equal(result.plan.nodes[1]?.kind, 'terminal')
   assert.equal(validateTaskPlan(graph, result.plan).ok, true)
 })
 
@@ -206,7 +208,7 @@ test('synthesis is deterministic and respects the envelope universe', () => {
   assert.equal(validateTaskPlan(graph, first.plan).ok, true)
 })
 
-test('the composed plan ends at a tool-enabled answer node and gives verify a repair exit', () => {
+test('the composed plan ends at an answer-only terminal and gives verify a repair exit', () => {
   const graph = graphOf({ tools: CORE_TOOLS })
   const envelope = buildEnvelope({
     roles: [
@@ -225,8 +227,8 @@ test('the composed plan ends at a tool-enabled answer node and gives verify a re
   assert.ok(result.stages.length > 0, 'the fixture must compose work stages')
   const answer = result.plan.nodes.find(node => node.id === 'n_answer')
   assert.ok(answer, 'composed plans end at n_answer')
-  assert.equal(answer.kind, 'agent-step', 'an answer that can still act is an agent step, not a terminal')
-  assert.equal(answer.toolAllow, undefined, 'the answer node must keep the tools needed to continue')
+  assert.equal(answer.kind, 'terminal', 'the last step is a report, so it cannot call tools')
+  assert.deepEqual(answer.toolAllow, [], 'a tool-enabled answer could end the turn with no assistant text')
   const verifyOut = result.plan.edges.filter(edge => edge.from === 'n_verify')
   assert.ok(verifyOut.some(edge => edge.to === 'n_verify_repair'
     && edge.when?.op === 'fact' && edge.when.key === 'lastOk' && edge.when.equals === false))
@@ -243,7 +245,7 @@ test('the composed plan ends at a tool-enabled answer node and gives verify a re
   assert.equal(validateTaskPlan(graph, result.plan).ok, true)
 })
 
-test('a generic single-step plan keeps the envelope: its terminal is also the work node', () => {
+test('a generic plan keeps the envelope and still runs orient -> answer', () => {
   const graph = graphOf({ tools: [] })
   const envelope = buildEnvelope({ roles: [] }, graph)
   const result = synthesizeComposition({
@@ -253,12 +255,14 @@ test('a generic single-step plan keeps the envelope: its terminal is also the wo
   })
 
   assert.equal(result.plan.templateId, 't_generic')
-  assert.equal(result.plan.nodes.length, 1)
-  assert.equal(result.plan.nodes[0]?.toolAllow, undefined, 'the escape hatch must keep its tools')
+  assert.equal(result.plan.nodes.length, 2)
+  assert.equal(result.plan.nodes[0]?.id, 'n_orient')
+  assert.equal(result.plan.nodes[0]?.toolAllow, undefined, 'the work node keeps the envelope tools')
+  assert.equal(result.plan.nodes[1]?.kind, 'terminal')
   assert.equal(validateTaskPlan(graph, result.plan).ok, true)
 })
 
-test('a maxSteps budget of one yields a single terminal node', () => {
+test('a maxSteps budget of one still installs the two-node skeleton', () => {
   const graph = graphOf({ tools: CORE_TOOLS })
   const envelope = buildEnvelope({
     roles: [role('workspace-read'), role('workspace-write'), role('shell'), role('verification')],
@@ -271,8 +275,9 @@ test('a maxSteps budget of one yields a single terminal node', () => {
   })
 
   assert.equal(result.plan.budget.maxSteps, 1, 'the plan budget must match the enforced cap')
-  assert.equal(result.plan.nodes.length, 1)
-  assert.equal(result.plan.nodes[0]?.id, 'n_answer')
+  assert.equal(result.plan.nodes.length, 2, 'R4 shape is independent of the step budget')
+  assert.equal(result.plan.nodes[0]?.id, 'n_orient')
+  assert.equal(result.plan.nodes[1]?.id, 'n_answer')
   assert.ok(result.issues.some(issue => issue.code === 'budget-capped'))
   assert.equal(validateTaskPlan(graph, result.plan).ok, true)
 })

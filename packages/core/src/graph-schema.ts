@@ -780,6 +780,30 @@ function isSafeEvidenceRoot(root: string): boolean {
   return true
 }
 
+/**
+ * R4 turn-shape validation: every turn plan is a multi-node graph with a
+ * distinct entry and exactly one terminal.
+ *
+ * Split out of {@link validateTaskPlan} so a caller that installs a plan can
+ * enforce the invariant without a registry snapshot at hand (the scheduler's
+ * `install()`); `validateTaskPlan` merges these errors so producer-side
+ * validation rejects the same shapes. P001-P030 keep their meaning; P031-P033
+ * are the R4 codes.
+ */
+export function validateTurnShape(plan: TaskPlan): ValidationResult {
+  const errors: ValidationIssue[] = []
+  if (plan.nodes.length < 2) {
+    errors.push({ code: 'P031', path: 'nodes', message: 'a turn plan needs at least two nodes' })
+  }
+  if (plan.terminals.includes(plan.entry)) {
+    errors.push({ code: 'P032', path: 'entry', message: `entry "${plan.entry}" is also a terminal` })
+  }
+  if (plan.terminals.length !== 1) {
+    errors.push({ code: 'P033', path: 'terminals', message: `a turn plan needs exactly one terminal, got ${plan.terminals.length}` })
+  }
+  return { ok: errors.length === 0, errors, warnings: [] }
+}
+
 /** Structural validation of an instantiated plan against its registry snapshot. */
 export function validateTaskPlan(graph: RegistryGraph, plan: TaskPlan): ValidationResult {
   const errors: ValidationIssue[] = []
@@ -796,6 +820,8 @@ export function validateTaskPlan(graph: RegistryGraph, plan: TaskPlan): Validati
   if (plan.terminals.length === 0) {
     errors.push({ code: 'P003', path: 'terminals', message: 'plan needs at least one terminal node' })
   }
+  // R4: one multi-node shape for every producer (no one-node turn plans).
+  errors.push(...validateTurnShape(plan).errors)
   if (!Number.isInteger(plan.budget.maxSteps) || plan.budget.maxSteps < 1) {
     errors.push({ code: 'P026', path: 'budget.maxSteps', message: 'maxSteps must be a positive integer' })
   }

@@ -1,7 +1,7 @@
 /**
  * The fallback plan is live: the scheduler installs it for trivial tasks,
- * subagent children and forced fallbacks. It must stay a valid, single-node
- * plan when the composition layer cannot stage a task.
+ * subagent children and forced fallbacks. R4: it is the minimal turn skeleton
+ * (`orient -> answer`), never one node that is also its own terminal.
  */
 
 import assert from 'node:assert/strict'
@@ -10,17 +10,20 @@ import { test } from 'node:test'
 import { fallbackPlan } from '../../packages/core/src/fallback.ts'
 import { canKernelDrive } from '../../packages/loop/src/kernel/topology.ts'
 
-test('fallback plan is a valid single-node terminal plan', () => {
+test('fallback plan is the two-node turn skeleton with an answer-only terminal', () => {
   const plan = fallbackPlan({ id: 'task-1', instruction: 'do the task', maxSteps: 5 })
-  assert.equal(plan.entry, 'node:respond')
-  assert.deepEqual(plan.terminals, ['node:respond'])
-  assert.equal(plan.nodes.length, 1)
-  assert.equal(plan.edges.length, 0)
+  assert.equal(plan.entry, 'orient.1.1')
+  assert.deepEqual(plan.terminals, ['answer.1.1'])
+  assert.equal(plan.nodes.length, 2)
+  assert.equal(plan.nodes[0]?.kind, 'agent-step')
+  assert.equal(plan.nodes[1]?.kind, 'terminal')
+  assert.deepEqual(plan.nodes[1]?.toolAllow, [], 'the answer terminal is answer-only')
+  assert.deepEqual(plan.edges, [{ from: 'orient.1.1', to: 'answer.1.1', kind: 'control' }])
   assert.equal(plan.budget.maxSteps, 5)
   assert.equal(plan.nodes[0]?.instruction, 'do the task')
   assert.equal(plan.fallback, true)
-  // The fallback's `node:respond` id contains `:`, so the kernel adapter keeps
-  // it on the frontier. The fallback is the one shape that never needs routing.
+  // R4 ids contain `.`, which LangGraph rejects as node names, so the kernel
+  // declines and the frontier executes the skeleton on every engine.
   assert.equal(canKernelDrive(plan), false)
 })
 

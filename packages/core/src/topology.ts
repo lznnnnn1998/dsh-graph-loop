@@ -46,6 +46,7 @@ import {
   type RoutingState,
 } from './condition.ts'
 import type { TaskFingerprint } from './matching.ts'
+import { orientAnswerSkeleton } from './fallback.ts'
 
 export type TopologyMode = 'template' | 'dynamic' | 'propose'
 
@@ -334,6 +335,22 @@ export function synthesizeTopology(input: SynthesizeInput): SynthesizedTopology 
     }
   }
 
+  if (nodes.length === 0) {
+    // R4: a registry with no usable capability still yields a turn, not a
+    // one-node plan whose entry is also its terminal. `d_orient` gets the step
+    // and the answer terminal reports it.
+    const skeleton = orientAnswerSkeleton({
+      orientId: 'd_orient',
+      answerId: 'd_answer',
+      orientInstruction: 'Complete the task with the available tools, then report what you did.',
+      answerInstruction: 'Answer the task using what the previous step produced. Cite evidence and state what was not verified.',
+    })
+    nodes.push(...skeleton.nodes)
+    edges.push(...skeleton.edges)
+    rationale.push('orientation + answer (no capability node matched)')
+    return finish(input, nodes, edges, skeleton.entry, skeleton.terminals, budget, rationale, 'dynamic')
+  }
+
   const answerId = 'd_answer'
   nodes.push({
     id: answerId,
@@ -387,14 +404,23 @@ export function bootstrapTopology(taskHash: string, budget?: Partial<TopologyBud
     templateId: 'propose',
     version: 1,
     entry: 'p_frame',
-    terminals: ['p_frame'],
-    nodes: [{
-      id: 'p_frame',
-      kind: 'agent-step',
-      executor: 'step',
-      instruction: 'Author the run topology for this task. Call the `graph_plan` tool with nodes and edges that use the available capabilities, then continue. Keep it minimal; you may add or remove nodes later.',
-    }],
-    edges: [],
+    terminals: ['p_answer'],
+    nodes: [
+      {
+        id: 'p_frame',
+        kind: 'agent-step',
+        executor: 'step',
+        instruction: 'Author the run topology for this task. Call the `graph_plan` tool with nodes and edges that use the available capabilities, then continue. Keep it minimal; you may add or remove nodes later.',
+      },
+      {
+        id: 'p_answer',
+        kind: 'terminal',
+        executor: 'step',
+        instruction: 'Report the topology that was authored and what the run will do next.',
+        toolAllow: [],
+      },
+    ],
+    edges: [{ from: 'p_frame', to: 'p_answer', kind: 'control' }],
     budget: b,
     toolUniverse: [],
     gatePolicy: 'never',

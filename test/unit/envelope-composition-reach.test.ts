@@ -10,7 +10,7 @@
  * capability-composed graph. This drill pins the route for three representative
  * shapes and prints the installed plan + rationale:
  *
- *   short chat   -> t_stock, 1 node   (triage, by design)
+ *   short chat   -> turn skeleton, 2 nodes (triage, by design)
  *   multi-tool   -> t_compose, >= 3 nodes, envelopeId set
  *   file-edit    -> t_compose, >= 3 nodes, envelopeId set
  *
@@ -75,7 +75,7 @@ const presetTools = graph.nodes.flatMap(node => node.tool === undefined ? [] : [
 interface DrillShape {
   readonly name: string
   readonly text: string
-  readonly templateId: 't_stock' | 't_compose'
+  readonly templateId: 'turn' | 't_compose'
   readonly minNodes: number
   readonly path: 'triage' | 'compose'
   /** Stage node ids the composed plan must contain. */
@@ -85,8 +85,8 @@ interface DrillShape {
 const SHORT_CHAT: DrillShape = {
   name: 'short chat',
   text: 'hi',
-  templateId: 't_stock',
-  minNodes: 1,
+  templateId: 'turn',
+  minNodes: 2,
   path: 'triage',
   stages: [],
 }
@@ -177,12 +177,12 @@ test('the composed path is reachable in a 116-tool profile (drill over three sha
       assert.ok(universe.length > 64, `${shape.name}: allowlist carries the whole profile (${universe.length})`)
       assert.ok(universe.includes('gridcraft_op0'), `${shape.name}: unannotated baseline tool stays callable`)
     } else {
-      // The short chat keeps the single triage step: no envelope is attempted.
+      // The short chat keeps the minimal triage skeleton: no envelope is attempted.
       assert.equal(snapshot.envelopeId, undefined, `${shape.name}: no envelope on the triage path`)
       assert.equal(issues.length, 0, `${shape.name}: triage attempts no envelope`)
       assert.ok(
-        snapshot.rationale.some(line => line.includes('triage') && line.includes('single-node')),
-        `${shape.name}: rationale explains the single step`,
+        snapshot.rationale.some(line => line.includes('triage') && line.includes('skeleton')),
+        `${shape.name}: rationale explains the minimal skeleton`,
       )
     }
   }

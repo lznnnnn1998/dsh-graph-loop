@@ -34,6 +34,7 @@ import { DEFAULT_SHELL_TOOLS } from './loop/step-tools.ts'
 import { satisfiesNodeEvidence, type RoutingArtifact } from 'dsh-graph-loop-core/condition'
 import type { ArtifactType, Json } from 'dsh-graph-loop-core/graph-schema'
 import { fallbackPlan } from 'dsh-graph-loop-core/fallback'
+import { validateTurnShape } from 'dsh-graph-loop-core/graph-schema'
 import type { GraphResumeState } from './graph-state-log.ts'
 
 export type { TopologyMode }
@@ -208,7 +209,7 @@ export interface GraphTurnDriverOptions {
   readonly trivialChars?: number
   /** False for subagent children: no nested fan-out. */
   readonly allowSubagents?: boolean
-  /** Force the single-node fallback plan (used for subagent children). */
+  /** Force the minimal turn skeleton (used for subagent children). */
   readonly forceFallback?: boolean
   /** Delegation depth (0 for a root agent), included in the trace. */
   readonly depth?: number
@@ -309,6 +310,14 @@ function mergeCandidates(...sources: readonly (readonly ArtifactCandidate[])[]):
   }
   return merged
 }
+
+/**
+ * Raised when a planning branch installs a plan that violates R4 (fewer than two
+ * nodes, entry is a terminal, or not exactly one terminal). The branch catches
+ * that wrap synthesis, so they rethrow it: a producer regression must fail the
+ * turn, not silently degrade to a later branch.
+ */
+class TurnShapeViolation extends Error {}
 
 export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): GraphTurnDriver {
   const mode: TopologyMode = options.mode ?? 'template'
@@ -448,8 +457,19 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     return snap
   }
 
-  function install(next: TaskPlan, resume?: GraphState): void {
+  function install(next: TaskPlan, resume?: GraphState, gate?: 'turn'): void {
     adoptedAtStep = undefined
+    // R4 gate: every plan a turn plans for itself is a multi-node graph with a
+    // distinct, single terminal. `adopt()` and runtime recovery installs skip it
+    // (engine-level branch drills author their own plans).
+    if (gate === 'turn') {
+      const shape = validateTurnShape(next)
+      if (!shape.ok) {
+        throw new TurnShapeViolation(
+          `turn plan violates R4: ${shape.errors.map(error => `${error.code} ${error.path}: ${error.message}`).join('; ')}`,
+        )
+      }
+    }
     // A caller that installs a plan without `beginTurn` (a harness adopting a
     // plan directly) still gets a baseline: the first work step is diffed from
     // the world as it was when the plan was installed, not from an empty world.
@@ -720,12 +740,12 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
         visibleTools: task.visibleTools ?? [],
       })
 
-      // A subagent child is always the single-node fallback, even in propose
+      // A subagent child is always the minimal turn skeleton, even in propose
       // mode: children must not fork their own topology or nested fan-out.
       if (options.forceFallback === true) {
-        install(fallbackPlan({ id: fingerprint.hash, instruction: options.fallbackInstruction, maxSteps }))
+        install(fallbackPlan({ id: fingerprint.hash, instruction: options.fallbackInstruction, maxSteps }), undefined, 'turn')
         planPath = 'child-fallback'
-        rationale = ['child agent: single-node fallback']
+        rationale = ['child agent: multi-node turn skeleton fallback']
         return emit()
       }
 
@@ -743,23 +763,24 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       }
 
       if (mode === 'propose') {
-        install(bootstrapTopology(fingerprint.hash, { maxSteps }))
+        install(bootstrapTopology(fingerprint.hash, { maxSteps }), undefined, 'turn')
         planPath = 'propose'
         rationale = ['bootstrap frame: the model authors the topology']
         return emit()
       }
 
-      // Triage: a trivial task does not deserve a synthesized graph. One step
-      // keeps short chats at stock-loop cost instead of paying plan overhead.
+      // Triage: a trivial task does not deserve a synthesized graph. The
+      // minimal skeleton keeps short chats at two steps instead of paying plan
+      // synthesis overhead, while still giving the turn a real answer node.
       const trivial = task.text.trim().length > 0 && task.text.trim().length < trivialChars
         && fingerprint.intent === 'other'
         && !fingerprint.mutating
         && fingerprint.artifactsIn.length === 0
         && fingerprint.artifactsOut.length === 0
       if (mode !== 'template' && trivial) {
-        install(fallbackPlan({ id: fingerprint.hash, instruction: options.fallbackInstruction, maxSteps }))
+        install(fallbackPlan({ id: fingerprint.hash, instruction: options.fallbackInstruction, maxSteps }), undefined, 'turn')
         planPath = 'triage'
-        rationale = ['triage: trivial task, single-node plan']
+        rationale = ['triage: trivial task, minimal turn skeleton']
         return emit()
       }
 
@@ -782,7 +803,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
               envelope: selected.envelope,
               budget: { maxSteps, maxReplans: 2 },
             })
-            install(composed.plan)
+            install(composed.plan, undefined, 'turn')
             envelopeId = selected.envelope.id
             planPath = 'compose'
             rationale = [
@@ -794,6 +815,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
           const rejection = selected.issues.find(issue => issue.severity === 'error')
           pathReasons.push(`envelope rejected: ${rejection?.code ?? 'envelope-not-usable'}`)
         } catch (error: unknown) {
+          if (error instanceof TurnShapeViolation) throw error
           pathReasons.push(`envelope failed: ${error instanceof Error ? error.message : String(error)}`)
         }
       }
@@ -808,11 +830,12 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
             allowSubagents: options.allowSubagents !== false,
             budget: { maxSteps },
           })
-          install(synthesized.plan)
+          install(synthesized.plan, undefined, 'turn')
           planPath = 'synthesized'
           rationale = rationaleWith(synthesized.rationale)
           return emit()
         } catch (error: unknown) {
+          if (error instanceof TurnShapeViolation) throw error
           pathReasons.push(`dynamic synthesis failed: ${error instanceof Error ? error.message : String(error)}`)
         }
       }
@@ -831,18 +854,19 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
           })
           plan = result.plan
           decision = result.decision
-          install(result.plan)
+          install(result.plan, undefined, 'turn')
           planPath = 'template'
           rationale = rationaleWith([result.decision.fallback ? 'template fallback' : `template ${result.decision.templateId}`])
           return emit()
         } catch (error: unknown) {
+          if (error instanceof TurnShapeViolation) throw error
           plan = undefined
           pathReasons.push(`template match failed: ${error instanceof Error ? error.message : String(error)}`)
         }
       }
-      install(fallbackPlan({ id: fingerprint.hash, instruction: options.fallbackInstruction, maxSteps }))
+      install(fallbackPlan({ id: fingerprint.hash, instruction: options.fallbackInstruction, maxSteps }), undefined, 'turn')
       planPath = 'fallback'
-      rationale = rationaleWith(['single-node fallback'])
+      rationale = rationaleWith(['multi-node fallback skeleton'])
       return emit()
     },
     current(): PlanNode | undefined {

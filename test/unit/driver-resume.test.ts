@@ -47,7 +47,7 @@ const tools: ToolSource[] = [
 const registry = buildRegistrySnapshot({ tools })
 
 const TASK = 'explain how the config loader works'
-/** Answer text: alone it re-derives `t_stock`/`node:respond`, so the seed must pin the plan. */
+/** Answer text: alone it re-derives the fallback skeleton, so the seed must pin the plan. */
 const CONTINUATION = 'the loader lives in src/config.ts, go on'
 
 function driverOptions() {
@@ -106,13 +106,13 @@ for (const kernel of ['langgraph', 'minimal'] as const) {
     assert.equal(folded.plan.id, 't_investigate@g0', 'the record pins the plan identity')
     assert.equal(folded.state.next, 'n_done')
 
-    // The continuation text alone re-derives a different stock plan. A drill
-    // that resumed from text would run `node:respond`; the seed is what keeps
-    // the paused plan, so this assertion proves the drill cannot pass by
-    // abandoning it.
+    // The continuation text alone re-derives a different plan. A drill that
+    // resumed from text would start the fallback skeleton at `orient.1.1`; the
+    // seed is what keeps the paused plan, so this assertion proves the drill
+    // cannot pass by abandoning it.
     const unseeded = createGraphTurnDriver({ ...driverOptions(), kernel })
     await unseeded.beginTurn({ text: CONTINUATION })
-    assert.equal(unseeded.current()?.id, 'node:respond')
+    assert.equal(unseeded.current()?.id, 'orient.1.1')
 
     const resumed = createGraphTurnDriver({ ...driverOptions(), kernel })
     const reopened = await resumed.beginTurn({ text: CONTINUATION }, folded)
@@ -140,12 +140,12 @@ test('a resume seed never replaces a plan the driver cannot resume', async () =>
   assert.ok(state !== undefined)
   const seed = { plan: paused.snapshot().plan, state }
 
-  // A subagent child is always the single-node fallback; it must not inherit a
+  // A subagent child is always the fallback skeleton; it must not inherit a
   // parent-shaped plan through a forked log prefix.
   const child = createGraphTurnDriver({ ...driverOptions(), forceFallback: true })
   const childStart = await child.beginTurn({ text: CONTINUATION }, seed)
   assert.equal(childStart.fallback, true)
-  assert.equal(child.current()?.id, 'node:respond')
+  assert.equal(child.current()?.id, 'orient.1.1')
 
   // The frontier topology owns no resumable state, so the seed is refused
   // instead of silently replaying the completed nodes.

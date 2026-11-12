@@ -82,7 +82,7 @@ function terminalPlan(): TaskPlan {
   })
 }
 
-/** The shipped `t_stock` shape: one node that is both entry and terminal. */
+/** A hand-authored one-node plan: engine-level `adopt()` accepts it; planners do not emit it. */
 function stockPlan(): TaskPlan {
   return plan({
     id: 'drill:stock',
@@ -166,9 +166,9 @@ test('(c) a reached terminal is the plan endpoint, on every engine', async () =>
   }
 })
 
-test('(c) the shipped t_stock single-node plan settles terminal after one tool-calling step', async () => {
-  // `node:respond` is not a kernel-drivable node id, so the driver keeps the
-  // frontier; this is the shape a trivial/fallback turn actually installs.
+test('(c) a hand-authored one-node plan still settles terminal after one tool-calling step', async () => {
+  // `adopt()` is the engine-level seam, not a planning gate: a drill may hand
+  // the driver one node. A planned turn can no longer install this shape.
   const driver = createGraphTurnDriver({ kernel: 'off' })
   driver.adopt(stockPlan())
   assert.equal(driver.current()?.id, 'n_respond')

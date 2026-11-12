@@ -59,11 +59,14 @@ test('plan tool policy narrows to the plan universe', async () => {
   assert.ok(Array.isArray(driver.toolUniverse?.()))
 })
 
-test('without a registry the driver falls back to a single stock node', async () => {
+test('without a registry the driver installs the turn skeleton', async () => {
   const driver = createGraphTurnDriver({ fallbackInstruction: 'answer' })
   const started = await driver.beginTurn({ text: 'hello' })
   assert.equal(started.fallback, true)
-  assert.equal(driver.current()?.id, 'node:respond')
+  assert.equal(started.plan.nodes.length, 2)
+  assert.equal(driver.current()?.id, 'orient.1.1')
+  await driver.advance({ ok: true })
+  assert.equal(driver.current()?.id, 'answer.1.1', 'the answer is a distinct node, not the entry')
   await driver.advance({ ok: true })
   assert.equal(driver.planState(), 'terminal')
 })
@@ -182,15 +185,15 @@ test('a failed verify node follows the composed repair exit without a replan', a
   assert.equal(driver.snapshot().templateId, 't_compose')
 })
 
-test('triage keeps a trivial task at one step', async () => {
+test('triage keeps a trivial task at the minimal turn skeleton', async () => {
   const driver = createGraphTurnDriver({ mode: 'dynamic', graphProvider: () => registry.graph })
   const started = await driver.beginTurn({ text: 'hi' })
-  assert.equal(started.plan.nodes.length, 1)
-  assert.equal(driver.current()?.id, 'node:respond')
-  assert.ok(started.rationale.some(line => line.includes('trivial')))
+  assert.equal(started.plan.nodes.length, 2)
+  assert.equal(driver.current()?.id, 'orient.1.1')
+  assert.ok(started.rationale.some(line => line.includes('trivial') && line.includes('skeleton')))
 })
 
-test('subagent children force the single-node fallback', async () => {
+test('subagent children force the turn skeleton', async () => {
   const driver = createGraphTurnDriver({
     mode: 'dynamic',
     graphProvider: () => registry.graph,
@@ -198,7 +201,8 @@ test('subagent children force the single-node fallback', async () => {
     depth: 1,
   })
   const started = await driver.beginTurn({ text: 'investigate the first half of the research question' })
-  assert.equal(started.plan.nodes.length, 1)
+  assert.equal(started.plan.nodes.length, 2)
+  assert.equal(driver.current()?.id, 'orient.1.1')
   assert.equal(started.depth, 1)
   assert.ok(started.rationale.some(line => line.includes('child agent')))
 })
@@ -213,16 +217,17 @@ test('driver status reports a failed run as failed and a completed run as done',
   const completed = createGraphTurnDriver({ fallbackInstruction: 'answer' })
   await completed.beginTurn({ text: 'hello' })
   await completed.advance({ ok: true })
+  await completed.advance({ ok: true })
   assert.equal(completed.planState(), 'terminal')
   assert.equal(completed.status?.(), 'done')
 })
 
-test('forceFallback wins over propose mode: children stay single-node', async () => {
+test('forceFallback wins over propose mode: children keep the minimal skeleton', async () => {
   const driver = createGraphTurnDriver({ mode: 'propose', forceFallback: true })
   const started = await driver.beginTurn({ text: 'investigate the first half of the research question' })
-  assert.equal(started.templateId, 't_stock')
-  assert.equal(started.plan.nodes.length, 1)
-  assert.equal(driver.current()?.id, 'node:respond')
+  assert.equal(started.templateId, 'turn')
+  assert.equal(started.plan.nodes.length, 2)
+  assert.equal(driver.current()?.id, 'orient.1.1')
   assert.ok(started.rationale.some(line => line.includes('child agent')))
 })
 

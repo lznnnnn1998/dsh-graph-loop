@@ -808,7 +808,7 @@ test('failedTool is step-scoped: a nameless failure does not reuse the previous 
       { from: 'b', to: 'c', kind: 'control', when: { op: 'callFailed', tool: 'read' } },
       { from: 'b', to: 'd', kind: 'control', when: { op: 'fact', key: 'lastOk', equals: false } },
     ],
-    { terminals: ['c', 'd'], maxSteps: 6 },
+    { terminals: ['c'], maxSteps: 6 },
   )
   assert.equal(validateTaskPlan(graphOf({ tools: [] }), plan).ok, true)
   for (const engine of ENGINES) {

@@ -15,9 +15,10 @@
  *
  * Each stage is filled by a tool from the envelope universe using only data:
  * tags, `produces` / `accepts` artifact specs, permission class and cost. No
- * product name appears here. If no stage can be filled, the plan degrades to a
- * single generic step that still exposes the whole envelope — so an
- * unannotated tool remains usable instead of being dropped.
+ * product name appears here. If no stage can be filled, the plan degrades to
+ * the minimal turn skeleton (`orient` works, a distinct answer reports) that
+ * still exposes the whole envelope — so an unannotated tool remains usable
+ * instead of being dropped.
  *
  * Pure and deterministic: same (fingerprint, graph digest, envelope id,
  * requested artifacts) -> same compiled digest.
@@ -36,6 +37,7 @@ import type {
 } from './graph-schema.ts'
 import { validateTaskPlan } from './graph-schema.ts'
 import type { CapabilityEnvelope } from './envelope.ts'
+import { orientAnswerSkeleton } from './fallback.ts'
 import { LOCATOR_PARAMETER_NAMES } from './condition.ts'
 import { hash16, type TaskFingerprint } from './matching.ts'
 
@@ -414,9 +416,9 @@ function digestOf(plan: Omit<TaskPlan, 'compiledDigest'>): string {
  * Synthesize a plan from capability facts only.
  *
  * The result always validates against `TaskPlan` invariants. When no stage can
- * be filled it returns a single generic `step` answer node (`t_generic`) that
- * exposes the whole envelope; this is the generic escape hatch that keeps
- * unannotated tools usable.
+ * be filled it returns the minimal `orient → answer` skeleton (`t_generic`)
+ * that exposes the whole envelope; this is the generic escape hatch that keeps
+ * unannotated tools usable without collapsing the turn into one node.
  */
 export function synthesizeComposition(input: ComposeInput): ComposeResult {
   const { stages, issues, rationale } = planStages(input)
@@ -480,18 +482,31 @@ export function synthesizeComposition(input: ComposeInput): ComposeResult {
 
   const answerId = 'n_answer'
   const generic = stages.length === 0
-  nodes.push({
-    id: answerId,
-    // A terminal node may not allow tools (P007), so this stays an agent step:
-    // the model can keep acting at the end of the plan. The scheduler extends
-    // an exhausted plan when the model is still calling tools.
-    kind: 'agent-step',
-    executor: 'step',
-    instruction: generic
-      ? 'Complete the task using the available tools and report the result.'
-      : 'Finish any abandoned stage work first with any suitable tools. Then summarize what was produced, what was verified, and any remaining risk.',
-    budget: { maxSteps: 1 },
-  })
+  if (generic) {
+    // R4: a plan that filled no stage is still a turn, not one node that works
+    // and answers at once. `orient` does the work with the envelope's tools;
+    // the answer terminal reports it and cannot call tools, so the last step
+    // always produces assistant text instead of ending the turn on a tool call.
+    const skeleton = orientAnswerSkeleton({
+      orientId: 'n_orient',
+      answerId,
+      orientInstruction: 'Complete the task using the available tools and report the result.',
+      answerInstruction: 'Answer the task from what the previous step produced: what you did, what remains unverified, and any remaining risk. Do not start new work.',
+    })
+    nodes.push(...skeleton.nodes)
+    edges.push(...skeleton.edges)
+  } else {
+    nodes.push({
+      id: answerId,
+      // Answer-only terminal: the stage work is the plan's work, and the last
+      // step must be prose (a tool call there would end the turn with no answer).
+      kind: 'terminal',
+      executor: 'step',
+      instruction: 'Summarize what was produced, what was verified, and any remaining risk. Do not start new work.',
+      toolAllow: [],
+      budget: { maxSteps: 1 },
+    })
+  }
 
   // Every stage gets a reachable exit table, evaluated in declaration order by
   // both engines:
@@ -599,7 +614,7 @@ export function synthesizeComposition(input: ComposeInput): ComposeResult {
     issues,
     rationale: [
       ...rationale,
-      ...(stages.length === 0 ? ['no capability stage matched; generic single step'] : []),
+      ...(stages.length === 0 ? ['no capability stage matched; generic orient + answer'] : []),
     ],
   }
 }
