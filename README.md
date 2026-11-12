@@ -29,8 +29,9 @@ executes arbitrary graphs.
   turn.
 - **Capability-driven synthesis** — stages (`discover`, `inspect`, `mutate`, `author`, `verify`) and
   artifact contracts, selected from the live registry, not hardcoded tool names.
-- **Per-node tool admission** — an answer-only node (`toolAllow: []`) can run with no tools; the
-  composed answer node is that answer-only terminal, so the plan's last step is prose.
+- **Per-node tool admission** — an answer-only node (`toolAllow: []`) is admitted exactly the typed
+  `graph_answer` channel; the composed answer node is that answer-only terminal, so the plan's last
+  step submits its answer through that call, never as free text.
 - **Composed stage routing** — each stage declares, in evaluation order: a budget exit to the
   answer first, its failure/no-progress exits to one repair node, then its success
   exit. The repair node mirrors those exits to the answer and has no back-edge to its stage, so a
