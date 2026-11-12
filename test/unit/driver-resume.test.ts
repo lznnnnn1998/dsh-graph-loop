@@ -51,7 +51,7 @@ const TASK = 'explain how the config loader works'
 const CONTINUATION = 'the loader lives in src/config.ts, go on'
 
 function driverOptions() {
-  return { graphProvider: () => registry.graph, templatesProvider: () => TEMPLATE_LIBRARY } as const
+  return { graphProvider: () => registry.graph, templatesProvider: () => TEMPLATE_LIBRARY, requireAnswerChannel: false } as const
 }
 
 function session(label: string): Session {

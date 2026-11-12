@@ -4,12 +4,15 @@
  * `graph_plan` is the creative seam: the model submits an arbitrary node/edge
  * topology; the harness validates it against the live capability graph and the
  * driver adopts it at the next step boundary. `graph_status` reports the run.
+ * `graph_answer` is the typed answer channel: the terminal step's answer is the
+ * `text` argument of one executed call, never its free assistant text.
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { buildRegistrySnapshot } from 'dsh-graph-loop-core/registry'
 import type { JsonSchemaNode, ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { GRAPH_PROPOSAL_SCHEMA, validateProposal } from 'dsh-graph-loop-core/proposal'
 import type { RegistryGraph } from 'dsh-graph-loop-core/graph-schema'
+import { ANSWER_TOOL } from './answer-channel.ts'
 
 export interface Config {
   enableTools?: boolean
@@ -61,6 +64,26 @@ const PLAN_SCHEMA: JsonSchemaNode = {
     terminals: { type: 'array', items: { type: 'string' } },
     errors: { type: 'array', items: { type: 'string' } },
     warnings: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['ok'],
+  additionalProperties: false,
+}
+
+/** The typed answer channel's arguments: the answer text and nothing else. */
+const ANSWER_PARAMS: JsonSchemaNode = {
+  type: 'object',
+  properties: {
+    text: { type: 'string', description: 'The answer text for this turn.' },
+  },
+  required: ['text'],
+  additionalProperties: false,
+}
+
+const ANSWER_RESULT_SCHEMA: JsonSchemaNode = {
+  type: 'object',
+  properties: {
+    ok: { type: 'boolean' },
+    text: { type: 'string' },
   },
   required: ['ok'],
   additionalProperties: false,
@@ -185,6 +208,32 @@ function buildPlanTool(ctx: Context): ToolDefinition {
 }
 
 /**
+ * The typed answer channel. The terminal answer step is admitted exactly this
+ * tool; the driver reads the record from the executed call's `text` argument,
+ * so a printed tool call in assistant text can never be an answer.
+ */
+function buildAnswerTool(): ToolDefinition {
+  return {
+    name: ANSWER_TOOL,
+    description:
+      'Submit the turn\'s final answer text. At the answer step, call this tool with the answer; '
+      + 'it is the only admissible answer channel. Printed tool-call, DSML or XML syntax is not an answer.',
+    parameters: ANSWER_PARAMS as Record<string, unknown>,
+    output: {
+      schema: ANSWER_RESULT_SCHEMA,
+      render: (_args, value) => {
+        const text = typeof value === 'object' && value !== null ? (value as { text?: unknown }).text : undefined
+        return [{ type: 'text', text: typeof text === 'string' ? text : 'answer recorded' }]
+      },
+    },
+    execute: (args: unknown): Promise<Record<string, unknown>> => {
+      const text = typeof args === 'object' && args !== null ? (args as { text?: unknown }).text : undefined
+      return Promise.resolve(typeof text === 'string' ? { ok: true, text } : { ok: true })
+    },
+  }
+}
+
+/**
  * Register the tools when enabled.
  * @param ctx - host context.
  * @param config - row config.
@@ -193,4 +242,5 @@ export function apply(ctx: Context, config: Config = {}): void {
   if (config.enableTools === false) return
   ctx.tools.register(buildStatus(ctx))
   ctx.tools.register(buildPlanTool(ctx))
+  ctx.tools.register(buildAnswerTool())
 }

@@ -47,6 +47,7 @@ import { AssistantStreamAttempt } from './assistant-stream.ts'
 import { SystemPromptProjection } from './runtime-context.ts'
 import { isMutatingNode, mutationObserved, restrictToolSet, DEFAULT_SHELL_TOOLS, shellFailureTool } from './step-tools.ts'
 import { foldGraphCheckpoint, recordGraphBoundary } from '../graph-state-log.ts'
+import { ANSWER_TOOL } from '../answer-channel.ts'
 
 /** Projected facts consumed by this driver; registration stays with the factory. */
 interface LoopProjections {
@@ -477,14 +478,13 @@ export class ReactLoopAgent implements Agent {
     const toolSet = await this.loopCtx.tools.resolve({ agent: this, modelSelection: selection, signal })
     const nodeToolAllow = node?.toolAllow
     const universe = this.turnGraph?.toolUniverse?.()
-    // Per-node tools matter for one case: a terminal `toolAllow: []` is an
-    // answer-only node. Every other node uses the plan universe, which already
-    // contains the safe tool floor. An empty intersection stays empty: widening
-    // back to the full preset would silently undo the plan's narrowing, so the
-    // step runs with no tools and the mismatch is logged instead.
+    // A terminal `toolAllow: []` is an answer-only node, admitted exactly the
+    // typed answer channel; every other node uses the plan universe, which
+    // already contains the safe tool floor. An empty intersection stays empty
+    // and is logged rather than widened back to the full preset.
     const answerOnly = nodeToolAllow !== undefined && nodeToolAllow.length === 0
     const allowed = answerOnly
-      ? new Set<string>()
+      ? new Set<string>([ANSWER_TOOL])
       : universe !== undefined && universe.length > 0
         ? new Set(universe)
         : undefined

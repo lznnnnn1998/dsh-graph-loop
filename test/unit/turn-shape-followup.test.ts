@@ -76,7 +76,7 @@ function assertTurnShape(plan: TaskPlan, label: string): void {
 
 test('a follow-up turn installs the multi-node skeleton (triage + generic compose)', async () => {
   for (const [label, text, path] of [['A', CASE_A, 'triage'], ['B', CASE_B, 'compose']] as const) {
-    const driver = createGraphTurnDriver({ mode: 'dynamic', graphProvider: () => graph })
+    const driver = createGraphTurnDriver({ requireAnswerChannel: false, mode: 'dynamic', graphProvider: () => graph })
     const snapshot = await driver.beginTurn({ text })
     assertTurnShape(snapshot.plan, label)
     assert.equal(snapshot.path, path, `${label}: branch provenance (${snapshot.rationale.join(' | ')})`)
@@ -84,12 +84,12 @@ test('a follow-up turn installs the multi-node skeleton (triage + generic compos
 })
 
 test('the skeleton and the generic composer keep different execution routes, by name', async () => {
-  const triage = await createGraphTurnDriver({ mode: 'dynamic', graphProvider: () => graph })
+  const triage = await createGraphTurnDriver({ requireAnswerChannel: false, mode: 'dynamic', graphProvider: () => graph })
     .beginTurn({ text: CASE_A })
   // R4 ids (`orient.1.1`, `answer.1.1`) contain `.`, so the kernel declines and
   // the frontier executes the skeleton on all three engine settings.
   assert.equal(canKernelDrive(triage.plan), false, 'the R4 skeleton stays on the frontier')
-  const composed = await createGraphTurnDriver({ mode: 'dynamic', graphProvider: () => graph })
+  const composed = await createGraphTurnDriver({ requireAnswerChannel: false, mode: 'dynamic', graphProvider: () => graph })
     .beginTurn({ text: CASE_B })
   assert.equal(canKernelDrive(composed.plan), true, 'the n_* generic plan is kernel-driven on minimal/langgraph')
 })
@@ -137,7 +137,7 @@ function followupHarness(engine: Engine, text: string): {
 } {
   const events: RecordedEvent[] = []
   const listeners: ((session: unknown, event: { type: string; data: Record<string, unknown> }) => void)[] = []
-  const driver = createGraphTurnDriver({
+  const driver = createGraphTurnDriver({ requireAnswerChannel: false,
     mode: 'dynamic',
     kernel: engine === 'off' ? 'off' : engine,
     graphProvider: () => graph,

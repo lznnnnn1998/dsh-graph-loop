@@ -412,7 +412,7 @@ test('a diamond fan-out/join runs through the kernel on all three engines', asyn
   assert.equal(canKernelDrive(diamond), true, 'the all-unconditional diamond must be kernel-driven')
   const graph = graphOf({ tools: CORE_TOOLS })
   for (const engine of ENGINES) {
-    const driver = createGraphTurnDriver({
+    const driver = createGraphTurnDriver({ requireAnswerChannel: false,
       mode: 'dynamic',
       composition: false,
       kernel: kernelOption(engine),
@@ -543,7 +543,7 @@ test('a fan-out with a retried branch runs its join once, after the retry settle
 
 test('a research fan-out reaches its answer node once (frontier, subagent batch)', async () => {
   const graph = graphOf({ tools: WEB_TOOLS })
-  const driver = createGraphTurnDriver({
+  const driver = createGraphTurnDriver({ requireAnswerChannel: false,
     mode: 'dynamic',
     composition: false,
     kernel: 'off',
@@ -605,7 +605,7 @@ for (const engine of ENGINES) {
     ]
     const expected = ['n_inspect', 'n_mutate', 'n_verify', 'n_verify_repair', 'n_answer']
 
-    const driver = createGraphTurnDriver({ mode: 'dynamic', kernel: kernelOption(engine), graphProvider: () => graph })
+    const driver = createGraphTurnDriver({ requireAnswerChannel: false, mode: 'dynamic', kernel: kernelOption(engine), graphProvider: () => graph })
     const started = await driver.beginTurn({ text: 'fix the failing test in the loader' })
     assert.equal(started.templateId, 't_compose')
     const trail = await walkDriver(driver, stream)
@@ -632,7 +632,7 @@ for (const engine of ENGINES) {
     ]
     const expected = ['n_inspect', 'n_mutate', 'n_verify', 'n_verify_repair', 'n_answer']
 
-    const driver = createGraphTurnDriver({ mode: 'dynamic', kernel: kernelOption(engine), graphProvider: () => graph })
+    const driver = createGraphTurnDriver({ requireAnswerChannel: false, mode: 'dynamic', kernel: kernelOption(engine), graphProvider: () => graph })
     await driver.beginTurn({ text: 'fix the failing test in the loader' })
     const trail = await walkDriver(driver, stream)
     assert.deepEqual(trail, expected, `engine=${engine}: a no-op repair must answer, not retry verify`)
@@ -645,7 +645,7 @@ for (const engine of ENGINES) {
 test('a non-verify stage whose shell command exits 1 is not sent to repair', async () => {
   const { graph, plan } = coreComposition()
   for (const engine of ENGINES) {
-    const driver = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
+    const driver = createGraphTurnDriver({ requireAnswerChannel: false, kernel: kernelOption(engine), graphProvider: () => graph })
     driver.adopt(plan)
     assert.equal(driver.current()?.id, 'n_inspect')
     await driver.advance(readOf(scratch('input.txt')))
@@ -671,7 +671,7 @@ test('a non-verify stage whose shell command exits 1 is not sent to repair', asy
 for (const engine of ENGINES) {
   engineTest(`a composed mutate step with no tool repairs instead of advancing [${engine}]`, engine, async () => {
     const { graph, plan } = coreComposition()
-    const driver = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
+    const driver = createGraphTurnDriver({ requireAnswerChannel: false, kernel: kernelOption(engine), graphProvider: () => graph })
     driver.adopt(plan)
     await driver.advance(readOf(scratch('input.txt')))
     assert.equal(driver.current()?.id, 'n_mutate')
@@ -686,7 +686,7 @@ for (const engine of ENGINES) {
 for (const engine of ENGINES) {
   engineTest(`a composed inspect step with no tool repairs instead of advancing [${engine}]`, engine, async () => {
     const { graph, plan } = coreComposition()
-    const driver = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
+    const driver = createGraphTurnDriver({ requireAnswerChannel: false, kernel: kernelOption(engine), graphProvider: () => graph })
     driver.adopt(plan)
     assert.equal(driver.current()?.id, 'n_inspect')
     await driver.advance({ ok: true })
@@ -705,7 +705,7 @@ for (const engine of ENGINES) {
       envelope: envelope.envelope,
     })
     assert.deepEqual(result.stages.map(stage => stage.stage), ['discover', 'inspect'])
-    const driver = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
+    const driver = createGraphTurnDriver({ requireAnswerChannel: false, kernel: kernelOption(engine), graphProvider: () => graph })
     driver.adopt(result.plan)
     assert.equal(driver.current()?.id, 'n_discover')
     await driver.advance({ ok: true })
@@ -716,7 +716,7 @@ for (const engine of ENGINES) {
 for (const engine of ENGINES) {
   engineTest(`a composed verify step that ran no tool repairs instead of answering [${engine}]`, engine, async () => {
     const { graph, plan } = coreComposition()
-    const driver = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
+    const driver = createGraphTurnDriver({ requireAnswerChannel: false, kernel: kernelOption(engine), graphProvider: () => graph })
     driver.adopt(plan)
     await driver.advance(readOf(scratch('input.txt')))
     await driver.advance({ ok: true, tools: [
@@ -733,7 +733,7 @@ for (const engine of ENGINES) {
 for (const engine of ENGINES) {
   engineTest(`an author contracted for file.image repairs when only write(file.text) ran [${engine}]`, engine, async () => {
     const { graph, plan } = thirdPartyComposition()
-    const driver = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
+    const driver = createGraphTurnDriver({ requireAnswerChannel: false, kernel: kernelOption(engine), graphProvider: () => graph })
     driver.adopt(plan)
     assert.equal(driver.current()?.id, 'n_author_0')
     // The step succeeded and produced a path artifact — but of the wrong type.
@@ -748,7 +748,7 @@ for (const engine of ENGINES) {
 for (const engine of ENGINES) {
   engineTest(`an author contracted for file.image succeeds when that type is produced [${engine}]`, engine, async () => {
     const { graph, plan } = thirdPartyComposition()
-    const driver = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
+    const driver = createGraphTurnDriver({ requireAnswerChannel: false, kernel: kernelOption(engine), graphProvider: () => graph })
     driver.adopt(plan)
     await driver.advance({ ok: true, tools: [
       { name: 'write', isError: false, arguments: JSON.stringify({ file_path: scratch('render.png') }) },
@@ -772,7 +772,7 @@ for (const engine of ENGINES) {
       envelope: envelope.envelope,
       budget: { maxSteps: 5, maxReplans: 2 },
     })
-    const driver = createGraphTurnDriver({ kernel: kernelOption(engine), maxSteps: 5, graphProvider: () => graph })
+    const driver = createGraphTurnDriver({ requireAnswerChannel: false, kernel: kernelOption(engine), maxSteps: 5, graphProvider: () => graph })
     driver.adopt(composed.plan)
     const edited = scratch('loader.ts')
     await driver.advance(readOf(scratch('input.txt')))
@@ -812,7 +812,7 @@ test('failedTool is step-scoped: a nameless failure does not reuse the previous 
   )
   assert.equal(validateTaskPlan(graphOf({ tools: [] }), plan).ok, true)
   for (const engine of ENGINES) {
-    const driver = createGraphTurnDriver({ kernel: kernelOption(engine) })
+    const driver = createGraphTurnDriver({ requireAnswerChannel: false, kernel: kernelOption(engine) })
     driver.adopt(plan)
     assert.equal(driver.current()?.id, 'a')
     // Step 1 fails through bash, so `a` names the failing tool.
@@ -832,7 +832,7 @@ test('failedTool is step-scoped: a nameless failure does not reuse the previous 
 for (const engine of ENGINES) {
   engineTest(`a third-party author succeeds when its declared artifact is observed [${engine}]`, engine, async () => {
     const { graph, plan } = thirdPartyComposition()
-    const driver = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
+    const driver = createGraphTurnDriver({ requireAnswerChannel: false, kernel: kernelOption(engine), graphProvider: () => graph })
     driver.adopt(plan)
     assert.equal(driver.current()?.id, 'n_author_0')
     // The author's declared file.image is credited only when the step leaves an
@@ -853,7 +853,7 @@ for (const engine of ENGINES) {
     const { graph, plan } = thirdPartyComposition()
 
     // Tool-invocation failure: the step fails and the author's repair exit runs.
-    const failed = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
+    const failed = createGraphTurnDriver({ requireAnswerChannel: false, kernel: kernelOption(engine), graphProvider: () => graph })
     failed.adopt(plan)
     await failed.advance({ ok: false, failedTool: 'acme_render', tools: [{ name: 'acme_render', isError: true }] })
     assert.equal(failed.current()?.id, 'n_author_0_repair')
@@ -868,7 +868,7 @@ for (const engine of ENGINES) {
     // "Success" with no observable artifact (no tool ran): the author's own
     // step produced nothing, so it repairs rather than silently skipping its
     // artifact contract.
-    const empty = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
+    const empty = createGraphTurnDriver({ requireAnswerChannel: false, kernel: kernelOption(engine), graphProvider: () => graph })
     empty.adopt(plan)
     await empty.advance({ ok: true })
     assert.equal(empty.current()?.id, 'n_author_0_repair')
@@ -876,7 +876,7 @@ for (const engine of ENGINES) {
 
     // A different successful tool is not the planned author tool: it must not be
     // credited with the declared artifact (P1-2).
-    const wrongTool = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
+    const wrongTool = createGraphTurnDriver({ requireAnswerChannel: false, kernel: kernelOption(engine), graphProvider: () => graph })
     wrongTool.adopt(plan)
     await wrongTool.advance({ ok: true, tools: [{ name: 'read', isError: false }] })
     assert.equal(wrongTool.current()?.id, 'n_author_0_repair')
@@ -894,7 +894,7 @@ for (const engine of ENGINES) {
     const stageIds = plan.nodes.filter(node => !node.id.endsWith('_repair')).map(node => node.id)
     assert.ok(stageIds.indexOf('n_inspect') !== -1 && stageIds.indexOf('n_inspect') < stageIds.indexOf('n_author_0'))
 
-    const driver = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
+    const driver = createGraphTurnDriver({ requireAnswerChannel: false, kernel: kernelOption(engine), graphProvider: () => graph })
     driver.adopt(plan)
     assert.equal(driver.current()?.id, 'n_inspect')
     await driver.advance({ ok: true, tools: [{ name: 'acme_read', isError: false, arguments: JSON.stringify({ file_path: scratch('doc.txt') }) }] })
@@ -933,7 +933,7 @@ test('the last planned step keeps its budget-routed wrap-up node (frontier and k
   // terminal `b`. Both engines grant the one step that lets that wrap-up run,
   // so the same plan has the same route and status on every engine.
   for (const engine of ENGINES) {
-    const driver = createGraphTurnDriver({ kernel: engine === 'frontier' ? 'off' : engine })
+    const driver = createGraphTurnDriver({ requireAnswerChannel: false, kernel: engine === 'frontier' ? 'off' : engine })
     driver.adopt(budgetPlan(1, 0))
     await driver.advance({ ok: true })
     assert.equal(driver.current()?.id, 'b', `engine=${engine}`)
@@ -989,7 +989,7 @@ test('a model-authored proposal with a token/wall budget guard is rejected', () 
 for (const engine of ENGINES) {
   engineTest(`a composed verify step that observes an unrelated file repairs instead of answering [${engine}]`, engine, async () => {
     const { graph, plan } = coreComposition()
-    const driver = createGraphTurnDriver({ kernel: kernelOption(engine), graphProvider: () => graph })
+    const driver = createGraphTurnDriver({ requireAnswerChannel: false, kernel: kernelOption(engine), graphProvider: () => graph })
     driver.adopt(plan)
     await driver.advance(readOf(scratch('input.txt')))
     await driver.advance({ ok: true, tools: [

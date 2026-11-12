@@ -403,13 +403,13 @@ export interface ObligationRecord {
  * The typed answer a terminal step must form before the turn may complete.
  *
  * This is data, never prose: the runtime builds the record from what the step
- * observably did (its own text, its real tool calls, the obligation refs the
- * ledger records as satisfied). Admission is structural — non-empty text, zero
- * tool calls, an evidence ref for every required obligation — and the prose is
- * never inspected.
+ * observably did — the `text` argument of one executed `graph_answer` call, the
+ * real tool calls it made, and the obligation refs the ledger records as
+ * satisfied. Admission is structural — non-empty text, zero other tool calls, an
+ * evidence ref for every required obligation — and the prose is never inspected.
  */
 export interface AnswerRecord {
-  /** Final assistant text of the terminal step; must be non-empty. */
+  /** Answer text submitted through the executed channel; must be non-empty. */
   readonly text: string
   /** Obligation node ids the answer rests on; must name every required obligation. */
   readonly evidenceRefs: readonly NodeId[]

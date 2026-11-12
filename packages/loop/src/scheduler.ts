@@ -30,6 +30,7 @@ import { selectEnvelopeForTask, type EnvelopeIssue } from 'dsh-graph-loop-core/e
 import { KernelTopology, canKernelDrive } from './kernel/topology.ts'
 import { deriveCapabilityFacts, deriveEvidenceCalls, deriveStepArtifactCandidates, deriveStepFacts, artifactTypeFor, type ArtifactCandidate } from './step-facts.ts'
 import { diffWorld, inDeclaredRoot, observeWorld, type WorldObservation } from './world.ts'
+import { ANSWER_TOOL, answerRecordFrom } from './answer-channel.ts'
 import { DEFAULT_SHELL_TOOLS } from './loop/step-tools.ts'
 import {
   answerRecordProblem,
@@ -107,6 +108,12 @@ export interface GraphTurnSnapshot {
    * masquerade as satisfied work.
    */
   readonly obligations: readonly ObligationRecord[]
+  /**
+   * The typed answer record the terminal was admitted on, once one was. Absent
+   * while the turn has not answered: the answer is the executed channel call's
+   * own text, so nothing can stand in for it.
+   */
+  readonly answer?: AnswerRecord
   /** Envelope chosen by the live composition path, when it ran. */
   readonly envelopeId?: string
   /**
@@ -225,13 +232,13 @@ export interface GraphTurnDriverOptions {
   /** Delegation depth (0 for a root agent), included in the trace. */
   readonly depth?: number
   /**
-   * Session-backed reader for the answer text the step closed at `atSeq`
-   * produced (the last assistant text before that `step/end`). The terminal
-   * answer rule needs the step's own text; the driver never opens the session
-   * and never parses prose. Absent in harnesses that have no session log: text
-   * fidelity is then not claimable, while the obligation/refs rule still holds.
+   * Require the typed answer channel at the terminal. Default true: a turn ends
+   * only on the record the terminal step produced by executing one
+   * `graph_answer` call. A driver harness that exercises routing with no real
+   * step sets false; text fidelity is then not claimable, while the obligation
+   * ledger rule still holds.
    */
-  readonly answerText?: (atSeq: number | undefined) => string | undefined
+  readonly requireAnswerChannel?: boolean
   readonly onSnapshot?: (snapshot: GraphTurnSnapshot) => void
   readonly onTurnEnd?: (snapshot: GraphTurnSnapshot) => void
 }
@@ -363,7 +370,7 @@ function answerRecoveryPlan(input: {
   readonly budget: TaskBudget
 }): TaskPlan {
   const work = input.unmet.length === 0
-    ? 'Answer the task plainly with the answer text.'
+    ? `Answer the task by calling the \`${ANSWER_TOOL}\` tool with the answer text. Printed tool-call syntax is not an answer.`
     : `Do the required work at ${input.unmet.join(', ')} now using the available tools; a fresh answer step follows. Do not describe work you are not doing.`
   const recover: PlanNode = {
     id: 'recover.1.1',
@@ -477,6 +484,8 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
   let answerRecoveryUsed = false
   /** True when an answer terminal tried to complete with required work unmet. */
   let answerBlocked = false
+  /** The typed answer record the current turn's terminal was admitted on. */
+  let acceptedAnswer: AnswerRecord | undefined
   /**
    * True between `beginTurn` and `endTurn`: the driver is driving a *turn*.
    * Engine-level branch drills install a plan with `adopt()` and never open a
@@ -541,6 +550,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       replans,
       depth: options.depth ?? 0,
       obligations: [...obligations.values()].sort((left, right) => left.step - right.step),
+      ...(acceptedAnswer === undefined ? {} : { answer: acceptedAnswer }),
       ...(envelopeId === undefined ? {} : { envelopeId }),
       envelopeIssues,
       path: planPath,
@@ -691,13 +701,15 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
   }
 
   /**
-   * The answer boundary gate (audit 20261112-0800 F1-F6).
+   * The answer boundary gate (audit 20261112-0800 F1-F6; 20261112-1200 F1-F4).
    *
    * A declared terminal is where the turn wants to end, but it may end only on
-   * an admissible {@link AnswerRecord}: the terminal step's own text (when a
-   * session-backed reader is configured), zero real tool calls, and an evidence
-   * ref for every obligation the run recorded. Terminal reachability is not
-   * completion; the node-keyed ledger decides.
+   * an admissible {@link AnswerRecord} the terminal step *executed*: exactly one
+   * successful `graph_answer` call whose `text` argument is the answer, no other
+   * real tool calls, and an evidence ref for every obligation the run recorded.
+   * Assistant text is display only, so a step that merely printed a tool call
+   * has no record and cannot answer. Terminal reachability is not completion;
+   * the node-keyed ledger decides.
    *
    * A refusal spends the turn's one bounded recovery step (a fresh work step and
    * a fresh answer terminal, credited against the original contracts). A second
@@ -709,13 +721,18 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     if (topology === undefined || plan === undefined) return
     if (topology.planState() !== 'terminal') return
     const recorded = [...obligations.values()].sort((left, right) => left.step - right.step)
-    const answer: AnswerRecord = {
-      text: options.answerText?.(outcome.atSeq) ?? '',
-      evidenceRefs: recorded.filter(entry => entry.satisfied).map(entry => entry.nodeId),
-      toolCalls: outcome.tools?.length ?? 0,
+    const evidenceRefs = recorded.filter(entry => entry.satisfied).map(entry => entry.nodeId)
+    const typed = options.requireAnswerChannel !== false
+    // A routing harness that never ran a real step cannot execute the channel;
+    // it keeps the ledger rule with text fidelity unclaimed (never a text read).
+    const answer = typed
+      ? answerRecordFrom(outcome.tools, evidenceRefs)
+      : { text: '', evidenceRefs, toolCalls: outcome.tools?.length ?? 0 }
+    const problem = answerRecordProblem(answer, recorded, typed)
+    if (problem === undefined) {
+      acceptedAnswer = answer
+      return
     }
-    const problem = answerRecordProblem(answer, recorded, options.answerText !== undefined)
-    if (problem === undefined) return
     if (!answerRecoveryUsed && trail.length + 2 <= maxSteps && topology.status() !== 'failed') {
       answerRecoveryUsed = true
       const unmet = recorded.filter(entry => !entry.satisfied)
@@ -931,6 +948,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       recoveryTargets = new Map()
       answerRecoveryUsed = false
       answerBlocked = false
+      acceptedAnswer = undefined
       // Per-turn state: a new turn gets its own replan allowance and adoption
       // window. Leaving these to accumulate permanently disables boundary
       // recovery once an early turn exhausts the plan's replan budget.
@@ -1084,7 +1102,10 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       return topology?.current()
     },
     instruction(): string | undefined {
-      return topology?.current()?.instruction
+      const node = topology?.current()
+      if (node === undefined || node.kind !== 'terminal') return node?.instruction
+      const instruction = node.instruction ?? 'Answer the task.'
+      return `${instruction} Submit the turn's answer by calling the \`${ANSWER_TOOL}\` tool with the answer text; printed tool-call syntax is not an answer.`
     },
     toolUniverse(): readonly string[] | undefined {
       if ((options.toolPolicy ?? 'plan') === 'preset') return undefined

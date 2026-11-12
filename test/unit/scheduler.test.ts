@@ -28,7 +28,7 @@ test('registry is deterministic and marks the tool set', () => {
 })
 
 test('a code question routes to t_investigate and walks its nodes', async () => {
-  const driver = createGraphTurnDriver({
+  const driver = createGraphTurnDriver({ requireAnswerChannel: false,
     graphProvider: () => registry.graph,
     templatesProvider: () => TEMPLATE_LIBRARY,
   })
@@ -45,7 +45,7 @@ test('a code question routes to t_investigate and walks its nodes', async () => 
 })
 
 test('preset tool policy exposes the full tool set for benchmark harnesses', async () => {
-  const driver = createGraphTurnDriver({
+  const driver = createGraphTurnDriver({ requireAnswerChannel: false,
     graphProvider: () => registry.graph,
     toolPolicy: 'preset',
   })
@@ -54,13 +54,13 @@ test('preset tool policy exposes the full tool set for benchmark harnesses', asy
 })
 
 test('plan tool policy narrows to the plan universe', async () => {
-  const driver = createGraphTurnDriver({ graphProvider: () => registry.graph })
+  const driver = createGraphTurnDriver({ requireAnswerChannel: false, graphProvider: () => registry.graph })
   await driver.beginTurn({ text: 'explain how the config loader works' })
   assert.ok(Array.isArray(driver.toolUniverse?.()))
 })
 
 test('without a registry the driver installs the turn skeleton', async () => {
-  const driver = createGraphTurnDriver({ fallbackInstruction: 'answer' })
+  const driver = createGraphTurnDriver({ requireAnswerChannel: false, fallbackInstruction: 'answer' })
   const started = await driver.beginTurn({ text: 'hello' })
   assert.equal(started.fallback, true)
   assert.equal(started.plan.nodes.length, 2)
@@ -72,7 +72,7 @@ test('without a registry the driver installs the turn skeleton', async () => {
 })
 
 test('dynamic mode synthesizes a topology from the capability graph', async () => {
-  const driver = createGraphTurnDriver({
+  const driver = createGraphTurnDriver({ requireAnswerChannel: false,
     mode: 'dynamic',
     graphProvider: () => registry.graph,
   })
@@ -92,7 +92,7 @@ test('dynamic mode synthesizes a topology from the capability graph', async () =
 
 test('propose mode starts from a frame and adopts a model-authored topology at the first boundary', async () => {
   let proposal: import('../../packages/core/src/graph-schema.ts').TaskPlan | undefined
-  const driver = createGraphTurnDriver({
+  const driver = createGraphTurnDriver({ requireAnswerChannel: false,
     mode: 'propose',
     proposalSource: () => {
       const current = proposal
@@ -146,7 +146,7 @@ function plainPlan(maxReplans: number): TaskPlan {
 test('a failed work node triggers a boundary recovery plan', async () => {
   // Every generated plan now owns a failure exit, so the scheduler's replan is
   // the safety net for a plan that does not (e.g. a hand-written plan).
-  const driver = createGraphTurnDriver({ kernel: 'off' })
+  const driver = createGraphTurnDriver({ requireAnswerChannel: false, kernel: 'off' })
   driver.adopt(plainPlan(2))
   await driver.advance({ ok: false, failedTool: 'bash' })
   const snapshot = driver.snapshot()
@@ -156,7 +156,7 @@ test('a failed work node triggers a boundary recovery plan', async () => {
 })
 
 test('a failed verify node follows the composed repair exit without a replan', async () => {
-  const driver = createGraphTurnDriver({ mode: 'dynamic', graphProvider: () => registry.graph })
+  const driver = createGraphTurnDriver({ requireAnswerChannel: false, mode: 'dynamic', graphProvider: () => registry.graph })
   await driver.beginTurn({ text: 'fix the failing test in the loader' })
   // Each stage's own success fact is load-bearing: inspect must actually read
   // and mutate must actually write, or the stage repairs instead of advancing.
@@ -186,7 +186,7 @@ test('a failed verify node follows the composed repair exit without a replan', a
 })
 
 test('triage keeps a trivial task at the minimal turn skeleton', async () => {
-  const driver = createGraphTurnDriver({ mode: 'dynamic', graphProvider: () => registry.graph })
+  const driver = createGraphTurnDriver({ requireAnswerChannel: false, mode: 'dynamic', graphProvider: () => registry.graph })
   const started = await driver.beginTurn({ text: 'hi' })
   assert.equal(started.plan.nodes.length, 2)
   assert.equal(driver.current()?.id, 'orient.1.1')
@@ -194,7 +194,7 @@ test('triage keeps a trivial task at the minimal turn skeleton', async () => {
 })
 
 test('subagent children force the turn skeleton', async () => {
-  const driver = createGraphTurnDriver({
+  const driver = createGraphTurnDriver({ requireAnswerChannel: false,
     mode: 'dynamic',
     graphProvider: () => registry.graph,
     forceFallback: true,
@@ -208,13 +208,13 @@ test('subagent children force the turn skeleton', async () => {
 })
 
 test('driver status reports a failed run as failed and a completed run as done', async () => {
-  const failed = createGraphTurnDriver({ fallbackInstruction: 'answer' })
+  const failed = createGraphTurnDriver({ requireAnswerChannel: false, fallbackInstruction: 'answer' })
   await failed.beginTurn({ text: 'hello' })
   await failed.advance({ ok: false })
   assert.equal(failed.planState(), 'failed')
   assert.equal(failed.status?.(), 'failed')
 
-  const completed = createGraphTurnDriver({ fallbackInstruction: 'answer' })
+  const completed = createGraphTurnDriver({ requireAnswerChannel: false, fallbackInstruction: 'answer' })
   await completed.beginTurn({ text: 'hello' })
   await completed.advance({ ok: true })
   await completed.advance({ ok: true })
@@ -223,7 +223,7 @@ test('driver status reports a failed run as failed and a completed run as done',
 })
 
 test('forceFallback wins over propose mode: children keep the minimal skeleton', async () => {
-  const driver = createGraphTurnDriver({ mode: 'propose', forceFallback: true })
+  const driver = createGraphTurnDriver({ requireAnswerChannel: false, mode: 'propose', forceFallback: true })
   const started = await driver.beginTurn({ text: 'investigate the first half of the research question' })
   assert.equal(started.templateId, 'turn')
   assert.equal(started.plan.nodes.length, 2)
@@ -258,7 +258,7 @@ function subagentPlan(maxReplans: number): TaskPlan {
 }
 
 test('a failed subagent node triggers the same boundary recovery as a failed step', async () => {
-  const driver = createGraphTurnDriver({ kernel: 'off' })
+  const driver = createGraphTurnDriver({ requireAnswerChannel: false, kernel: 'off' })
   driver.adopt(subagentPlan(1))
   await driver.advance({ ok: true })
   const batch = driver.takeSubagentBatch()
@@ -273,7 +273,7 @@ test('a failed subagent node triggers the same boundary recovery as a failed ste
 })
 
 test('a failed subagent with no replan budget leaves the run failed', async () => {
-  const driver = createGraphTurnDriver({ kernel: 'off' })
+  const driver = createGraphTurnDriver({ requireAnswerChannel: false, kernel: 'off' })
   driver.adopt(subagentPlan(0))
   await driver.advance({ ok: true })
   driver.takeSubagentBatch()
@@ -284,7 +284,7 @@ test('a failed subagent with no replan budget leaves the run failed', async () =
 })
 
 test('each turn gets its own replan allowance', async () => {
-  const driver = createGraphTurnDriver({ kernel: 'off' })
+  const driver = createGraphTurnDriver({ requireAnswerChannel: false, kernel: 'off' })
   for (let turn = 1; turn <= 3; turn += 1) {
     await driver.beginTurn({ text: 'fix the failing test in the loader' })
     // A plan without its own failure exit relies on the scheduler replan.
@@ -297,7 +297,7 @@ test('each turn gets its own replan allowance', async () => {
 })
 
 test('a batch node superseded by a recovery replan does not advance the recovery plan', async () => {
-  const driver = createGraphTurnDriver({ kernel: 'off' })
+  const driver = createGraphTurnDriver({ requireAnswerChannel: false, kernel: 'off' })
   driver.adopt(subagentPlan(1))
   await driver.advance({ ok: true })
   driver.takeSubagentBatch()
@@ -332,7 +332,7 @@ test('a budget-guarded wrap-up node is not discarded by the kernel step cap', as
     confidence: 1,
     compiledDigest: 'budget-wrap',
   }
-  const driver = createGraphTurnDriver({ kernel: 'minimal' })
+  const driver = createGraphTurnDriver({ requireAnswerChannel: false, kernel: 'minimal' })
   driver.adopt(plan)
   assert.equal(driver.current()?.id, 'a')
   await driver.advance({ ok: true })
