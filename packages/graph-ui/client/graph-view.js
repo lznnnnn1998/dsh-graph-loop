@@ -8,9 +8,13 @@
  *
  * Two levels, Obsidian-graph style:
  *   1. Overview - one dot per turn in a deterministic force-directed net.
- *      The simulation only reruns when the turn set/shape changes, tracked by
- *      a signature of node ids, plan sizes and edge pairs; a poll that only
- *      refreshes statuses/trail re-renders without relayout.
+ *      Links are the consecutive-turn backbone plus only genuinely related
+ *      turns (same plan identity, or a produced artifact path the payload
+ *      exposes). Tool names and plan-node ids never link: every turn uses the
+ *      same tools, which would make the net a complete mesh. The simulation
+ *      only reruns when the turn set/shape changes, tracked by a signature of
+ *      node ids, plan sizes and edge pairs; a poll that only refreshes
+ *      statuses/trail re-renders without relayout.
  *   2. Drill-in - the selected turn's plan as a depth-layered node-link
  *      diagram, with back/same-column edges detoured below the node block.
  */
@@ -343,33 +347,42 @@ window.__ModuleLoader__.load({
       return clamp(4.6 + 0.55 * Math.sqrt(steps) + 0.45 * Math.sqrt(Math.max(0, degree || 0)) + 0.06 * Math.min(nodes, 40), 4.6, 10)
     }
 
-    function planToolKeys(turn, includeTrail) {
-      var keys = new Set()
-      planNodesOf(turn).forEach(function (node) {
-        asArray(node.toolAllow).forEach(function (name) {
-          if (typeof name === 'string' && name.length > 0) keys.add('t:' + name)
-        })
-        if (node.kind === 'tool-call' && typeof node.capabilityId === 'string' && node.capabilityId.length > 0) {
-          keys.add('t:' + node.capabilityId)
+    /**
+     * Produced artifact paths a turn payload exposes, when it exposes them:
+     * the kernel's folded state names them `artifacts: [{ type, ref }]`, and a
+     * plain string entry is a bare path. Nothing is inferred from tool
+     * arguments, instructions or prose, so an absent field contributes nothing.
+     */
+    function artifactPathsOf(turn) {
+      var paths = []
+      asArray(turn !== null && typeof turn === 'object' ? turn.artifacts : null).forEach(function (artifact) {
+        if (typeof artifact === 'string') {
+          if (artifact.length > 0) paths.push(artifact)
+          return
+        }
+        if (artifact !== null && typeof artifact === 'object' && typeof artifact.ref === 'string' && artifact.ref.length > 0) {
+          paths.push(artifact.ref)
         }
       })
-      // Trailing tool rows are stable once a turn is in the history; a live
-      // turn deliberately contributes plan-declared tools only, so a poll that
-      // grows its trail never changes the layout signature.
-      if (includeTrail) {
-        trailOf(turn).forEach(function (step) {
-          asArray(step.tools).forEach(function (tool) {
-            if (tool !== null && typeof tool === 'object' && typeof tool.name === 'string' && tool.name.length > 0) {
-              keys.add('t:' + tool.name)
-            }
-          })
-        })
-      }
+      return paths
+    }
+
+    /**
+     * Keys that genuinely relate two turns: one plan identity (the task
+     * fingerprint/plan shape) or one produced artifact path. Deliberately no
+     * tool names and no plan-node ids - those are shared by every turn and
+     * would link all pairs.
+     */
+    function relatednessKeys(turn) {
+      var keys = new Set()
+      var plan = planOf(turn)
+      if (plan !== null && typeof plan.id === 'string' && plan.id.length > 0) keys.add('p:' + plan.id)
+      artifactPathsOf(turn).forEach(function (path) { keys.add('a:' + path) })
       return keys
     }
 
     /* ------------------------------------------------------------------ */
-    /* overview model: turns are nodes, links are sequence + shared keys    */
+    /* overview model: turns are nodes; links are sequence + relatedness    */
     /* ------------------------------------------------------------------ */
 
     function overviewModel(turns, live) {
@@ -395,32 +408,39 @@ window.__ModuleLoader__.load({
       })
 
       var edges = []
-      var seen = new Set()
+      var byPair = new Map()
       var degree = {}
       function pairKey(a, b) {
         return a < b ? a + ':' + b : b + ':' + a
       }
       function addEdge(a, b, kind) {
         var key = pairKey(a, b)
-        if (seen.has(key)) return false
-        seen.add(key)
+        var existing = byPair.get(key)
+        if (existing !== undefined) {
+          // One link per pair, so the layout has one spring per pair. A genuine
+          // relation upgrades the backbone's style; sequence never downgrades it.
+          if (kind === 'shared' && edges[existing].kind !== 'shared') edges[existing].kind = 'shared'
+          return false
+        }
+        byPair.set(key, edges.length)
         edges.push({ a: a, b: b, kind: kind, key: key })
         degree[a] = (degree[a] || 0) + 1
         degree[b] = (degree[b] || 0) + 1
         return true
       }
 
-      // Consecutive turns form the backbone.
+      // Consecutive turns form the backbone. A genuine relation found below
+      // upgrades the pair's style rather than adding a second line, so the
+      // layout keeps one spring per pair.
       for (var i = 0; i + 1 < nodes.length; i++) addEdge(i, i + 1, 'sequence')
 
-      // Then link turns that share a plan node id or a tool name. Sharing one
-      // key is one link; each node stays at six links or fewer.
+      // Then link turns that share a plan identity or a produced artifact path.
+      // Incidental overlap (a ubiquitous tool, a generic plan-node id) must not
+      // link. Sharing one genuine key is one link; each node stays at six
+      // links or fewer.
       var owners = new Map()
       nodes.forEach(function (node, index) {
-        var keys = new Set()
-        planNodesOf(node.data).forEach(function (planNode) { keys.add('n:' + planNode.id) })
-        planToolKeys(node.data, !node.live).forEach(function (key) { keys.add(key) })
-        keys.forEach(function (key) {
+        relatednessKeys(node.data).forEach(function (key) {
           if (!owners.has(key)) owners.set(key, [])
           owners.get(key).push(index)
         })
@@ -1165,17 +1185,23 @@ window.__ModuleLoader__.load({
         var a = points[edge.a]
         var b = points[edge.b]
         if (!a || !b) return null
+        var sequence = edge.kind === 'sequence'
         var related = activeIndex === -1 || edge.a === activeIndex || edge.b === activeIndex
-        var opacity = activeKey === null ? (edge.kind === 'sequence' ? 0.5 : 0.35) : related ? 0.85 : 0.08
+        // Backbone is faint and dashed; a genuine relation is a touch stronger
+        // and solid. Hovering/focusing a turn brightens only its own links.
+        var opacity = activeKey === null
+          ? (sequence ? 0.22 : 0.5)
+          : (related ? (sequence ? 0.5 : 0.85) : 0.07)
         return h('line', {
           key: edge.key,
-          className: 'dshgv-ov-edge',
+          className: 'dshgv-ov-edge ' + edge.kind,
           x1: a.x,
           y1: a.y,
           x2: b.x,
           y2: b.y,
           stroke: C.edge,
-          strokeWidth: 1,
+          strokeWidth: sequence ? 1 : 1.15,
+          strokeDasharray: sequence ? '4 4' : undefined,
           opacity: opacity,
           'aria-hidden': 'true'
         })
@@ -1819,6 +1845,9 @@ window.__ModuleLoader__.load({
     exports.inject = ['slots', 'locale']
     exports.apply = apply
     exports.GraphBody = GraphBody
+    // Test-only surface: lets a Node module-loader shim assert the overview
+    // edge rule without a browser. Not part of the slot registration contract.
+    exports.__overviewModel = overviewModel
     return module.exports
   }
 })
