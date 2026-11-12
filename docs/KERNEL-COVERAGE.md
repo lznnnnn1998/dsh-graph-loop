@@ -82,11 +82,15 @@ status; free text is never read as evidence). `satisfiesNodeEvidence`
 
 **Reserve boundary.** Because the budget exit is evaluated first, a stage that cannot succeed at the
 answer reserve goes to `n_answer` instead of repairing forever. `n_answer` is a **continuation, not
-a success claim**: the run reports `done`, but the failed verify step and its `[exit code: N]`
-output remain in the node trail and session log. Both engines reserve one extra step for a budget-routed wrap-up node when the `budget` edge targets
+a success claim**: the run reports `done` only when the abandoned work owed no artifact obligation,
+but the failed verify step and its `[exit code: N]` output remain in the node trail and session log.
+Both engines reserve one extra step for a budget-routed wrap-up node when the `budget` edge targets
 a declared terminal; a non-terminal that runs out of matching exits settles `finished` (the run
 status stays `done`), not `failed` (`packages/loop/src/kernel/topology.ts`,
-`packages/core/src/topology.ts`).
+`packages/core/src/topology.ts`). An abandoned artifact-producing stage leaves an unmet completion
+obligation: the answer terminal refuses completion and installs the turn's one bounded recovery when
+the plan has steps for it, failing the run when the recovery is refused or does not fit
+(`GRAPH_FAILED`; `packages/loop/src/scheduler.ts`).
 
 No claim is made that LangGraph executes arbitrary graphs. The kernel checkpointer is a per-run
 cache (`MemoryCheckpointer` in `packages/loop/src/kernel/plan.ts`); `storageDomain` durability is
