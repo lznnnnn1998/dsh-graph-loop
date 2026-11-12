@@ -13,7 +13,7 @@
  * @module dsh-graph-loop-core/condition
  */
 
-import type { ArtifactType, Condition, Json, NodeEvidenceContract } from './graph-schema.ts'
+import type { AnswerRecord, ArtifactType, Condition, Json, NodeEvidenceContract, ObligationRecord } from './graph-schema.ts'
 
 /**
  * One artifact reference as the router sees it (never a file body).
@@ -181,6 +181,52 @@ export function satisfiesNodeEvidence(
     return verified
   }
   return expects.length > 0
+}
+
+/**
+ * The typed answer rule (audit 20261112-0800 F5).
+ *
+ * A turn may complete only on an {@link AnswerRecord}: non-empty text, no real
+ * tool calls in the answering step, and an evidence ref for every obligation the
+ * run recorded as satisfied. The terminal's prose is never inspected — printed
+ * tool-call syntax carries no evidence refs and is refused by the refs rule, not
+ * by a keyword scan.
+ *
+ * @param record - the record the driver built from the terminal step, if any.
+ * @param obligations - every obligation the run recorded (required by construction).
+ * @param requiresText - false for callers with no session-backed text reader, where
+ *   text fidelity is not claimable; the refs and tool-call rules still apply.
+ * @returns the first structural problem, or undefined when the record is admissible.
+ */
+export function answerRecordProblem(
+  record: AnswerRecord | undefined,
+  obligations: readonly ObligationRecord[],
+  requiresText: boolean,
+): AnswerProblem | undefined {
+  if (record === undefined) {
+    return { code: 'missing-record', detail: 'the terminal step produced no answer record' }
+  }
+  if (requiresText && record.text.trim().length === 0) {
+    return { code: 'empty-text', detail: 'the terminal step produced no answer text' }
+  }
+  if (record.toolCalls !== 0) {
+    return { code: 'tool-calls', detail: `the answering step issued ${String(record.toolCalls)} tool call(s)` }
+  }
+  for (const obligation of obligations) {
+    if (!obligation.satisfied) {
+      return { code: 'unmet-obligation', detail: `required work at ${obligation.nodeId} was not done` }
+    }
+    if (!record.evidenceRefs.includes(obligation.nodeId)) {
+      return { code: 'missing-ref', detail: `the answer does not cite ${obligation.nodeId}` }
+    }
+  }
+  return undefined
+}
+
+/** One structural reason the terminal answer was refused. */
+export interface AnswerProblem {
+  readonly code: 'missing-record' | 'empty-text' | 'tool-calls' | 'unmet-obligation' | 'missing-ref'
+  readonly detail: string
 }
 
 /**

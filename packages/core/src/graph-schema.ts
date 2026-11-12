@@ -377,6 +377,46 @@ export interface NodeEvidenceContract {
   readonly verifier?: boolean
 }
 
+/**
+ * One node-keyed work obligation (audit 20261112-0800 F1-F6).
+ *
+ * A node that declares an artifact expectation (`evidence.expects`) and is not
+ * advisory (`optional`) owes the run that artifact. The driver records the
+ * evaluation of the node's *own* step here, so "the node ran" (journal outcome
+ * `ok`) is never confused with "the node's declared work is done". The record
+ * keeps the contract so one bounded recovery step can attempt to discharge the
+ * obligation and the ledger can be re-evaluated against that step's artifacts.
+ */
+export interface ObligationRecord {
+  readonly nodeId: NodeId
+  /** True only when the node's declared contract was satisfied by an observed step. */
+  readonly satisfied: boolean
+  /** 1-based trail position of the step whose boundary produced this record. */
+  readonly step: number
+  /** The node's own declared contract, so a recovery step can be held to it. */
+  readonly contract: NodeEvidenceContract
+  /** Recovery node that discharged an unmet obligation, when one did. */
+  readonly satisfiedBy?: NodeId
+}
+
+/**
+ * The typed answer a terminal step must form before the turn may complete.
+ *
+ * This is data, never prose: the runtime builds the record from what the step
+ * observably did (its own text, its real tool calls, the obligation refs the
+ * ledger records as satisfied). Admission is structural — non-empty text, zero
+ * tool calls, an evidence ref for every required obligation — and the prose is
+ * never inspected.
+ */
+export interface AnswerRecord {
+  /** Final assistant text of the terminal step; must be non-empty. */
+  readonly text: string
+  /** Obligation node ids the answer rests on; must name every required obligation. */
+  readonly evidenceRefs: readonly NodeId[]
+  /** Real tool calls the answering step issued; an answer step issues none. */
+  readonly toolCalls: number
+}
+
 export interface PlanNode {
   readonly id: NodeId
   readonly kind: PlanNodeKind
@@ -560,6 +600,11 @@ export interface GraphState {
     readonly hash?: string
     readonly bytes?: number
   }[]
+  /**
+   * Node-keyed work obligations recorded so far (audit 20261112-0800 F1-F6).
+   * Old folds omit it; an empty ledger means no node declared work.
+   */
+  readonly obligations?: readonly ObligationRecord[]
   /** Child session ids spawned by subagent nodes, for resume/fork traversal. */
   readonly children: readonly { readonly nodeId: NodeId; readonly sessionId: string }[]
   /** Bounded journal of node transitions; trimmed to the newest `maxJournal`. */

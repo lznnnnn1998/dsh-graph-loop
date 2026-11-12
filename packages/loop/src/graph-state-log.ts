@@ -116,6 +116,40 @@ export function recordGraphBoundary(
 }
 
 /**
+ * The text the step closed at `atSeq` produced: its last assistant text before
+ * the `step/end`, or undefined when the step produced none.
+ *
+ * The answer rule needs the terminal step's *own* text and never parses it;
+ * this is the session-backed reader the driver is given. It lives beside the
+ * checkpoint fold so the one deprecated synchronous prefix read has a single
+ * waiver home in this module.
+ */
+export function stepAnswerText(session: Session, atSeq: number | undefined): string | undefined {
+  if (atSeq === undefined) return undefined
+  try {
+    // oxlint-disable-next-line typescript/no-deprecated -- One bounded prefix read per step boundary; same migration as foldGraphCheckpoint.
+    const events = session.snapshotEvents()
+    let text: string | undefined
+    for (const event of events) {
+      if (event.seq >= atSeq) break
+      if (event.type !== 'assistant/message') continue
+      const content: unknown = event.data.message.content
+      if (!Array.isArray(content)) continue
+      const parts = content
+        .filter((part): part is { readonly type: 'text'; readonly text: string } =>
+          typeof part === 'object' && part !== null
+          && (part as { type?: unknown }).type === 'text'
+          && typeof (part as { text?: unknown }).text === 'string')
+        .map(part => part.text)
+      if (parts.length > 0) text = parts.join('\n')
+    }
+    return text
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * Fold checkpoint records out of an explicit event prefix.
  *
  * Kept separate from the session read so the fold is a pure, testable function

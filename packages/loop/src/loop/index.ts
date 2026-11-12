@@ -35,6 +35,7 @@ import type { SessionHandle, SessionPersistence } from '@deepseek-ai/dsh-session
 import { ReactLoopAgent } from './agent.ts'
 import { inboxProjectionDefinition } from './inbox.ts'
 import { createGraphTurnDriver } from '../scheduler.ts'
+import { stepAnswerText } from '../graph-state-log.ts'
 import { buildRegistrySnapshot, type ToolSource } from 'dsh-graph-loop-core/registry'
 import { scopeOf } from '@deepseek-ai/dsh-scope'
 import { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from './constants.ts'
@@ -724,6 +725,7 @@ export class AgentLoop extends Service implements AgentFactory {
             })
             graphRuntime?.recordSnapshot(id, snapshot)
           },
+          answerText: atSeq => stepAnswerText(session, atSeq),
           onTurnEnd: snapshot => graphRuntime?.recordTurn(id, snapshot),
           presetId: 'explore',
         }))

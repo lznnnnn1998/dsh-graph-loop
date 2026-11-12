@@ -12,7 +12,7 @@
  */
 import { statSync } from 'node:fs'
 
-import type { GraphState, PlanNode, PlanRunState, PlanStatus, RegistryGraph, TaskPlan } from 'dsh-graph-loop-core/graph-schema'
+import type { GraphState, PlanNode, PlanRunState, PlanStatus, RegistryGraph, TaskBudget, TaskPlan } from 'dsh-graph-loop-core/graph-schema'
 import {
   DEFAULT_WEIGHTS,
   extractFingerprint,
@@ -31,8 +31,12 @@ import { KernelTopology, canKernelDrive } from './kernel/topology.ts'
 import { deriveCapabilityFacts, deriveEvidenceCalls, deriveStepArtifactCandidates, deriveStepFacts, artifactTypeFor, type ArtifactCandidate } from './step-facts.ts'
 import { diffWorld, inDeclaredRoot, observeWorld, type WorldObservation } from './world.ts'
 import { DEFAULT_SHELL_TOOLS } from './loop/step-tools.ts'
-import { satisfiesNodeEvidence, type RoutingArtifact } from 'dsh-graph-loop-core/condition'
-import type { ArtifactType, Json } from 'dsh-graph-loop-core/graph-schema'
+import {
+  answerRecordProblem,
+  satisfiesNodeEvidence,
+  type RoutingArtifact,
+} from 'dsh-graph-loop-core/condition'
+import type { AnswerRecord, ArtifactType, Json, NodeEvidenceContract, ObligationRecord } from 'dsh-graph-loop-core/graph-schema'
 import { fallbackPlan } from 'dsh-graph-loop-core/fallback'
 import { validateTurnShape } from 'dsh-graph-loop-core/graph-schema'
 import type { GraphResumeState } from './graph-state-log.ts'
@@ -96,6 +100,13 @@ export interface GraphTurnSnapshot {
   }[]
   readonly depth?: number
   readonly replans?: number
+  /**
+   * Node-keyed work-obligation ledger: every node that declared an evidence
+   * contract, with the recorded outcome of its own step. Completion consults
+   * this record, never terminal reachability, so an abandoned obligation cannot
+   * masquerade as satisfied work.
+   */
+  readonly obligations: readonly ObligationRecord[]
   /** Envelope chosen by the live composition path, when it ran. */
   readonly envelopeId?: string
   /**
@@ -213,6 +224,14 @@ export interface GraphTurnDriverOptions {
   readonly forceFallback?: boolean
   /** Delegation depth (0 for a root agent), included in the trace. */
   readonly depth?: number
+  /**
+   * Session-backed reader for the answer text the step closed at `atSeq`
+   * produced (the last assistant text before that `step/end`). The terminal
+   * answer rule needs the step's own text; the driver never opens the session
+   * and never parses prose. Absent in harnesses that have no session log: text
+   * fidelity is then not claimable, while the obligation/refs rule still holds.
+   */
+  readonly answerText?: (atSeq: number | undefined) => string | undefined
   readonly onSnapshot?: (snapshot: GraphTurnSnapshot) => void
   readonly onTurnEnd?: (snapshot: GraphTurnSnapshot) => void
 }
@@ -319,6 +338,65 @@ function mergeCandidates(...sources: readonly (readonly ArtifactCandidate[])[]):
  */
 class TurnShapeViolation extends Error {}
 
+/**
+ * True when a node's declared contract promises an observable artifact, i.e.
+ * the run owes that node's step a product. A verifier-only contract is a
+ * routing guard on its stage, not a completion obligation of the turn.
+ */
+function producesObligation(contract: NodeEvidenceContract | undefined): contract is NodeEvidenceContract {
+  return contract !== undefined && (contract.expects ?? []).length > 0
+}
+
+/**
+ * One bounded recovery plan for an answer terminal whose required work is unmet
+ * (audit 20261112-0800 F5). It re-runs the work the plan declared, then returns
+ * to a fresh answer-only terminal; the driver credits that recovery step against
+ * the unmet nodes' own contracts, so a second answer is admissible only when the
+ * work actually got done. Ids follow the R4 grammar (`<kind>.<stage>.<attempt>`),
+ * so the recovery runs on the frontier and never resets a kernel plan's state.
+ */
+function answerRecoveryPlan(input: {
+  readonly taskHash: string
+  readonly unmet: readonly string[]
+  readonly problem: string
+  readonly toolAllow: readonly string[]
+  readonly budget: TaskBudget
+}): TaskPlan {
+  const work = input.unmet.length === 0
+    ? 'Answer the task plainly with the answer text.'
+    : `Do the required work at ${input.unmet.join(', ')} now using the available tools; a fresh answer step follows. Do not describe work you are not doing.`
+  const recover: PlanNode = {
+    id: 'recover.1.1',
+    kind: 'agent-step',
+    executor: 'step',
+    instruction: `The answer step is blocked (${input.problem}). ${work}`,
+  }
+  const answer: PlanNode = {
+    id: 'answer.1.2',
+    kind: 'terminal',
+    executor: 'step',
+    instruction: 'Answer the task from the evidence that now exists. Do not start new work.',
+    toolAllow: [],
+  }
+  return {
+    id: `recover:${input.taskHash}`,
+    templateId: 'answer-recovery',
+    version: 1,
+    entry: recover.id,
+    terminals: [answer.id],
+    nodes: [recover, answer],
+    edges: [{ from: recover.id, to: answer.id, kind: 'control' }],
+    // Two steps at most: one work retry, one answer. The driver's install()
+    // further clamps it to the steps the turn has left.
+    budget: { ...input.budget, maxSteps: Math.min(2, input.budget.maxSteps), maxReplans: 0 },
+    toolUniverse: [...input.toolAllow],
+    gatePolicy: 'cold',
+    fallback: true,
+    confidence: 0,
+    compiledDigest: `recover:${input.taskHash}:${input.unmet.join(',')}`,
+  }
+}
+
 export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): GraphTurnDriver {
   const mode: TopologyMode = options.mode ?? 'template'
   const adoptPolicy: AdoptPolicy = options.adoptPolicy ?? 'start-only'
@@ -380,6 +458,33 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
    * driver that never calls `beginTurn`), and when no world root is configured.
    */
   let worldBefore: WorldObservation | undefined
+  /**
+   * Node-keyed work obligations recorded this turn (audit 20261112-0800 F1-F6).
+   * A node that declared an evidence contract and is not advisory owes the run
+   * that evidence; the record holds the evaluation of the node's own step, so
+   * "ran" is never confused with "satisfied". The answer terminal consults this
+   * ledger, not terminal reachability.
+   */
+  let obligations = new Map<string, ObligationRecord>()
+  /**
+   * Recovery node id → the unmet obligations it is allowed to discharge. A
+   * bounded recovery step is credited against the original node's own contract;
+   * it cannot mint a new obligation, and it cannot satisfy one by declaring a
+   * different one.
+   */
+  let recoveryTargets = new Map<string, readonly ObligationRecord[]>()
+  /** True once the turn spent its one bounded answer recovery. */
+  let answerRecoveryUsed = false
+  /** True when an answer terminal tried to complete with required work unmet. */
+  let answerBlocked = false
+  /**
+   * True between `beginTurn` and `endTurn`: the driver is driving a *turn*.
+   * Engine-level branch drills install a plan with `adopt()` and never open a
+   * turn; their plan-routing assertions stay ungated (audit 20261112-0800
+   * "adopt() and engine-level branch drills stay ungated"). A turn's completion
+   * rule is not a plan-routing property.
+   */
+  let turnActive = false
 
   /**
    * Artifact candidates the step's *effects* explain: paths that appeared or
@@ -435,6 +540,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       trail: [...trail],
       replans,
       depth: options.depth ?? 0,
+      obligations: [...obligations.values()].sort((left, right) => left.step - right.step),
       ...(envelopeId === undefined ? {} : { envelopeId }),
       envelopeIssues,
       path: planPath,
@@ -448,6 +554,11 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
 
   /** Plan state at the current boundary; no plan means no plan work left. */
   function currentPlanState(): PlanRunState {
+    // A terminal that reached its answer endpoint with a required obligation
+    // still unmet is not a completion. It stays blocked until the bounded
+    // recovery resolves the debt or settles the run as failed; the turn then
+    // ends honestly (the loop turns `failed` into a structured error).
+    if (answerBlocked) return 'failed'
     return topology?.planState() ?? 'finished'
   }
 
@@ -580,6 +691,54 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
   }
 
   /**
+   * The answer boundary gate (audit 20261112-0800 F1-F6).
+   *
+   * A declared terminal is where the turn wants to end, but it may end only on
+   * an admissible {@link AnswerRecord}: the terminal step's own text (when a
+   * session-backed reader is configured), zero real tool calls, and an evidence
+   * ref for every obligation the run recorded. Terminal reachability is not
+   * completion; the node-keyed ledger decides.
+   *
+   * A refusal spends the turn's one bounded recovery step (a fresh work step and
+   * a fresh answer terminal, credited against the original contracts). A second
+   * refusal settles the run blocked, which the loop reports as a structured
+   * failure — never a completed turn.
+   */
+  function settleAnswerBoundary(outcome: NodeOutcome): void {
+    if (!turnActive) return
+    if (topology === undefined || plan === undefined) return
+    if (topology.planState() !== 'terminal') return
+    const recorded = [...obligations.values()].sort((left, right) => left.step - right.step)
+    const answer: AnswerRecord = {
+      text: options.answerText?.(outcome.atSeq) ?? '',
+      evidenceRefs: recorded.filter(entry => entry.satisfied).map(entry => entry.nodeId),
+      toolCalls: outcome.tools?.length ?? 0,
+    }
+    const problem = answerRecordProblem(answer, recorded, options.answerText !== undefined)
+    if (problem === undefined) return
+    if (!answerRecoveryUsed && trail.length + 2 <= maxSteps && topology.status() !== 'failed') {
+      answerRecoveryUsed = true
+      const unmet = recorded.filter(entry => !entry.satisfied)
+      recoveryTargets = new Map()
+      if (unmet.length > 0) recoveryTargets.set('recover.1.1', unmet)
+      const next = answerRecoveryPlan({
+        taskHash: plan.id,
+        unmet: unmet.map(entry => entry.nodeId),
+        problem: problem.detail,
+        toolAllow: plan.toolUniverse,
+        budget: plan.budget,
+      })
+      install(next)
+      rationale = [...rationale, `answer blocked (${problem.code}): one bounded recovery step`]
+      return
+    }
+    // The bounded recovery is spent (or cannot fit). The plan did not answer:
+    // settle blocked so the turn ends with a structured failure, not success.
+    answerBlocked = true
+    rationale = [...rationale, `answer blocked (${problem.code}): ${problem.detail}`]
+  }
+
+  /**
    * Record one node outcome, advance the topology, then run boundary recovery.
    * `record` is absent when `advance()` has no current node: the run still
    * settles its boundary, without inventing a trail row.
@@ -590,6 +749,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       readonly executor?: string
       readonly capabilityId?: string
       readonly evidence?: PlanNode['evidence']
+      readonly optional?: boolean
     } | undefined,
     lastNodeId: string | undefined,
     outcome: NodeOutcome,
@@ -679,12 +839,47 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     const priorObserved = producedRefs
       .map(artifact => measureArtifact(artifact))
       .filter((artifact): artifact is RoutingArtifact => artifact !== undefined)
-    facts['evidence.ok'] = satisfiesNodeEvidence(record?.evidence, {
+    const view = {
       produced: artifacts,
       prior: priorObserved,
       calls: deriveEvidenceCalls(observed, shellTools, capability?.tool?.parameterNames ?? []),
       ...(declaredTool === undefined ? {} : { capabilityTool: declaredTool }),
-    })
+    }
+    // The node's own declared contract decides whether its step satisfied the
+    // work it owed. The outcome is node-keyed and kept for the whole turn: a
+    // plan that routes past an unsatisfied node leaves a recorded debt instead
+    // of a `visited` entry that later looks like success.
+    let evidenceOk = satisfiesNodeEvidence(record?.evidence, view)
+    // A bounded recovery step is credited against the obligations it was
+    // installed for, each evaluated with its *original* contract: it can
+    // discharge the debt, but it cannot substitute a cheaper one.
+    const recovered = record === undefined ? undefined : recoveryTargets.get(record.id)
+    if (recovered !== undefined && recovered.length > 0) {
+      for (const target of recovered) {
+        if ((obligations.get(target.nodeId)?.satisfied ?? target.satisfied)) continue
+        if (!satisfiesNodeEvidence(target.contract, view)) continue
+        obligations.set(target.nodeId, {
+          ...target,
+          satisfied: true,
+          step: trail.length,
+          ...(record === undefined ? {} : { satisfiedBy: record.id }),
+        })
+      }
+      evidenceOk = recovered.every(target => obligations.get(target.nodeId)?.satisfied === true)
+    }
+    facts['evidence.ok'] = evidenceOk
+    // Only an artifact-production contract is a *completion* obligation: the
+    // node promised an observable artifact and the run owes it. A verifier-only
+    // contract stays a routing guard on its own stage (backlog #4), so this
+    // cycle does not change the verify/repair endpoint semantics.
+    if (record !== undefined && producesObligation(record.evidence) && record.optional !== true) {
+      obligations.set(record.id, {
+        nodeId: record.id,
+        satisfied: evidenceOk,
+        step: trail.length,
+        contract: record.evidence,
+      })
+    }
     // Older steps' refs become `prior` for the next step; the current step's own
     // refs must not certify its own verification.
     producedRefs = [...producedRefs, ...artifacts]
@@ -697,6 +892,12 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     }))
     await recoverAfterFailure(outcome)
     if (adoptProposal) adoptProposalAtBoundary()
+    // The terminal boundary is gated last: after the node-keyed ledger and any
+    // runtime recovery have settled, the run may end only on an admissible
+    // answer record. A refusal replaces the endpoint with the one bounded
+    // recovery plan; a second refusal marks the run blocked (see
+    // `settleAnswerBoundary`).
+    settleAnswerBoundary(outcome)
     // No continuation plan is installed here. A plan that drains while the
     // model is still acting settles `finished`; the turn boundary keeps the
     // turn open and runs the next step with no graph node. The turn ends on a
@@ -706,6 +907,8 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
 
   return {
     async beginTurn(task: TurnTask, resume?: GraphResumeState): Promise<GraphTurnSnapshot> {
+      // The turn opens here: its terminal will be held to the answer rule.
+      turnActive = true
       // The turn's world baseline, taken before any branch returns (child
       // fallback, resume, propose, triage): the first step of every plan path is
       // diffed from the workspace as this turn found it.
@@ -724,6 +927,10 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       producedRefs = []
       visited = []
       knownToolNames.clear()
+      obligations = new Map()
+      recoveryTargets = new Map()
+      answerRecoveryUsed = false
+      answerBlocked = false
       // Per-turn state: a new turn gets its own replan allowance and adoption
       // window. Leaving these to accumulate permanently disables boundary
       // recovery once an early turn exhausts the plan's replan budget.
@@ -756,6 +963,10 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       // The log fold only offers a `running` state; a completed or failed run
       // falls through and starts a new plan.
       if (resume !== undefined && (options.kernel ?? 'langgraph') !== 'off' && canResumePlan(resume)) {
+        // The folded state carries the obligation ledger the paused run left
+        // behind; re-deriving it from an empty map would let a resumed answer
+        // terminal complete on work the previous segment never evidenced.
+        for (const record of resume.state.obligations ?? []) obligations.set(record.nodeId, record)
         install(resume.plan, resume.state)
         planPath = 'resume'
         rationale = [`resume ${resume.plan.id} at ${String(resume.state.next)}`]
@@ -941,18 +1152,24 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       return currentPlanState() !== 'running'
     },
     terminalReached(): boolean {
-      return currentPlanState() === 'terminal'
+      return !answerBlocked && currentPlanState() === 'terminal'
     },
     status(): PlanStatus {
+      if (answerBlocked) return 'failed'
       return topology?.status() ?? 'failed'
     },
     stateSnapshot(): GraphState | undefined {
-      return topology?.stateSnapshot?.()
+      const state = topology?.stateSnapshot?.()
+      if (state === undefined) return undefined
+      // The ledger travels with the durable checkpoint so a resumed turn cannot
+      // mistake an abandoned obligation for satisfied work.
+      return { ...state, obligations: [...obligations.values()].sort((left, right) => left.step - right.step) }
     },
     endTurn(): void {
       const finishing = topology
       const finalSnapshot = snapshot()
       topology = undefined
+      turnActive = false
       void finishing?.dispose?.()
       options.onTurnEnd?.(finalSnapshot)
     },
