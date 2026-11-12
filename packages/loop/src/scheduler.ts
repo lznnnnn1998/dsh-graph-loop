@@ -29,7 +29,7 @@ import { synthesizeComposition } from 'dsh-graph-loop-core/compose'
 import { selectEnvelopeForTask, type EnvelopeIssue } from 'dsh-graph-loop-core/envelope'
 import { KernelTopology, canKernelDrive } from './kernel/topology.ts'
 import { deriveCapabilityFacts, deriveEvidenceCalls, deriveStepArtifactCandidates, deriveStepFacts, artifactTypeFor, type ArtifactCandidate } from './step-facts.ts'
-import { diffWorld, observeWorld, type WorldObservation } from './world.ts'
+import { diffWorld, inDeclaredRoot, observeWorld, type WorldObservation } from './world.ts'
 import { DEFAULT_SHELL_TOOLS } from './loop/step-tools.ts'
 import { satisfiesNodeEvidence, type RoutingArtifact } from 'dsh-graph-loop-core/condition'
 import type { ArtifactType, Json } from 'dsh-graph-loop-core/graph-schema'
@@ -378,15 +378,22 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
    * and this one. The first boundary of a driver that never established a
    * baseline only records it. An incomplete observation (a capped walk) credits
    * nothing, because it cannot tell "unchanged" from "unobserved".
+   *
+   * `roots` is the current node's declared evidence scope: when it declares
+   * roots, only changes inside them are candidates; without a declaration the
+   * whole world root is credited (the documented fallback). This filter applies
+   * to the ambient world channel only -- a ref a tool call addresses in a typed
+   * argument is measured for its own step regardless of place.
    */
-  function worldCandidates(): ArtifactCandidate[] {
-    const after = worldRoot === undefined ? undefined : observeWorld(worldRoot)
-    if (after === undefined) return []
+  function worldCandidates(roots?: readonly string[]): ArtifactCandidate[] {
+    const root = worldRoot
+    if (root === undefined) return []
+    const after = observeWorld(root)
     const changes = diffWorld(worldBefore, after)
     worldBefore = after
-    return changes === undefined
-      ? []
-      : changes.map(change => ({ type: artifactTypeFor(change.path), ref: change.path }))
+    if (changes === undefined) return []
+    const admitted = roots === undefined ? changes : changes.filter(change => inDeclaredRoot(root, roots, change.path))
+    return admitted.map(change => ({ type: artifactTypeFor(change.path), ref: change.path }))
   }
   /** Executed node ids in run order; the snapshot's `visited` must describe the run, not the plan. */
   let visited: string[] = []
@@ -572,7 +579,7 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     // The boundary's world observation is taken first, before any await: it
     // must describe the workspace the step left behind, not one the harness
     // touched while resolving the graph.
-    const worldObserved = worldCandidates()
+    const worldObserved = worldCandidates(record?.evidence?.roots)
     if (record !== undefined) recordTrail(record.id, record.executor, outcome)
     lastNode = lastNodeId ?? lastNode
     const observed = outcome.tools ?? []

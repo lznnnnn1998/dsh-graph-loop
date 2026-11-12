@@ -12,11 +12,16 @@
  * follow, a fixed set of dependency/VCS directories skipped, and entry/depth
  * caps. An incomplete observation credits nothing — a capped walk cannot tell
  * "unchanged" from "unobserved", so it must not certify a step.
+ *
+ * A node may declare the artifact roots its evidence is credited from. That
+ * scope is applied here, to the observed change paths, and only to this ambient
+ * channel: a path a tool call addresses in a typed argument stays measured for
+ * its own step.
  * @module dsh-graph-loop/world
  */
 
 import { lstatSync, readdirSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 /** One regular file as the runtime observed it. */
 export interface WorldFile {
@@ -138,4 +143,31 @@ export function diffWorld(
     changes.push({ path, size: file.size, mtimeMs: file.mtimeMs })
   }
   return changes.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0)
+}
+
+/**
+ * True when an observed change path lies inside one of a node's declared
+ * artifact roots (audit 20261112-0000 F1-F4).
+ *
+ * A root is resolved against the session world root, and containment is a
+ * path-segment test, never a string prefix: a sibling directory such as
+ * `<root>-evil` is outside `<root>`, not inside it. The world root itself is not
+ * treated as a declared root here -- an absent declaration is the documented
+ * whole-root fallback, which the caller expresses by not calling this function.
+ * A root that resolves outside the world root (validation rejects those; this is
+ * defense for an unvalidated plan) contains no observed path, because the
+ * observation never leaves the world root.
+ * @param worldRoot - the session world root the observation walked.
+ * @param roots - the node's declared roots, relative to `worldRoot`.
+ * @param path - an observed absolute change path.
+ */
+export function inDeclaredRoot(worldRoot: string, roots: readonly string[], path: string): boolean {
+  const target = resolve(path)
+  return roots.some(root => {
+    const base = resolve(worldRoot, root)
+    const rest = relative(base, target)
+    // `''` is the root path itself (a root may name a file); `..` and a
+    // `..<sep>` prefix are outside it; an absolute remainder is another drive.
+    return rest === '' || (rest !== '..' && !rest.startsWith(`..${sep}`) && !isAbsolute(rest))
+  })
 }

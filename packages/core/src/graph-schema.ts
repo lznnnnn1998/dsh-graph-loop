@@ -356,6 +356,21 @@ export interface NodeEvidenceContract {
    */
   readonly expects?: readonly ArtifactSpec[]
   /**
+   * Artifact roots this node's evidence may be credited from (audit
+   * 20261112-0000 F1-F4). An ambient world change is admissible for this node
+   * only when it lies inside one of these roots; every other change is ignored.
+   *
+   * Each root is a *relative* path resolved against the session world root (the
+   * session cwd fallback). The declaration is data -- never command text, tool
+   * output, instruction prose, a glob or an environment expansion. An absent
+   * declaration falls back to the whole session world root, so plans that
+   * declare no root keep the cwd-wide credit they had before this field existed.
+   * A root can only narrow credit; it never admits a ref outside the observed
+   * world. Validation rejects an empty list, an empty entry, an absolute path
+   * and any root that climbs above the world root.
+   */
+  readonly roots?: readonly string[]
+  /**
    * Verify clause: the node's declared capability must run against a ref an
    * earlier step produced and report a clean status.
    */
@@ -737,6 +752,34 @@ export function validateRegistryGraph(graph: RegistryGraph): ValidationResult {
   return { ok: errors.length === 0, errors, warnings }
 }
 
+/**
+ * True when a declared evidence root can be resolved against the session world
+ * root without leaving it (audit 20261112-0000 F1-F4).
+ *
+ * The root is a plan declaration, so only its syntax is checkable here; the
+ * loop resolves a relative root against the world root at the step boundary.
+ * An absolute root, or a relative one whose `..` segments climb above its own
+ * base, would scope credit outside the observed session world, so the plan is
+ * rejected instead of the root being silently denied at runtime.
+ */
+function isSafeEvidenceRoot(root: string): boolean {
+  if (root.trim() === '' || root.includes('\0')) return false
+  // POSIX absolute, Windows drive-absolute and Windows rooted/UNC paths all
+  // name a place outside a world-relative root.
+  if (root.startsWith('/') || root.startsWith('\\') || /^[A-Za-z]:[\\/]/.test(root)) return false
+  let depth = 0
+  for (const segment of root.split(/[\\/]+/)) {
+    if (segment === '' || segment === '.') continue
+    if (segment === '..') {
+      depth -= 1
+      if (depth < 0) return false
+      continue
+    }
+    depth += 1
+  }
+  return true
+}
+
 /** Structural validation of an instantiated plan against its registry snapshot. */
 export function validateTaskPlan(graph: RegistryGraph, plan: TaskPlan): ValidationResult {
   const errors: ValidationIssue[] = []
@@ -816,6 +859,24 @@ export function validateTaskPlan(graph: RegistryGraph, plan: TaskPlan): Validati
       for (const spec of expects) {
         if (!(ARTIFACT_TYPES as readonly string[]).includes(spec.type)) {
           errors.push({ code: 'P028', path: `${path}.evidence.expects`, message: `unknown artifact type "${String(spec.type)}"` })
+        }
+      }
+      // Roots are the typed place-scope of the node's evidence. A malformed or
+      // world-escaping declaration is rejected rather than silently ignored:
+      // an ignored `roots` would look scoped while crediting the whole world,
+      // and an escaping root would scope credit outside the observed session.
+      const roots = (node.evidence as { readonly roots?: unknown }).roots
+      if (roots !== undefined) {
+        if (!Array.isArray(roots) || roots.length === 0) {
+          errors.push({ code: 'P029', path: `${path}.evidence.roots`, message: 'evidence roots must be a non-empty array of relative paths' })
+        } else {
+          for (const root of roots) {
+            if (typeof root !== 'string' || root.trim() === '' || root.includes('\0')) {
+              errors.push({ code: 'P029', path: `${path}.evidence.roots`, message: 'evidence root must be a non-empty string' })
+            } else if (!isSafeEvidenceRoot(root)) {
+              errors.push({ code: 'P030', path: `${path}.evidence.roots`, message: `evidence root "${root}" must be relative and stay inside the session world root` })
+            }
+          }
         }
       }
     }

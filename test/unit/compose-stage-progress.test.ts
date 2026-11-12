@@ -1,8 +1,8 @@
 /**
  * A composed stage advances only on its own artifact/verifier evidence.
  *
- * Acceptance drill for audit 20261111-1200 F1-F4, audit 20261111-1600 F1-F4 and
- * audit 20261111-2000 F1-F4:
+ * Acceptance drill for audit 20261111-1200 F1-F4, audit 20261111-1600 F1-F4,
+ * audit 20261111-2000 F1-F4 and audit 20261112-0000 F1-F4:
  * a stage is satisfied by a *runtime-observed* artifact and, for verify, by the
  * node's declared verifier addressing that artifact through a typed locator
  * argument -- never by command text that merely names the path. The composed
@@ -17,7 +17,7 @@
 
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
@@ -126,6 +126,36 @@ function coreComposition(maxSteps = 8): { graph: RegistryGraph; plan: ReturnType
   })
   assert.deepEqual(result.stages.map(stage => stage.stage), ['inspect', 'mutate', 'verify'])
   return { graph, plan: result.plan }
+}
+
+/**
+ * The composed plan with the mutate stage's evidence roots replaced. The roots
+ * are a typed plan declaration (audit 20261112-0000 F1-F4), never parsed out of
+ * a command or an instruction: this is the only channel the drill uses to scope
+ * ambient world credit.
+ */
+function compositionWithRoots(roots: readonly unknown[]): ReturnType<typeof synthesizeComposition>['plan'] {
+  const base = coreComposition()
+  const mutate = base.plan.nodes.find(node => node.id === 'n_mutate')
+  if (mutate === undefined || mutate.evidence === undefined) {
+    throw new Error('n_mutate must declare an evidence contract')
+  }
+  const scopedEvidence = { ...mutate.evidence, roots: roots as readonly string[] }
+  return {
+    ...base.plan,
+    nodes: base.plan.nodes.map(node => node.id === 'n_mutate' ? { ...node, evidence: scopedEvidence } : node),
+  }
+}
+
+/** `compositionWithRoots` with one valid root, asserting the plan still validates. */
+function scopedComposition(rootRel = 'out'): { graph: RegistryGraph; plan: ReturnType<typeof synthesizeComposition>['plan'] } {
+  const base = coreComposition()
+  const nodes = compositionWithRoots([rootRel]).nodes
+  const plan: ReturnType<typeof synthesizeComposition>['plan'] = { ...base.plan, nodes }
+  const validation = validateTaskPlan(base.graph, plan)
+  assert.equal(validation.ok, true,
+    `a scoped plan must validate: ${validation.errors.map(error => `${error.code} ${error.path}`).join('; ')}`)
+  return { graph: base.graph, plan }
 }
 
 /**
@@ -503,7 +533,89 @@ for (const engine of ENGINES) {
 }
 
 // ---------------------------------------------------------------------------
-// 6. A no-tool step still repairs (gate is evidence, not a step counter)
+// 6. Node-scoped evidence: a declared artifact root limits the ambient channel
+// ---------------------------------------------------------------------------
+
+for (const engine of ENGINES) {
+  engineTest(`a shell write inside the declared root satisfies mutate [${engine}]`, engine, async (t) => {
+    const dir = workdir(t)
+    const input = makeFile(dir, 'input.txt')
+    mkdirSync(join(dir, 'out'))
+    const { graph, plan } = scopedComposition('out')
+    const driver = driverFor(engine, graph, plan, dir)
+
+    await driver.advance(read(input))
+    assert.equal(driver.current()?.id, 'n_mutate', `engine=${engine}`)
+
+    // Declaring a root narrows credit but must not deaden it: a real write into
+    // the declared root is exactly the ambient evidence this node accepts.
+    const scratch = join(dir, 'out', 'scratch.txt')
+    execFileSync('bash', ['-c', `printf x > ${JSON.stringify(scratch)}`])
+    assert.equal(existsSync(scratch), true, 'the positive row must perform the real shell write')
+    await driver.advance(bash(`printf x > ${scratch}`))
+    assert.equal(driver.current()?.id, 'n_verify',
+      `engine=${engine}: an in-root shell write advances mutate`)
+
+    driver.endTurn()
+  })
+}
+
+for (const engine of ENGINES) {
+  engineTest(`an in-cwd write outside the declared root cannot satisfy mutate [${engine}]`, engine, async (t) => {
+    const dir = workdir(t)
+    const input = makeFile(dir, 'input.txt')
+    mkdirSync(join(dir, 'out'))
+    const { graph, plan } = scopedComposition('out')
+    const driver = driverFor(engine, graph, plan, dir)
+
+    await driver.advance(read(input))
+    assert.equal(driver.current()?.id, 'n_mutate', `engine=${engine}`)
+
+    // The change is under the session world root but outside the node's declared
+    // root: it is another file's effect, and on the parent commit it advanced
+    // this node because the world diff took no node.
+    const unrelated = join(dir, 'scratch.txt')
+    execFileSync('bash', ['-c', `printf x > ${JSON.stringify(unrelated)}`])
+    assert.equal(existsSync(unrelated), true, 'the falsifier row must perform the real shell write')
+    await driver.advance(bash(`printf x > ${unrelated}`))
+    assert.equal(driver.current()?.id, 'n_mutate_repair',
+      `engine=${engine}: an in-cwd write outside the declared root must not satisfy mutate`)
+    driver.endTurn()
+
+    // A sibling whose name shares the declared root's prefix is not inside it:
+    // containment is a path-segment test, never `startsWith`.
+    const siblingDir = workdir(t)
+    const siblingInput = makeFile(siblingDir, 'input.txt')
+    mkdirSync(join(siblingDir, 'out'))
+    mkdirSync(join(siblingDir, 'out-evil'))
+    const sibling = driverFor(engine, graph, plan, siblingDir)
+    await sibling.advance(read(siblingInput))
+    assert.equal(sibling.current()?.id, 'n_mutate', `engine=${engine}`)
+    const escaped = join(siblingDir, 'out-evil', 'scratch.txt')
+    execFileSync('bash', ['-c', `printf x > ${JSON.stringify(escaped)}`])
+    assert.equal(existsSync(escaped), true, 'the prefix-trap row must perform the real shell write')
+    await sibling.advance(bash(`printf x > ${escaped}`))
+    assert.equal(sibling.current()?.id, 'n_mutate_repair',
+      `engine=${engine}: a sibling sharing the root's name prefix is outside the root`)
+    sibling.endTurn()
+
+    // F2: the root declaration is typed and validated. An empty list and an
+    // unsafe or escaping root are rejected, never silently ignored or resolved
+    // outside the observed session world.
+    const emptyValidation = validateTaskPlan(graph, compositionWithRoots([]))
+    assert.equal(emptyValidation.ok, false, 'roots: [] must be rejected')
+    assert.ok(emptyValidation.errors.some(error => error.code === 'P029'), 'roots: [] reports P029')
+    for (const unsafe of [['../elsewhere'], ['node_modules/../../elsewhere'], ['/tmp'], ['C:\\escape']]) {
+      const rejected = validateTaskPlan(graph, compositionWithRoots(unsafe))
+      assert.equal(rejected.ok, false, `unsafe root ${JSON.stringify(unsafe)} must be rejected`)
+      assert.ok(rejected.errors.some(error => error.code === 'P030'),
+        `unsafe root ${JSON.stringify(unsafe)} reports P030`)
+    }
+  })
+}
+
+// ---------------------------------------------------------------------------
+// 7. A no-tool step still repairs (gate is evidence, not a step counter)
 // ---------------------------------------------------------------------------
 
 for (const engine of ENGINES) {
