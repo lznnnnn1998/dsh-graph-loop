@@ -225,33 +225,49 @@ export function restrictToolSet(
 
 /**
  * One step's tool admission: the narrowed view the request sees, and the name
- * set dispatch enforces itself when the node is an answer-only terminal.
+ * set dispatch enforces itself when the node is answer-only.
  */
 export interface StepAdmission {
   /** The request's and stock resolution's tool view; the admission rule is unchanged. */
   readonly toolSet: ResolvedToolSet
   /**
-   * Names dispatch must enforce. Present only at a declared `terminal` whose
-   * `toolAllow` is empty: every other node keeps stock resolution, where an
-   * unknown name is still the tool registry's own error.
+   * Names dispatch must enforce. Present at every answer-only node — a declared
+   * `terminal` or a non-terminal retry step whose `toolAllow` is empty: every
+   * other node keeps stock resolution, where an unknown name is still the tool
+   * registry's own error.
    */
   readonly admitted?: ReadonlySet<string>
 }
 
-/** An answer-only terminal admits exactly the typed channel. */
+/** An answer-only node admits exactly the typed channel. */
 const ANSWER_ONLY_ADMISSION = new Set<string>([ANSWER_TOOL])
+
+/**
+ * Whether the node is answer-only: its declared allow-list is explicitly empty.
+ *
+ * The admission policy and the node directive share this predicate, so the
+ * model-visible rule cannot drift from the enforced one. An absent allow-list
+ * means stock/plan-universe resolution — never answer-only.
+ * @param node - the active plan node (structural subset).
+ * @returns true when the node admits nothing but the answer channel.
+ */
+export function isAnswerOnlyNode(node: NodeIntent | undefined): boolean {
+  return node?.toolAllow !== undefined && node.toolAllow.length === 0
+}
 
 /**
  * Narrow the step's tool set to the active node's tools (see
  * {@link restrictToolSet}) and report when dispatch must refuse a non-admitted
- * call. A terminal node with an explicit empty `toolAllow` is answer-only: its
- * empty admission is the intended result, so no empty-admission warning fires,
- * while the same set is returned as `admitted` so dispatch can make admission
- * authoritative before tool resolution.
+ * call. An answer-only node is one with an explicit empty `toolAllow` (see
+ * {@link isAnswerOnlyNode}): its empty admission is the intended result, so no
+ * empty-admission warning fires, while the same set is returned as `admitted`
+ * so dispatch can make admission authoritative before tool resolution. The
+ * enforced set does not depend on the node kind: the bounded channel retry is an
+ * agent step, not a declared terminal, and still admits exactly the channel.
  * @param base - the turn's resolved tool admission.
  * @param node - the active plan node (structural subset).
  * @param universe - the plan's tool universe, when it declares one.
- * @param onEmpty - reports the visible set once when a non-terminal intersection is empty.
+ * @param onEmpty - reports the visible set once when a non-answer-only intersection is empty.
  * @returns the narrowed view plus the enforced admission set, if any.
  */
 export function admitStepTools(
@@ -260,8 +276,7 @@ export function admitStepTools(
   universe: readonly string[] | undefined,
   onEmpty?: EmptyAdmissionHandler,
 ): StepAdmission {
-  const nodeToolAllow = node?.toolAllow
-  const answerOnly = nodeToolAllow !== undefined && nodeToolAllow.length === 0
+  const answerOnly = isAnswerOnlyNode(node)
   const allowed = answerOnly
     ? ANSWER_ONLY_ADMISSION
     : universe !== undefined && universe.length > 0
@@ -270,7 +285,7 @@ export function admitStepTools(
   const toolSet = allowed === undefined
     ? base
     : restrictToolSet(base, allowed, answerOnly ? undefined : onEmpty)
-  return { toolSet, ...answerOnly && node?.kind === 'terminal' ? { admitted: ANSWER_ONLY_ADMISSION } : {} }
+  return { toolSet, ...answerOnly ? { admitted: ANSWER_ONLY_ADMISSION } : {} }
 }
 
 /** One assistant message's calls split by the step's enforced admission. */

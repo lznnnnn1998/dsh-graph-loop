@@ -401,15 +401,39 @@ interface ScriptedCall {
   readonly arguments: string
 }
 
-/** What the terminal does on its second answer step. */
+/** What the step after the first refusal does on the follow-up answer step. */
 type TerminalRepeat = 'answer' | 'breach-again'
+
+/** What the terminal itself calls: the breach (bash) or the channel. */
+type TerminalCall = 'breach' | 'channel'
+
+/** What the work node does: a read that leaves the owed artifact unmet, or the write. */
+type WorkStep = 'read' | 'write'
+
+/** One executed batch: the node, the calls, and the admitted view dispatch saw. */
+interface ExecutedBatch {
+  readonly node: string | undefined
+  /** The DSH step number the batch ran at. */
+  readonly step: number
+  readonly names: readonly string[]
+  /** The step's admitted tool names, exactly the view the tools executor received. */
+  readonly admitted: readonly string[]
+}
+
+/** One graph node directive committed to the session log, keyed by its node. */
+interface RecordedDirective {
+  readonly nodeId: string
+  readonly text: string
+}
 
 interface DispatchHarness {
   readonly agent: ReactLoopAgent
   readonly driver: GraphTurnDriver
   readonly events: RecordedEvent[]
   /** Every batch that reached the tools executor: the node it ran on and its names. */
-  readonly executed: { readonly node: string | undefined; readonly names: readonly string[] }[]
+  readonly executed: ExecutedBatch[]
+  /** Every `[graph node <id>]` directive the step committed. */
+  readonly directives: RecordedDirective[]
 }
 
 /**
@@ -418,10 +442,18 @@ interface DispatchHarness {
  * resolves names exactly like the stock pipeline: outside the step's admitted
  * view is an unknown-tool error result, a channel/write call succeeds.
  */
-function dispatchHarness(engine: Engine, workspace: string, repeat: TerminalRepeat): DispatchHarness {
+function dispatchHarness(
+  engine: Engine,
+  workspace: string,
+  repeat: TerminalRepeat,
+  options: { readonly work?: WorkStep; readonly terminalCall?: TerminalCall } = {},
+): DispatchHarness {
   const events: RecordedEvent[] = []
   const listeners: ((session: unknown, event: { type: string; data: Record<string, unknown> }) => void)[] = []
-  const executed: { node: string | undefined; names: readonly string[] }[] = []
+  const executed: ExecutedBatch[] = []
+  const directives: RecordedDirective[] = []
+  const work = options.work ?? 'read'
+  const terminalCall = options.terminalCall ?? 'breach'
   let proposed: TaskPlan | undefined = drillPlan()
   const driver = createGraphTurnDriver({
     mode: 'propose',
@@ -447,6 +479,18 @@ function dispatchHarness(engine: Engine, workspace: string, repeat: TerminalRepe
     append(type: string, data: Record<string, unknown>, options?: Record<string, unknown>): { seq: number } {
       if (type === 'request/header') header = data.header
       if (type === 'request/context') context = data
+      if (type === 'user/message') {
+        const message = data as {
+          readonly source?: { readonly kind?: string; readonly nodeId?: string }
+          readonly content?: readonly { readonly type?: string; readonly text?: string }[]
+        }
+        if (message.source?.kind === 'graph-node') {
+          directives.push({
+            nodeId: message.source.nodeId ?? '',
+            text: (message.content ?? []).filter(part => part.type === 'text').map(part => part.text ?? '').join(' '),
+          })
+        }
+      }
       const seq = events.length + 1
       const event = { type, data, seq, time: seq, ...options }
       events.push(event)
@@ -461,8 +505,16 @@ function dispatchHarness(engine: Engine, workspace: string, repeat: TerminalRepe
     view: () => definitions,
   }
   const script = (node: string | undefined): readonly ScriptedCall[] => {
-    if (node === 'n_inspect') return [{ id: 'call-inspect', name: 'bash', arguments: JSON.stringify({ command: 'cat out.txt' }) }]
-    if (node === 'n_answer') return [{ id: 'call-breach', name: 'bash', arguments: JSON.stringify({ command: 'cat out.txt' }) }]
+    if (node === 'n_inspect') {
+      return work === 'write'
+        ? [{ id: 'call-inspect', name: 'write', arguments: JSON.stringify({ file_path: outputPath }) }]
+        : [{ id: 'call-inspect', name: 'bash', arguments: JSON.stringify({ command: 'cat out.txt' }) }]
+    }
+    if (node === 'n_answer') {
+      return terminalCall === 'channel'
+        ? [{ id: 'call-terminal-answer', name: 'graph_answer', arguments: JSON.stringify({ text: ANSWER_TEXT }) }]
+        : [{ id: 'call-breach', name: 'bash', arguments: JSON.stringify({ command: 'cat out.txt' }) }]
+    }
     if (node === 'recover.1.1') return [{ id: 'call-write', name: 'write', arguments: JSON.stringify({ file_path: outputPath }) }]
     if (node === 'answer.1.2') {
       return repeat === 'answer'
@@ -534,7 +586,12 @@ function dispatchHarness(engine: Engine, workspace: string, repeat: TerminalRepe
           log: { turn: number; step: number }
           toolSet?: { view(scope: undefined): ReadonlyMap<string, unknown> }
         }) => {
-          executed.push({ node: driver.current()?.id, names: input.calls.map(call => call.name) })
+          executed.push({
+            node: driver.current()?.id,
+            step: input.log.step,
+            names: input.calls.map(call => call.name),
+            admitted: [...(input.toolSet?.view(undefined).keys() ?? [])],
+          })
           for (const call of input.calls) {
             session.append('tool/call', {
               turn: input.log.turn, step: input.log.step, callId: call.id, name: call.name, arguments: call.arguments,
@@ -574,7 +631,15 @@ function dispatchHarness(engine: Engine, workspace: string, repeat: TerminalRepe
     },
     model: { current: () => ({ provider: 'test', model: 'test' }), select: () => undefined },
   })
-  return { agent, driver, events, executed }
+  return { agent, driver, events, executed, directives }
+}
+
+/** The step number of the first channel refusal committed to the session. */
+function firstRefusalStep(events: readonly RecordedEvent[]): number {
+  const refused = events.find(event => event.type === 'tool/result'
+    && toolResultTexts([event]).some(text => text.includes('was not executed')))
+  assert.notEqual(refused, undefined, 'a channel refusal was committed')
+  return refused?.data.step as number
 }
 
 /** All tool-result texts the step or the executor committed. */
@@ -587,58 +652,51 @@ function toolResultTexts(events: readonly RecordedEvent[]): string[] {
     })
 }
 
-test('Case 6: a non-channel call at the answer terminal is refused at dispatch and one bounded recovery answers', async () => {
+test('Case 6: an unmet work obligation sends the executed answer back to a work recovery', async () => {
   for (const engine of ENGINES) {
     const workspace = mkdtempSync(join(tmpdir(), 'dsh-answer-obligation-'))
     try {
-      const h = dispatchHarness(engine, workspace, 'answer')
+      // The terminal submits through the channel while the run still owes the
+      // work node's artifact: the gate refuses the record as `unmet-obligation`
+      // and the bounded work recovery discharges the debt before answering.
+      const h = dispatchHarness(engine, workspace, 'answer', { work: 'read', terminalCall: 'channel' })
       assert.equal(await callTurn(h.agent), false, `engine=${engine}`)
 
-      // (i) The refused call never reached tool resolution on the answer node.
-      const atTerminal = h.executed.filter(batch => batch.node === 'n_answer' || batch.node === 'answer.1.2')
-      assert.deepEqual(atTerminal.map(batch => batch.names), [['graph_answer']],
-        `engine=${engine}: only the channel is dispatched at an answer terminal`)
-      assert.equal(h.executed.some(batch => batch.names.includes('bash') && batch.node === 'n_answer'), false,
-        `engine=${engine}: the breach was refused before dispatch`)
-
-      // (ii) No unknown-tool failure: the refusal names the channel instead.
-      const texts = toolResultTexts(h.events)
-      assert.equal(texts.some(text => text.includes('unknown tool') || text.includes('UNKNOWN_TOOL')), false,
-        `engine=${engine}: a refusal is never an unknown-tool error`)
-      assert.equal(texts.filter(text => text.includes('graph_answer') && text.includes('was not executed')).length, 1,
-        `engine=${engine}: the refused call is answered with the channel rule`)
-
-      // Typed refusal on the terminal row, not a failed node.
-      const terminalRow = h.driver.snapshot().trail.find(row => row.id === 'n_answer')
-      assert.equal(terminalRow?.status, 'ok', `engine=${engine}: the terminal step completed`)
-      assert.equal(terminalRow?.refusal?.code, 'channel-refused', `engine=${engine}: the refusal is typed`)
-
-      // (iii) Exactly one bounded answer-gate recovery; no generic r_* replan.
-      const recoverySteps = userTexts(h.events).filter(text => text.includes('The answer step is blocked'))
-      assert.equal(recoverySteps.length, 1, `engine=${engine}: one bounded recovery instruction`)
-      assert.equal(recoverySteps[0]?.includes('channel-refused'), true, `engine=${engine}: the recovery names the refusal`)
-      assert.equal(recoverySteps[0]?.includes('graph_answer'), true, `engine=${engine}: the recovery names the channel`)
-      assert.deepEqual(h.driver.snapshot().visited, ['p_frame', 'n_inspect', 'n_answer', 'recover.1.1', 'answer.1.2'],
-        `engine=${engine}: no generic recovery nodes`)
-
-      // (iv) The turn answered through the channel, with the ledger satisfied.
       const ends = h.events.filter(event => event.type === 'turn/end')
       assert.equal(ends.length, 1, `engine=${engine}: exactly one turn end`)
       assert.deepEqual(ends[0]?.data.reason, { kind: 'completed' }, `engine=${engine}`)
+
+      // (i) The terminal dispatched the channel itself: this is the record path,
+      // not a refusal, so the recovery is the one the ledger owes.
+      const atTerminal = h.executed.filter(batch => batch.node === 'n_answer')
+      assert.deepEqual(atTerminal.map(batch => batch.names), [['graph_answer']], `engine=${engine}`)
+      assert.equal(h.executed.some(batch => batch.names.includes('bash') && batch.node === 'n_answer'), false,
+        `engine=${engine}: no work tool is dispatched at the answer terminal`)
+
+      // (ii) Exactly one bounded recovery, and its verdict is the ledger's.
+      const recoverySteps = userTexts(h.events).filter(text => text.includes('The answer step is blocked'))
+      assert.equal(recoverySteps.length, 1, `engine=${engine}: one bounded recovery instruction`)
+      assert.equal(recoverySteps[0]?.includes('required work at n_inspect was not done'), true,
+        `engine=${engine}: the recovery names the ledger verdict`)
+      assert.deepEqual(h.driver.snapshot().visited, ['p_frame', 'n_inspect', 'n_answer', 'recover.1.1', 'answer.1.2'],
+        `engine=${engine}: no generic recovery nodes`)
+
+      // (iii) The work recovery discharged the debt and the fresh terminal answered.
+      const ledger = h.driver.snapshot().obligations
+      assert.equal(ledger.find(entry => entry.nodeId === 'n_inspect')?.satisfied, true, `engine=${engine}`)
+      assert.equal(ledger.find(entry => entry.nodeId === 'n_inspect')?.satisfiedBy, 'recover.1.1', `engine=${engine}`)
       assert.equal(h.driver.snapshot().answer?.text, ANSWER_TEXT, `engine=${engine}`)
-      assert.equal(h.driver.snapshot().obligations.find(entry => entry.nodeId === 'n_inspect')?.satisfied, true,
-        `engine=${engine}: the recovery discharged the owed artifact`)
     } finally {
       rmSync(workspace, { recursive: true, force: true })
     }
   }
 })
 
-test('Case 6b: a second refusal at the fresh answer terminal fails the turn honestly', async () => {
+test('Case 6b: a second refusal at the fresh work-recovery answer terminal fails the turn honestly', async () => {
   for (const engine of ENGINES) {
     const workspace = mkdtempSync(join(tmpdir(), 'dsh-answer-obligation-'))
     try {
-      const h = dispatchHarness(engine, workspace, 'breach-again')
+      const h = dispatchHarness(engine, workspace, 'breach-again', { work: 'read', terminalCall: 'channel' })
       await assert.rejects(callTurn(h.agent), `engine=${engine}: a second refusal must fail the turn`)
 
       const ends = h.events.filter(event => event.type === 'turn/end')
@@ -648,8 +706,89 @@ test('Case 6b: a second refusal at the fresh answer terminal fails the turn hone
       const texts = toolResultTexts(h.events)
       assert.equal(texts.some(text => text.includes('unknown tool') || text.includes('UNKNOWN_TOOL')), false,
         `engine=${engine}: the second breach is still a refusal, not an unknown tool`)
+      assert.equal(texts.filter(text => text.includes('was not executed')).length, 1,
+        `engine=${engine}: the fresh answer terminal refused the breach before dispatch`)
+      assert.deepEqual(h.executed.filter(batch => batch.node === 'answer.1.2').map(batch => batch.names), [],
+        `engine=${engine}: the breach never reached tool resolution`)
+      assert.equal(h.driver.snapshot().answer, undefined, `engine=${engine}`)
+    } finally {
+      rmSync(workspace, { recursive: true, force: true })
+    }
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Case 7 / 7b: a refusal at the answer-only terminal selects the next shape.
+//
+// The work node already discharged its obligation before the terminal, so the
+// only open problem is the channel. The refusal verdict must install the
+// channel-retry step (a distinct agent step that admits exactly the channel)
+// and not a work-retry step whose admission is the whole tool universe; the
+// terminal directive must be derived from that same admission rule.
+// ---------------------------------------------------------------------------
+
+test('Case 7: a refusal is followed by an answer-only step that names the channel and answers', async () => {
+  for (const engine of ENGINES) {
+    const workspace = mkdtempSync(join(tmpdir(), 'dsh-answer-obligation-'))
+    try {
+      const h = dispatchHarness(engine, workspace, 'answer', { work: 'write', terminalCall: 'breach' })
+      assert.equal(await callTurn(h.agent), false, `engine=${engine}`)
+
+      // (i) The step after the refusal admits exactly the channel: the refusal
+      // verdict, not the original plan's universe, decides the next admission.
+      const afterRefusal = h.executed.filter(batch => batch.step > firstRefusalStep(h.events))
+      assert.notEqual(afterRefusal.length, 0, `engine=${engine}: a step follows the refusal`)
+      assert.deepEqual(afterRefusal[0]?.admitted, ['graph_answer'],
+        `engine=${engine}: the step after the refusal admits exactly the channel`)
+      assert.deepEqual(afterRefusal[0]?.names, ['graph_answer'], `engine=${engine}: the channel is the call that ran`)
+      assert.equal(afterRefusal.length, 1, `engine=${engine}: exactly one step dispatches after the refusal`)
+
+      // (ii) The directive is admission-derived: the step is answer-only, so the
+      // composed directive names the channel even though the node is not a
+      // declared terminal. The recovery prose alone cannot satisfy this.
+      const retryNode = afterRefusal[0]?.node ?? ''
+      const directive = h.directives.find(entry => entry.nodeId === retryNode)
+      assert.notEqual(directive, undefined, `engine=${engine}: the retry step has a graph node directive`)
+      assert.equal(directive?.text.includes("Submit the turn's answer by calling"), true,
+        `engine=${engine}: the directive carries the admission-derived channel sentence`)
+      assert.equal(directive?.text.includes('graph_answer'), true, `engine=${engine}: the directive names the channel`)
+
+      // (iii) The genuine channel call completed the turn once, with the ledger met.
+      const ends = h.events.filter(event => event.type === 'turn/end')
+      assert.equal(ends.length, 1, `engine=${engine}: exactly one turn end`)
+      assert.deepEqual(ends[0]?.data.reason, { kind: 'completed' }, `engine=${engine}`)
+      assert.equal(h.driver.snapshot().answer?.text, ANSWER_TEXT, `engine=${engine}`)
+      assert.equal(h.driver.terminalReached(), true, `engine=${engine}: the accepted record is the endpoint`)
+      assert.equal(h.driver.snapshot().obligations.find(entry => entry.nodeId === 'n_inspect')?.satisfied, true,
+        `engine=${engine}: the work was already evidenced before the terminal`)
+    } finally {
+      rmSync(workspace, { recursive: true, force: true })
+    }
+  }
+})
+
+test('Case 7b: a second non-channel call at the retried step fails the turn honestly', async () => {
+  for (const engine of ENGINES) {
+    const workspace = mkdtempSync(join(tmpdir(), 'dsh-answer-obligation-'))
+    try {
+      const h = dispatchHarness(engine, workspace, 'breach-again', { work: 'write', terminalCall: 'breach' })
+      await assert.rejects(callTurn(h.agent), `engine=${engine}: a second refusal must fail the turn`)
+
+      // The step after the refusal dispatches nothing: the breach is refused
+      // against the same name-set the directive names, never resolved.
+      assert.deepEqual(h.executed.filter(batch => batch.step > firstRefusalStep(h.events)), [],
+        `engine=${engine}: the retried step's non-channel call is refused before dispatch`)
+
+      const ends = h.events.filter(event => event.type === 'turn/end')
+      assert.equal(ends.length, 1, `engine=${engine}: exactly one turn end`)
+      assert.equal((ends[0]?.data.reason as { kind?: string } | undefined)?.kind, 'error', `engine=${engine}`)
+      assert.equal(h.driver.terminalReached(), false, `engine=${engine}: a blocked retry is not a completion`)
+      const texts = toolResultTexts(h.events)
+      assert.equal(texts.some(text => text.includes('unknown tool') || text.includes('UNKNOWN_TOOL')), false,
+        `engine=${engine}: both breaches are refusals, not unknown tools`)
       assert.equal(texts.filter(text => text.includes('was not executed')).length, 2,
-        `engine=${engine}: both breaches were refused before dispatch`)
+        `engine=${engine}: the terminal and the retried step both refused`)
+      assert.equal(h.driver.snapshot().answer, undefined, `engine=${engine}: no typed record was admitted`)
     } finally {
       rmSync(workspace, { recursive: true, force: true })
     }

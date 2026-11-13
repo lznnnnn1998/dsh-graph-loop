@@ -31,7 +31,7 @@ import { KernelTopology, canKernelDrive } from './kernel/topology.ts'
 import { deriveCapabilityFacts, deriveEvidenceCalls, deriveStepArtifactCandidates, deriveStepFacts, artifactTypeFor, type ArtifactCandidate } from './step-facts.ts'
 import { diffWorld, inDeclaredRoot, observeWorld, type WorldObservation } from './world.ts'
 import { ANSWER_TOOL, answerRecordFrom, type ChannelRefusal } from './answer-channel.ts'
-import { DEFAULT_SHELL_TOOLS } from './loop/step-tools.ts'
+import { DEFAULT_SHELL_TOOLS, isAnswerOnlyNode } from './loop/step-tools.ts'
 import {
   answerRecordProblem,
   satisfiesNodeEvidence,
@@ -359,13 +359,26 @@ function producesObligation(contract: NodeEvidenceContract | undefined): contrac
   return contract !== undefined && (contract.expects ?? []).length > 0
 }
 
+/** Template id of the channel-retry recovery shape (see `answerRecoveryPlan`). */
+const CHANNEL_RETRY_TEMPLATE = 'answer-channel-retry'
+
 /**
- * One bounded recovery plan for an answer terminal whose required work is unmet
- * (audit 20261112-0800 F5). It re-runs the work the plan declared, then returns
- * to a fresh answer-only terminal; the driver credits that recovery step against
- * the unmet nodes' own contracts, so a second answer is admissible only when the
- * work actually got done. Ids follow the R4 grammar (`<kind>.<stage>.<attempt>`),
- * so the recovery runs on the frontier and never resets a kernel plan's state.
+ * One bounded recovery plan for an answer terminal whose answer was refused
+ * (audit 20261112-0800 F5, 20261113-0000 F3/F4). The refusal verdict selects
+ * the shape:
+ *
+ * - `channel-refused` — the only open problem is the channel, so the recovery is
+ *   a distinct agent step whose `toolAllow` is empty (exactly the answer
+ *   channel) followed by a fresh declared terminal. A genuine channel call at
+ *   the retry step is the run's answer and ends the turn there; a step that
+ *   makes no call falls through to the declared terminal, which may answer.
+ * - every other verdict — the owed work, so the recovery re-runs it and returns
+ *   to a fresh answer-only terminal; the driver credits that recovery step
+ *   against the unmet nodes' own contracts, so a second answer is admissible
+ *   only when the work actually got done.
+ *
+ * Ids follow the R4 grammar (`<kind>.<stage>.<attempt>`), so the recovery runs
+ * on the frontier and never resets a kernel plan's state.
  */
 function answerRecoveryPlan(input: {
   readonly taskHash: string
@@ -375,19 +388,49 @@ function answerRecoveryPlan(input: {
   readonly toolAllow: readonly string[]
   readonly budget: TaskBudget
 }): TaskPlan {
+  if (input.code === 'channel-refused') {
+    // The retry step is answer-only by the same declaration a terminal uses, so
+    // its admission and its directive both come from the one name-set rule.
+    const retry: PlanNode = {
+      id: 'answer.1.2',
+      kind: 'agent-step',
+      executor: 'step',
+      instruction: `The answer step is blocked (${input.problem}). Answer now through the channel: call the \`${ANSWER_TOOL}\` tool with the answer text. Only \`${ANSWER_TOOL}\` is admitted at this step; any other call is refused before it runs.`,
+      toolAllow: [],
+    }
+    const answer: PlanNode = {
+      id: 'answer.1.3',
+      kind: 'terminal',
+      executor: 'step',
+      instruction: 'Answer the task from the evidence that now exists. Do not start new work.',
+      toolAllow: [],
+    }
+    return {
+      id: `recover:${input.taskHash}`,
+      templateId: CHANNEL_RETRY_TEMPLATE,
+      version: 1,
+      entry: retry.id,
+      terminals: [answer.id],
+      nodes: [retry, answer],
+      edges: [{ from: retry.id, to: answer.id, kind: 'control' }],
+      // Two steps at most: one channel retry, one fall-through answer. The
+      // driver's install() further clamps it to the steps the turn has left.
+      budget: { ...input.budget, maxSteps: Math.min(2, input.budget.maxSteps), maxReplans: 0 },
+      toolUniverse: [ANSWER_TOOL],
+      gatePolicy: 'cold',
+      fallback: true,
+      confidence: 0,
+      compiledDigest: `recover:${input.taskHash}:channel-refused`,
+    }
+  }
   const work = input.unmet.length === 0
     ? `Answer the task by calling the \`${ANSWER_TOOL}\` tool with the answer text. Printed tool-call syntax is not an answer.`
     : `Do the required work at ${input.unmet.join(', ')} now using the available tools; a fresh answer step follows. Do not describe work you are not doing.`
-  // A terminal refused a non-channel call: the recovery must name the only
-  // admitted tool and the typed refusal so the next answer stays on the channel.
-  const channel = input.code === 'channel-refused'
-    ? ` Only the \`${ANSWER_TOOL}\` tool is admitted at the answer step; any other call is refused before dispatch.`
-    : ''
   const recover: PlanNode = {
     id: 'recover.1.1',
     kind: 'agent-step',
     executor: 'step',
-    instruction: `The answer step is blocked (${input.problem}). ${work}${channel}`,
+    instruction: `The answer step is blocked (${input.problem}). ${work}`,
   }
   const answer: PlanNode = {
     id: 'answer.1.2',
@@ -580,6 +623,10 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     // recovery resolves the debt or settles the run as failed; the turn then
     // ends honestly (the loop turns `failed` into a structured error).
     if (answerBlocked) return 'failed'
+    // The channel-retry step is not a declared terminal, but an admitted answer
+    // executed there is the turn's endpoint: report it so the turn ends exactly
+    // once on the record and never spends a step on a node nobody asked for.
+    if (acceptedAnswer !== undefined) return 'terminal'
     return topology?.planState() ?? 'finished'
   }
 
@@ -723,15 +770,27 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
    * has no record and cannot answer. Terminal reachability is not completion;
    * the node-keyed ledger decides.
    *
-   * A refusal spends the turn's one bounded recovery step (a fresh work step and
-   * a fresh answer terminal, credited against the original contracts). A second
-   * refusal settles the run blocked, which the loop reports as a structured
-   * failure — never a completed turn.
+   * A refusal spends the turn's one bounded recovery step. The verdict selects
+   * its shape (see `answerRecoveryPlan`): a channel refusal retries the channel
+   * at an answer-only agent step, while an unmet-work verdict retries the work.
+   * A second refusal settles the run blocked, which the loop reports as a
+   * structured failure — never a completed turn.
+   *
+   * The gate also judges the channel-retry step itself. It is not a declared
+   * terminal, so terminal reachability cannot be its trigger: the run node is
+   * the trigger, and an admissible channel call there is the answer. A retry
+   * step that makes no call is not a record — the declared terminal after it
+   * asks once more.
+   * @param outcome - the just-closed step's observed outcome.
+   * @param runNodeId - the plan node that step executed.
    */
-  function settleAnswerBoundary(outcome: NodeOutcome): void {
+  function settleAnswerBoundary(outcome: NodeOutcome, runNodeId: string | undefined): void {
     if (!turnActive) return
     if (topology === undefined || plan === undefined) return
-    if (topology.planState() !== 'terminal') return
+    const answeringRetry = plan.templateId === CHANNEL_RETRY_TEMPLATE
+      && runNodeId !== undefined
+      && runNodeId === plan.entry
+    if (!answeringRetry && topology.planState() !== 'terminal') return
     const recorded = [...obligations.values()].sort((left, right) => left.step - right.step)
     const evidenceRefs = recorded.filter(entry => entry.satisfied).map(entry => entry.nodeId)
     const typed = options.requireAnswerChannel !== false
@@ -741,22 +800,34 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
       ? answerRecordFrom(outcome.tools, evidenceRefs)
       : { text: '', evidenceRefs, toolCalls: outcome.tools?.length ?? 0 }
     // A refusal is authoritative over any record: the step called a tool its
-    // terminal does not admit, so it cannot complete even if the ledger is met.
+    // answer-only node does not admit, so it cannot complete even if the ledger
+    // is met.
     const problem = outcome.refusal === undefined
       ? answerRecordProblem(answer, recorded, typed)
       : {
         code: 'channel-refused' as const,
-        detail: `channel-refused: the answer terminal refused \`${outcome.refusal.tool}\`; only \`${ANSWER_TOOL}\` is admitted`,
+        detail: `channel-refused: the answer step refused \`${outcome.refusal.tool}\`; only \`${ANSWER_TOOL}\` is admitted`,
       }
     if (problem === undefined) {
       acceptedAnswer = answer
+      return
+    }
+    if (answeringRetry) {
+      // The one bounded recovery is already spent on this retry: it is the
+      // last attempt. No call at all is not a record — the declared terminal
+      // after it may answer once. Any real call that is not an admitted answer
+      // settles the run blocked instead of retrying the channel again.
+      if (outcome.refusal === undefined && (outcome.tools?.length ?? 0) === 0) return
+      answerBlocked = true
+      rationale = [...rationale, `answer retry blocked (${problem.code}): ${problem.detail}`]
       return
     }
     if (!answerRecoveryUsed && trail.length + 2 <= maxSteps && topology.status() !== 'failed') {
       answerRecoveryUsed = true
       const unmet = recorded.filter(entry => !entry.satisfied)
       recoveryTargets = new Map()
-      if (unmet.length > 0) recoveryTargets.set('recover.1.1', unmet)
+      // Only the work-retry plan credits a recovery step against the ledger.
+      if (unmet.length > 0 && problem.code !== 'channel-refused') recoveryTargets.set('recover.1.1', unmet)
       const next = answerRecoveryPlan({
         taskHash: plan.id,
         unmet: unmet.map(entry => entry.nodeId),
@@ -933,8 +1004,9 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     // runtime recovery have settled, the run may end only on an admissible
     // answer record. A refusal replaces the endpoint with the one bounded
     // recovery plan; a second refusal marks the run blocked (see
-    // `settleAnswerBoundary`).
-    settleAnswerBoundary(outcome)
+    // `settleAnswerBoundary`). The executed node is the gate's trigger at the
+    // channel-retry step, which is an agent step, not a declared terminal.
+    settleAnswerBoundary(outcome, record?.id)
     // No continuation plan is installed here. A plan that drains while the
     // model is still acting settles `finished`; the turn boundary keeps the
     // turn open and runs the next step with no graph node. The turn ends on a
@@ -1123,7 +1195,10 @@ export function createGraphTurnDriver(options: GraphTurnDriverOptions = {}): Gra
     },
     instruction(): string | undefined {
       const node = topology?.current()
-      if (node === undefined || node.kind !== 'terminal') return node?.instruction
+      if (node === undefined || !isAnswerOnlyNode(node)) return node?.instruction
+      // One home with `admitStepTools`: a node whose admission is exactly the
+      // channel is told so, at any node kind, so the directive cannot drift
+      // from the set dispatch enforces.
       const instruction = node.instruction ?? 'Answer the task.'
       return `${instruction} Submit the turn's answer by calling the \`${ANSWER_TOOL}\` tool with the answer text; printed tool-call syntax is not an answer.`
     },
